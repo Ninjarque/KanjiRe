@@ -1,0 +1,43 @@
+"""Scene base class. Scenes own their own batch and handle their own events."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kanjire.ui.app import GameApp
+
+
+class Scene:
+    def __init__(self, app: "GameApp") -> None:
+        self.app = app
+
+    @property
+    def window(self):
+        return self.app.window
+
+    @property
+    def width(self) -> int:
+        return self.app.window.width
+
+    @property
+    def height(self) -> int:
+        return self.app.window.height
+
+    # Lifecycle ---------------------------------------------------------- #
+    def on_enter(self) -> None: ...
+    def on_exit(self) -> None: ...
+
+    # Per-frame ---------------------------------------------------------- #
+    def update(self, dt: float) -> None: ...
+    def draw(self) -> None: ...
+
+    # Input -------------------------------------------------------------- #
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None: ...
+    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None: ...
+    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None: ...
+    def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None: ...
+    def on_key_press(self, symbol: int, modifiers: int) -> None: ...
+    def on_text(self, text: str) -> None: ...
+    def on_text_motion(self, motion) -> None: ...
+    def on_text_motion_select(self, motion) -> None: ...
+    def on_resize(self, width: int, height: int) -> None: ...

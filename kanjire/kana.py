@@ -1,0 +1,146 @@
+"""Kana training: synthesize matching "words" from kana syllables.
+
+The "Kana" deck is synthetic — words don't live in the SQLite vocab database.
+Each call to :func:`sample` invents a fresh batch of words by stitching together
+1, 2 or 3 random kana sounds. Each :class:`Word` carries three views of the
+same syllables so the existing matching engine works unchanged:
+
+* ``expression`` - the **primary script** shown on the "kanji" face card
+  (hiragana, katakana, or mixed depending on ``script``).
+* ``reading``    - the **secondary script** shown on the "reading" face card
+  in 3-face mode (the other kana script).
+* ``meaning``    - the **romaji** shown on the "meaning" face card, the
+  romanisation the player is learning to read.
+
+The player drills reading whichever script(s) they pick; TTS reads the kana
+(SAPI pronounces hiragana and katakana identically).
+"""
+from __future__ import annotations
+
+import random
+
+from kanjire.model.vocab import Word
+
+#: Master table of kana sounds: ``(romaji, hiragana, katakana)``.  Covers gojuuon,
+#: dakuten, handakuten and yoon — every legal mora a beginner needs to recognise.
+KANA_SOUNDS: tuple[tuple[str, str, str], ...] = (
+    # Vowels
+    ("a", "あ", "ア"), ("i", "い", "イ"), ("u", "う", "ウ"),
+    ("e", "え", "エ"), ("o", "お", "オ"),
+    # K
+    ("ka", "か", "カ"), ("ki", "き", "キ"), ("ku", "く", "ク"),
+    ("ke", "け", "ケ"), ("ko", "こ", "コ"),
+    # S
+    ("sa", "さ", "サ"), ("shi", "し", "シ"), ("su", "す", "ス"),
+    ("se", "せ", "セ"), ("so", "そ", "ソ"),
+    # T
+    ("ta", "た", "タ"), ("chi", "ち", "チ"), ("tsu", "つ", "ツ"),
+    ("te", "て", "テ"), ("to", "と", "ト"),
+    # N
+    ("na", "な", "ナ"), ("ni", "に", "ニ"), ("nu", "ぬ", "ヌ"),
+    ("ne", "ね", "ネ"), ("no", "の", "ノ"),
+    # H
+    ("ha", "は", "ハ"), ("hi", "ひ", "ヒ"), ("fu", "ふ", "フ"),
+    ("he", "へ", "ヘ"), ("ho", "ほ", "ホ"),
+    # M
+    ("ma", "ま", "マ"), ("mi", "み", "ミ"), ("mu", "む", "ム"),
+    ("me", "め", "メ"), ("mo", "も", "モ"),
+    # Y
+    ("ya", "や", "ヤ"), ("yu", "ゆ", "ユ"), ("yo", "よ", "ヨ"),
+    # R
+    ("ra", "ら", "ラ"), ("ri", "り", "リ"), ("ru", "る", "ル"),
+    ("re", "れ", "レ"), ("ro", "ろ", "ロ"),
+    # W
+    ("wa", "わ", "ワ"), ("wo", "を", "ヲ"),
+    # Final n
+    ("n", "ん", "ン"),
+
+    # --- dakuten ---
+    # G
+    ("ga", "が", "ガ"), ("gi", "ぎ", "ギ"), ("gu", "ぐ", "グ"),
+    ("ge", "げ", "ゲ"), ("go", "ご", "ゴ"),
+    # Z / J
+    ("za", "ざ", "ザ"), ("ji", "じ", "ジ"), ("zu", "ず", "ズ"),
+    ("ze", "ぜ", "ゼ"), ("zo", "ぞ", "ゾ"),
+    # D
+    ("da", "だ", "ダ"), ("de", "で", "デ"), ("do", "ど", "ド"),
+    # B
+    ("ba", "ば", "バ"), ("bi", "び", "ビ"), ("bu", "ぶ", "ブ"),
+    ("be", "べ", "ベ"), ("bo", "ぼ", "ボ"),
+    # --- handakuten ---
+    ("pa", "ぱ", "パ"), ("pi", "ぴ", "ピ"), ("pu", "ぷ", "プ"),
+    ("pe", "ぺ", "ペ"), ("po", "ぽ", "ポ"),
+
+    # --- yoon (palatalised) ---
+    ("kya", "きゃ", "キャ"), ("kyu", "きゅ", "キュ"), ("kyo", "きょ", "キョ"),
+    ("sha", "しゃ", "シャ"), ("shu", "しゅ", "シュ"), ("sho", "しょ", "ショ"),
+    ("cha", "ちゃ", "チャ"), ("chu", "ちゅ", "チュ"), ("cho", "ちょ", "チョ"),
+    ("nya", "にゃ", "ニャ"), ("nyu", "にゅ", "ニュ"), ("nyo", "にょ", "ニョ"),
+    ("hya", "ひゃ", "ヒャ"), ("hyu", "ひゅ", "ヒュ"), ("hyo", "ひょ", "ヒョ"),
+    ("mya", "みゃ", "ミャ"), ("myu", "みゅ", "ミュ"), ("myo", "みょ", "ミョ"),
+    ("rya", "りゃ", "リャ"), ("ryu", "りゅ", "リュ"), ("ryo", "りょ", "リョ"),
+    ("gya", "ぎゃ", "ギャ"), ("gyu", "ぎゅ", "ギュ"), ("gyo", "ぎょ", "ギョ"),
+    ("ja",  "じゃ", "ジャ"), ("ju",  "じゅ", "ジュ"), ("jo",  "じょ", "ジョ"),
+    ("bya", "びゃ", "ビャ"), ("byu", "びゅ", "ビュ"), ("byo", "びょ", "ビョ"),
+    ("pya", "ぴゃ", "ピャ"), ("pyu", "ぴゅ", "ピュ"), ("pyo", "ぴょ", "ピョ"),
+)
+
+#: Stable identifier the rest of the app uses to recognise the synthetic deck.
+KANA_DECK = "kana"
+
+SCRIPTS = ("hira", "kata", "both")
+LENGTHS = (1, 2, 3)
+
+
+def _new_word(sounds, script: str) -> Word:
+    """Bundle a list of ``(romaji, hira, kata)`` rows into one :class:`Word`."""
+    romaji = " ".join(s[0] for s in sounds)
+    hira = "".join(s[1] for s in sounds)
+    kata = "".join(s[2] for s in sounds)
+    if script == "kata":
+        expression, reading = kata, kata
+    elif script == "hira":
+        expression, reading = hira, hira
+    else:  # both
+        expression, reading = hira, kata
+    return Word(
+        id=hash((expression, reading, romaji)) & 0x7FFFFFFF,
+        expression=expression,
+        reading=reading,
+        meaning=romaji,
+        jlpt=None,
+        freq=0.0,
+        deck=KANA_DECK,
+    )
+
+
+def sample(
+    n: int,
+    *,
+    length: int = 1,
+    script: str = "both",
+    rng: random.Random | None = None,
+) -> list[Word]:
+    """Return *n* freshly-invented kana "words" of the requested length.
+
+    The same syllable can appear in different words within a round - that's
+    desirable for drilling - but the generator dedupes by primary script so
+    no two cards on the board ever look identical.
+    """
+    rng = rng or random
+    if script not in SCRIPTS:
+        script = "both"
+    length = max(1, min(3, int(length)))
+    out: list[Word] = []
+    seen: set[str] = set()
+    attempts = 0
+    max_attempts = n * 40  # plenty of safety even for length=1, n=24
+    while len(out) < n and attempts < max_attempts:
+        attempts += 1
+        sounds = rng.sample(KANA_SOUNDS, length)
+        w = _new_word(sounds, script)
+        if w.expression in seen:
+            continue
+        seen.add(w.expression)
+        out.append(w)
+    return out

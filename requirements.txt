@@ -1,0 +1,15 @@
+# ---- Runtime (the game itself) ----
+# The game only needs pyglet + the Python standard library (sqlite3).
+pyglet>=1.5,<2.0
+pynacl>=1.5         # Ed25519 signature check for the self-updater
+
+# ---- Dataset build & corpus ingestion (offline tooling) ----
+# Needed only to (re)generate kanjire/data/kanjire.db or import your own text.
+# The generated database is self-contained; end users do not need these.
+wordfreq>=3.0        # global Japanese word frequencies (no MeCab required)
+fugashi>=1.3         # MeCab tokenizer binding (needs a dictionary, below)
+unidic-lite>=1.0     # compact UniDic dictionary used by fugashi
+jamdict>=0.1a11      # JMdict + KanjiDic2 lookups (readings / meanings)
+requests>=2.28       # downloading the JLPT word lists / sample corpus
+# jamdict's data package (jamdict-data) is installed separately because its
+# Windows build is broken; run:  python scripts/fetch_jamdict_data.py

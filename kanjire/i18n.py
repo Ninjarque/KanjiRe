@@ -1,0 +1,420 @@
+"""Lightweight UI translations.
+
+``tr(key, **fmt)`` returns the string for the current locale, falling back to
+English if the key is missing, then to the key itself if even English is
+missing. Format placeholders use ``str.format`` syntax (``{name}``).
+
+The current locale is process-global so a single ``tr()`` call inside any
+scene's ``__init__`` returns the right string. Changing locale at runtime
+(:func:`set_locale`) only affects future ``tr()`` calls — UI built earlier
+needs its scene to be re-instantiated to pick up the change, which the
+Settings scene does explicitly.
+"""
+from __future__ import annotations
+
+SUPPORTED: tuple[str, ...] = ("en", "fr")
+DEFAULT: str = "en"
+
+_locale: str = DEFAULT
+
+
+def set_locale(loc: str) -> None:
+    global _locale
+    _locale = loc if loc in SUPPORTED else DEFAULT
+
+
+def get_locale() -> str:
+    return _locale
+
+
+def tr(key: str, **fmt) -> str:
+    s = STRINGS.get(_locale, {}).get(key)
+    if s is None:
+        s = STRINGS["en"].get(key, key)
+    if fmt:
+        try:
+            s = s.format(**fmt)
+        except (KeyError, IndexError):
+            pass
+    return s
+
+
+# --------------------------------------------------------------------------- #
+# Translation tables. The English version is also the canonical source so a
+# missing French key falls back transparently.
+# --------------------------------------------------------------------------- #
+STRINGS: dict[str, dict[str, str]] = {
+    "en": {
+        # --- top nav ---------------------------------------------------- #
+        "NAV_PLAY":      "Play",
+        "NAV_STATS":     "Stats",
+        "NAV_SETTINGS":  "Settings",
+
+        # --- subtitle / shared --------------------------------------- #
+        "SUBTITLE":      "match the kanji · reading · meaning",
+        "AVAILABLE":     "{n} kanji words available",
+        "AVAILABLE_KANA": "{n} kana sounds in rotation",
+        "HISCORE":       "{mode} best: {score:,}",
+
+        # --- menu sub-tabs ----------------------------------------- #
+        "MENU_QUICK":    "Quick",
+        "MENU_ADVANCED": "Advanced",
+
+        # --- menu sections ----------------------------------------- #
+        "SEC_MODE":      "MODE",
+        "SEC_DECK":      "DECK",
+        "SEC_LEVEL":     "JLPT LEVEL",
+        "SEC_WORDS":     "WORDS PER ROUND",
+        "SEC_CARDS":     "CARDS PER WORD",
+        "SEC_FONTS":     "FONTS",
+        "SEC_WRITING":   "WRITING",
+        "SEC_PASSES":    "PASSES",
+        "SEC_KNOWN":     "KNOWN",
+        "SEC_LESS_KNOWN":"LESS KNOWN",
+        "SEC_UNKNOWN":   "UNKNOWN",
+        "SEC_KANA_LENGTH": "KANA LENGTH",
+        "SEC_KANA_SCRIPT": "KANA SCRIPT",
+        "SEC_HEARTS":    "STARTING HEARTS",
+        "SEC_BOUNTY":    "HEART BOUNTIES",
+        "BOUNTY_NONE":   "None",
+        "BOUNTY_LOW":    "Low",
+        "BOUNTY_MED":    "Med",
+        "BOUNTY_HIGH":   "High",
+        "DECK_KANA":     "Kana",
+        "KANA_SCRIPT_HIRA": "Hiragana",
+        "KANA_SCRIPT_KATA": "Katakana",
+        "KANA_SCRIPT_BOTH": "Both",
+
+        # --- mode names (also used as button labels) ---------------- #
+        "MODE_TIME":      "Time Attack",
+        "MODE_SURVIVAL":  "Survival",
+        "MODE_ZEN":       "Zen",
+        "MODE_FAMILIAR":  "Familiarize",
+        "MODE_LEARN":     "Learn",
+
+        # --- buttons / toggles ------------------------------------- #
+        "BTN_PLAY":            "▶  PLAY",
+        "BTN_SAVE_PRESET":     "★  Save as preset…",
+        "BTN_IMPORT_FILE":     "+  Import file…",
+        "BTN_PASTE_TEXT":      "+  Paste text…",
+        "FONT_SINGLE":         "Single",
+        "FONT_RANDOM":         "Random",
+        "WRITE_HORIZ":         "Horiz.",
+        "WRITE_MIX":           "Mix",
+        "WRITE_VERT":          "Vert.",
+        "FACES_THREE":         "Kanji · Reading · Meaning",
+        "FACES_TWO":           "Kanji · Meaning",
+        "TOGGLE_OFF":          "Off",
+        "TOGGLE_ON":           "On",
+        "LEARN_NONE":          "None",
+        "LEARN_FEW":           "Few",
+        "LEARN_SOME":          "Some",
+        "LEARN_MANY":          "Many",
+
+        # --- preset dialog ---------------------------------------- #
+        "PRESET_PROMPT":       "Name this custom mode:",
+        "PRESET_PROMPT_TITLE": "Save preset",
+        "DELETE_PRESET_TITLE": "Delete preset",
+        "DELETE_PRESET_MSG":   "Delete custom preset '{name}'?",
+
+        # --- game HUD --------------------------------------------- #
+        "HUD_ROUND":           "Round {n}   ·   {learned} learned",
+        "HUD_ROUND_PASS":      "Round {n}  ·  Pass {pass_n}/{passes}  ·  {learned} learned",
+        "HUD_LIVES":           "lives",
+        "HUD_BACK":            "Esc: menu",
+        "HUD_SOUND_ON":        "♪ on",
+        "HUD_SOUND_OFF":       "♪ off",
+        "HUD_HINT":            "Esc: menu   ·   M: {sound}",
+        "HUD_COMBO":           "{n}x combo",
+        "NO_WORDS":            "No words match this selection.",
+        "NO_WORDS_HINT":       "Press Esc to go back and pick another deck/level.",
+        "POPUP_COMBO":         "{n}x COMBO!",
+
+        # --- results --------------------------------------------- #
+        "RESULTS_TIME":        "TIME!",
+        "RESULTS_OVER":        "GAME OVER",
+        "RESULTS_NEW_BEST":    "★ NEW BEST! ★",
+        "STAT_ROUNDS":         "Rounds",
+        "STAT_MATCHES":        "Matches",
+        "STAT_BEST_COMBO":     "Best combo",
+        "STAT_ACCURACY":       "Accuracy",
+        "STAT_MISTAKES":       "Mistakes",
+        "STAT_LEARNED":        "Words learned",
+        "RESULTS_REVIEW":      "WORDS YOU MATCHED",
+        "RESULTS_MORE":        "+ {n} more",
+        "BTN_AGAIN":           "↻  Play again",
+        "BTN_MENU":            "Menu",
+
+        # --- stats scene ---------------------------------------- #
+        "STATS_TITLE":         "Your knowledge",
+        "STATS_SUB":           "cross-deck profile from every round you've played",
+        "TILE_WORDS":          "WORDS SEEN",
+        "TILE_KNOWN":          "KNOWN",
+        "TILE_STRUGGLING":     "STRUGGLING",
+        "TILE_UNKNOWN":        "UNKNOWN",
+        "WHERE_TITLE":         "Where you slip",
+        "WHERE_KANJI":         "Kanji / writing",
+        "WHERE_READING":       "Reading",
+        "WHERE_MEANING":       "Meaning",
+        "ACCURACY_LINE":       "Accuracy {acc}%   ·   {match} matches   ·   {miss} mistakes   ·   {seen} cards seen",
+        "STATS_EMPTY":         "Play a round - your stats will fill in here automatically.",
+        "INNER_OVERVIEW":      "Overview",
+        "INNER_WORDS":         "Words",
+        "INNER_KANJI":         "Kanji",
+        "SEARCH_WORDS":        "Search words…",
+        "SEARCH_KANJI":        "Search kanji or meaning…",
+        "COL_WORD":            "WORD",
+        "COL_READING":         "READING",
+        "COL_MEANING":         "MEANING",
+        "COL_SEEN":            "SEEN",
+        "COL_MATCH":           "MATCH",
+        "COL_KANJI_BANG":      "K!",
+        "COL_READING_BANG":    "R!",
+        "COL_MEANING_BANG":    "M!",
+        "COL_SCORE":           "SCORE",
+        "COL_BUCKET":          "BUCKET",
+        "COL_KANJI":           "KANJI",
+        "COL_WORDS":           "WORDS",
+        "BUCKET_KNOWN":        "✓ known",
+        "BUCKET_LESS_KNOWN":   "△ slipping",
+        "BUCKET_UNKNOWN":      "○ new",
+        "RESET_WORD_TITLE":    "Reset word",
+        "RESET_WORD_MSG":      "Reset all stats for {expr} ({reading})?",
+
+        # --- settings scene ------------------------------------ #
+        "SEC_AUDIO":           "AUDIO",
+        "SEC_LANGUAGE":        "LANGUAGE",
+        "SEC_THEME":           "THEME",
+        "SET_MUTE":            "Mute everything (M)",
+        "SET_SPEAK_SELECT":    "Speak on card select",
+        "SET_SPEAK_MATCH":     "Speak on match",
+        "SET_SPEAK_MISMATCH":  "Speak on mismatch",
+        "SET_HINT":            "Tip: 'Speak on select' reads each card as you click it - great for drilling pronunciation while assembling a group.",
+        "LANG_EN":             "English",
+        "LANG_FR":             "Français",
+
+        # --- about / updates ---------------------------------- #
+        "SEC_ABOUT":           "ABOUT",
+        "ABOUT_VERSION":       "Version {version}",
+        "UPDATE_CHECK":        "Check for updates",
+        "UPDATE_CHECKING":     "Checking for updates…",
+        "UPDATE_DOWNLOADING":  "Downloading update…",
+        "UPDATE_READY":        "Update {version} ready",
+        "UPDATE_UPTODATE":     "You're on the latest version (v{version}).",
+        "UPDATE_ERROR":        "Couldn't check for updates.",
+        "UPDATE_DISABLED":     "Updates aren't set up for this build.",
+        "UPDATE_RESTART":      "Restart & update",
+        "UPDATE_LATER":        "Later",
+        "UPDATE_BANNER":       "Update {version} ready",
+        "UPDATE_NOWRITE":      "Move KanjiRe out of a read-only folder to update.",
+
+        # --- import scene ------------------------------------- #
+        "IMPORT_TITLE":        "Importing text",
+        "IMPORT_READING":      "Reading file…",
+        "IMPORT_TOKEN":        "Tokenising Japanese text…",
+        "IMPORT_TOKEN_HINT":   "splitting into words with MeCab",
+        "IMPORT_LOOKUP":       "Looking up readings and meanings…",
+        "IMPORT_LOOKUP_HINT":  "{done:,} / {total:,} words",
+        "IMPORT_WRITE":        "Writing deck to database…",
+        "IMPORT_DONE":         "Done!",
+        "IMPORT_DONE_DETAIL":  "{words:,} words, {kanji:,} kanji",
+        "IMPORT_RETURN":       "Returning to menu…",
+        "IMPORT_FAIL":         "Import failed",
+        "IMPORT_BACK_HINT":    "Press Back to return.",
+        "BTN_BACK":            "← Back to menu",
+
+        # --- paste dialog ------------------------------------ #
+        "PASTE_TITLE":         "Paste Japanese text  ·  KanjiRe",
+        "PASTE_LABEL":         "Deck name:",
+        "PASTE_HINT":          "Paste any Japanese text. Words are extracted with readings, meanings and per-text frequency.",
+        "PASTE_OK":            "Ingest",
+        "PASTE_CANCEL":        "Cancel",
+        "PASTE_DEFAULT":       "Pasted text",
+    },
+    "fr": {
+        # --- top nav ---------------------------------------------------- #
+        "NAV_PLAY":      "Jouer",
+        "NAV_STATS":     "Stats",
+        "NAV_SETTINGS":  "Réglages",
+
+        # --- subtitle / shared --------------------------------------- #
+        "SUBTITLE":      "associez le kanji · la lecture · le sens",
+        "AVAILABLE":     "{n} mots avec kanji disponibles",
+        "AVAILABLE_KANA": "{n} sons kana au programme",
+        "HISCORE":       "Record {mode} : {score:,}",
+
+        # --- menu sub-tabs ----------------------------------------- #
+        "MENU_QUICK":    "Simple",
+        "MENU_ADVANCED": "Avancé",
+
+        # --- menu sections ----------------------------------------- #
+        "SEC_MODE":      "MODE",
+        "SEC_DECK":      "JEU",
+        "SEC_LEVEL":     "NIVEAU JLPT",
+        "SEC_WORDS":     "MOTS PAR MANCHE",
+        "SEC_CARDS":     "CARTES PAR MOT",
+        "SEC_FONTS":     "POLICES",
+        "SEC_WRITING":   "ÉCRITURE",
+        "SEC_PASSES":    "PASSES",
+        "SEC_KNOWN":     "CONNUS",
+        "SEC_LESS_KNOWN":"MAL CONNUS",
+        "SEC_UNKNOWN":   "INCONNUS",
+        "SEC_KANA_LENGTH": "LONGUEUR KANA",
+        "SEC_KANA_SCRIPT": "ÉCRITURE KANA",
+        "SEC_HEARTS":    "CŒURS DE DÉPART",
+        "SEC_BOUNTY":    "PRIMES CŒUR",
+        "BOUNTY_NONE":   "Aucune",
+        "BOUNTY_LOW":    "Faible",
+        "BOUNTY_MED":    "Moy.",
+        "BOUNTY_HIGH":   "Élevée",
+        "DECK_KANA":     "Kana",
+        "KANA_SCRIPT_HIRA": "Hiragana",
+        "KANA_SCRIPT_KATA": "Katakana",
+        "KANA_SCRIPT_BOTH": "Les deux",
+
+        # --- mode names ----------------------------------------- #
+        "MODE_TIME":      "Contre-la-montre",
+        "MODE_SURVIVAL":  "Survie",
+        "MODE_ZEN":       "Zen",
+        "MODE_FAMILIAR":  "Familiarisation",
+        "MODE_LEARN":     "Apprendre",
+
+        # --- buttons / toggles --------------------------------- #
+        "BTN_PLAY":            "▶  JOUER",
+        "BTN_SAVE_PRESET":     "★  Enregistrer comme préréglage…",
+        "BTN_IMPORT_FILE":     "+  Importer un fichier…",
+        "BTN_PASTE_TEXT":      "+  Coller du texte…",
+        "FONT_SINGLE":         "Unique",
+        "FONT_RANDOM":         "Aléatoire",
+        "WRITE_HORIZ":         "Horiz.",
+        "WRITE_MIX":           "Mixte",
+        "WRITE_VERT":          "Vert.",
+        "FACES_THREE":         "Kanji · Lecture · Sens",
+        "FACES_TWO":           "Kanji · Sens",
+        "TOGGLE_OFF":          "Désact.",
+        "TOGGLE_ON":           "Activé",
+        "LEARN_NONE":          "Aucun",
+        "LEARN_FEW":           "Peu",
+        "LEARN_SOME":          "Quelques",
+        "LEARN_MANY":          "Beaucoup",
+
+        "PRESET_PROMPT":       "Nom de ce mode personnalisé :",
+        "PRESET_PROMPT_TITLE": "Enregistrer le préréglage",
+        "DELETE_PRESET_TITLE": "Supprimer le préréglage",
+        "DELETE_PRESET_MSG":   "Supprimer le préréglage personnalisé '{name}' ?",
+
+        # --- HUD ----------------------------------------------- #
+        "HUD_ROUND":           "Manche {n}   ·   {learned} appris",
+        "HUD_ROUND_PASS":      "Manche {n}  ·  Passe {pass_n}/{passes}  ·  {learned} appris",
+        "HUD_LIVES":           "vies",
+        "HUD_BACK":            "Échap : menu",
+        "HUD_SOUND_ON":        "♪ on",
+        "HUD_SOUND_OFF":       "♪ off",
+        "HUD_HINT":            "Échap : menu   ·   M : {sound}",
+        "HUD_COMBO":           "Combo x{n}",
+        "NO_WORDS":            "Aucun mot ne correspond à cette sélection.",
+        "NO_WORDS_HINT":       "Appuyez sur Échap pour choisir un autre jeu / niveau.",
+        "POPUP_COMBO":         "COMBO x{n} !",
+
+        # --- results ------------------------------------------ #
+        "RESULTS_TIME":        "TEMPS !",
+        "RESULTS_OVER":        "PARTIE TERMINÉE",
+        "RESULTS_NEW_BEST":    "★ NOUVEAU RECORD ! ★",
+        "STAT_ROUNDS":         "Manches",
+        "STAT_MATCHES":        "Associations",
+        "STAT_BEST_COMBO":     "Meilleur combo",
+        "STAT_ACCURACY":       "Précision",
+        "STAT_MISTAKES":       "Erreurs",
+        "STAT_LEARNED":        "Mots appris",
+        "RESULTS_REVIEW":      "MOTS ASSOCIÉS",
+        "RESULTS_MORE":        "+ {n} de plus",
+        "BTN_AGAIN":           "↻  Rejouer",
+        "BTN_MENU":            "Menu",
+
+        # --- stats --------------------------------------------- #
+        "STATS_TITLE":         "Vos connaissances",
+        "STATS_SUB":           "profil tous-jeux confondus de chaque manche jouée",
+        "TILE_WORDS":          "MOTS VUS",
+        "TILE_KNOWN":          "CONNUS",
+        "TILE_STRUGGLING":     "EN DIFFICULTÉ",
+        "TILE_UNKNOWN":        "INCONNUS",
+        "WHERE_TITLE":         "Où vous trébuchez",
+        "WHERE_KANJI":         "Kanji / écriture",
+        "WHERE_READING":       "Lecture",
+        "WHERE_MEANING":       "Sens",
+        "ACCURACY_LINE":       "Précision {acc}%   ·   {match} associations   ·   {miss} erreurs   ·   {seen} cartes vues",
+        "STATS_EMPTY":         "Jouez une manche - vos statistiques apparaîtront ici automatiquement.",
+        "INNER_OVERVIEW":      "Vue d'ensemble",
+        "INNER_WORDS":         "Mots",
+        "INNER_KANJI":         "Kanji",
+        "SEARCH_WORDS":        "Rechercher des mots…",
+        "SEARCH_KANJI":        "Rechercher kanji ou sens…",
+        "COL_WORD":            "MOT",
+        "COL_READING":         "LECTURE",
+        "COL_MEANING":         "SENS",
+        "COL_SEEN":            "VUS",
+        "COL_MATCH":           "BONS",
+        "COL_KANJI_BANG":      "K!",
+        "COL_READING_BANG":    "L!",
+        "COL_MEANING_BANG":    "S!",
+        "COL_SCORE":           "SCORE",
+        "COL_BUCKET":          "GROUPE",
+        "COL_KANJI":           "KANJI",
+        "COL_WORDS":           "MOTS",
+        "BUCKET_KNOWN":        "✓ connu",
+        "BUCKET_LESS_KNOWN":   "△ vacille",
+        "BUCKET_UNKNOWN":      "○ nouveau",
+        "RESET_WORD_TITLE":    "Réinitialiser le mot",
+        "RESET_WORD_MSG":      "Réinitialiser toutes les statistiques de {expr} ({reading}) ?",
+
+        # --- settings ---------------------------------------- #
+        "SEC_AUDIO":           "AUDIO",
+        "SEC_LANGUAGE":        "LANGUE",
+        "SEC_THEME":           "THÈME",
+        "SET_MUTE":            "Tout couper (M)",
+        "SET_SPEAK_SELECT":    "Lire à la sélection",
+        "SET_SPEAK_MATCH":     "Lire à l'association",
+        "SET_SPEAK_MISMATCH":  "Lire à l'erreur",
+        "SET_HINT":            "Astuce : « Lire à la sélection » lit chaque carte au clic - excellent pour travailler la prononciation pendant la composition.",
+        "LANG_EN":             "English",
+        "LANG_FR":             "Français",
+
+        # --- à propos / mises à jour -------------------------- #
+        "SEC_ABOUT":           "À PROPOS",
+        "ABOUT_VERSION":       "Version {version}",
+        "UPDATE_CHECK":        "Rechercher des mises à jour",
+        "UPDATE_CHECKING":     "Recherche de mises à jour…",
+        "UPDATE_DOWNLOADING":  "Téléchargement de la mise à jour…",
+        "UPDATE_READY":        "Mise à jour {version} prête",
+        "UPDATE_UPTODATE":     "Vous avez la dernière version (v{version}).",
+        "UPDATE_ERROR":        "Échec de la vérification des mises à jour.",
+        "UPDATE_DISABLED":     "Les mises à jour ne sont pas configurées.",
+        "UPDATE_RESTART":      "Redémarrer et mettre à jour",
+        "UPDATE_LATER":        "Plus tard",
+        "UPDATE_BANNER":       "Mise à jour {version} prête",
+        "UPDATE_NOWRITE":      "Déplacez KanjiRe hors d'un dossier en lecture seule.",
+
+        # --- import ------------------------------------------ #
+        "IMPORT_TITLE":        "Importation du texte",
+        "IMPORT_READING":      "Lecture du fichier…",
+        "IMPORT_TOKEN":        "Découpage en mots…",
+        "IMPORT_TOKEN_HINT":   "segmentation avec MeCab",
+        "IMPORT_LOOKUP":       "Recherche des lectures et des sens…",
+        "IMPORT_LOOKUP_HINT":  "{done:,} / {total:,} mots",
+        "IMPORT_WRITE":        "Écriture du jeu dans la base…",
+        "IMPORT_DONE":         "Terminé !",
+        "IMPORT_DONE_DETAIL":  "{words:,} mots, {kanji:,} kanji",
+        "IMPORT_RETURN":       "Retour au menu…",
+        "IMPORT_FAIL":         "Échec de l'importation",
+        "IMPORT_BACK_HINT":    "Appuyez sur Retour pour revenir.",
+        "BTN_BACK":            "← Retour au menu",
+
+        # --- paste dialog ---------------------------------- #
+        "PASTE_TITLE":         "Coller un texte japonais  ·  KanjiRe",
+        "PASTE_LABEL":         "Nom du jeu :",
+        "PASTE_HINT":          "Collez n'importe quel texte japonais. Les mots sont extraits avec leur lecture, leur sens et leur fréquence dans ce texte.",
+        "PASTE_OK":            "Importer",
+        "PASTE_CANCEL":        "Annuler",
+        "PASTE_DEFAULT":       "Texte collé",
+    },
+}
