@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,14 +91,79 @@ def _add_data_args() -> list[str]:
     return args
 
 
+def platform_tag() -> str:
+    """OS key used in artifact names + the manifest's ``platforms`` map."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform == "darwin":
+        return "macos"
+    return sys.platform
+
+
+#: Archive format per platform. Linux/mac use tar.gz so the launcher keeps its
+#: executable bit (a plain zip would strip it).
+_ARTIFACT_EXT = {"windows": "zip", "linux": "tar.gz", "macos": "tar.gz"}
+
+
+def artifact_name(tag: str | None = None) -> str:
+    tag = tag or platform_tag()
+    return f"{NAME}-{__version__}-{tag}.{_ARTIFACT_EXT.get(tag, 'zip')}"
+
+
+def _bundle_lib_args() -> list[str]:
+    """``--add-binary`` flags for native libs pyglet ``dlopen``s at runtime.
+
+    On Linux, pyglet loads ``libGLU.so`` via ctypes; minimal systems may lack
+    it, so we bundle a copy (renamed to the bare ``libGLU.so`` soname pyglet
+    tries). Sources come from ``KANJIRE_BUNDLE_LIBS`` (set by the WSL build,
+    colon-separated) or are auto-discovered on a normal Linux build host.
+    Windows needs none of this.
+    """
+    if os.name == "nt":
+        return []
+    candidates: list[str] = [
+        p for p in os.environ.get("KANJIRE_BUNDLE_LIBS", "").split(os.pathsep) if p
+    ]
+    if not any("libGLU" in c for c in candidates):
+        for d in ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib",
+                  "/lib/x86_64-linux-gnu"):
+            hits = sorted(Path(d).glob("libGLU.so*")) if Path(d).is_dir() else []
+            if hits:
+                candidates.append(str(hits[0]))
+                break
+
+    staging = PROJECT_ROOT / "dist" / "_bundle_libs"
+    args: list[str] = []
+    for src in candidates:
+        srcp = Path(src)
+        if not srcp.exists():
+            continue
+        staging.mkdir(parents=True, exist_ok=True)
+        bare = srcp.name.split(".so")[0] + ".so"  # libGLU.so.1.3.1 -> libGLU.so
+        dst = staging / bare
+        shutil.copy2(srcp, dst)
+        args += ["--add-binary", f"{dst}{os.pathsep}."]
+        _log(f"  bundling native lib: {dst.name}  (from {srcp})")
+    return args
+
+
 def _hidden_imports() -> list[str]:
-    """Modules PyInstaller occasionally misses for pyglet/pyttsx3 on Windows."""
-    return [
-        "pyglet.media.codecs.wave_codec",
-        "pyglet.media.codecs.wmf",
-        "pyglet.media.drivers.directsound",
-        "pyttsx3.drivers.sapi5",
-        "comtypes.gen",
+    """Per-OS modules PyInstaller occasionally misses for pyglet/TTS."""
+    common = ["pyglet.media.codecs.wave_codec"]
+    if os.name == "nt":
+        return common + [
+            "pyglet.media.codecs.wmf",
+            "pyglet.media.drivers.directsound",
+            "pyttsx3.drivers.sapi5",
+            "comtypes.gen",
+        ]
+    # Linux/macOS: pulse/openal audio drivers; no SAPI/comtypes/WMF (Windows).
+    return common + [
+        "pyglet.media.drivers.openal",
+        "pyglet.media.drivers.pulse",
+        "pyglet.media.drivers.silent",
     ]
 
 
@@ -111,6 +177,23 @@ def _zip_release(folder: Path, out: Path) -> None:
                 # Inside the zip, paths look like "KanjiRe/<path>".
                 arc = Path(folder.name) / fp.relative_to(folder)
                 zf.write(fp, arc)
+
+
+def _targz_release(folder: Path, out: Path) -> None:
+    """tar.gz the bundle, preserving Unix perms (the launcher's +x bit)."""
+    if out.exists():
+        out.unlink()
+    with tarfile.open(out, "w:gz") as tf:
+        tf.add(folder, arcname=folder.name)  # recursive; modes preserved
+
+
+def _package(src: Path, tag: str) -> Path:
+    out = (PROJECT_ROOT / "dist") / artifact_name(tag)
+    if tag == "windows":
+        _zip_release(src, out)
+    else:
+        _targz_release(src, out)
+    return out
 
 
 def notes_from_changelog(version: str = __version__) -> str:
@@ -142,27 +225,41 @@ def _release_tag() -> str:
     return f"v{__version__}"
 
 
-def _zip_url(zip_name: str) -> str:
+def asset_url(name: str) -> str:
     return (
         f"https://github.com/{update_config.REPO_OWNER}/{update_config.REPO_NAME}"
-        f"/releases/download/{_release_tag()}/{zip_name}"
+        f"/releases/download/{_release_tag()}/{name}"
     )
 
 
-def _build_manifest(zip_path: Path, notes: str) -> dict:
-    """Assemble the unsigned ``latest.json`` for this build."""
-    return {
+def build_combined_manifest(artifacts: dict[str, Path], notes: str) -> dict:
+    """Assemble the unsigned multi-platform ``latest.json``.
+
+    *artifacts* maps platform tag → built artifact path. The result carries a
+    ``platforms`` map for current clients **and** top-level ``url``/``sha256``
+    mirroring the Windows asset, so already-shipped 0.1.x (Windows-only)
+    clients keep updating.
+    """
+    platforms: dict[str, dict] = {}
+    for tag, path in artifacts.items():
+        platforms[tag] = {
+            "url": asset_url(path.name),
+            "sha256": update_verify.sha256_file(path),
+            "size": path.stat().st_size,
+        }
+    manifest = {
         "version": __version__,
-        "url": _zip_url(zip_path.name),
-        "sha256": update_verify.sha256_file(zip_path),
-        "size": zip_path.stat().st_size,
         "notes": notes,
         "pubdate": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "platforms": platforms,
     }
+    if "windows" in platforms:  # back-compat for legacy single-platform clients
+        manifest.update({k: platforms["windows"][k] for k in ("url", "sha256", "size")})
+    return manifest
 
 
-def _sign_and_write_manifest(zip_path: Path, notes: str) -> Path | None:
-    """Build, sign, and write ``latest.json`` next to the zip. None on error."""
+def sign_manifest_to_file(manifest: dict) -> Path | None:
+    """Sign *manifest* and write ``dist/latest.json``. None on error."""
     if not update_config.PUBLIC_KEY_HEX.strip():
         _log("ERROR: no public key baked in. Run:  python scripts/gen_update_key.py")
         return None
@@ -171,7 +268,6 @@ def _sign_and_write_manifest(zip_path: Path, notes: str) -> Path | None:
         _log("       Run:  python scripts/gen_update_key.py")
         return None
     private_hex = PRIVATE_KEY_PATH.read_text(encoding="ascii").strip()
-    manifest = _build_manifest(zip_path, notes)
     signed = update_verify.sign_manifest(manifest, private_hex)
     # Sanity-check our own signature against the baked-in public key before we
     # ever upload it — a mismatch means the keypair is out of sync.
@@ -179,9 +275,9 @@ def _sign_and_write_manifest(zip_path: Path, notes: str) -> Path | None:
         _log("ERROR: signed manifest fails verification against the baked-in "
              "public key. Did you regenerate keys without rebuilding config.py?")
         return None
-    out = zip_path.parent / update_config.MANIFEST_ASSET
+    out = (PROJECT_ROOT / "dist") / update_config.MANIFEST_ASSET
     out.write_text(json.dumps(signed, ensure_ascii=False, indent=2), encoding="utf-8")
-    _log(f"  signed manifest → {out}")
+    _log(f"  signed manifest → {out}  (platforms: {', '.join(manifest['platforms'])})")
     return out
 
 
@@ -189,18 +285,16 @@ def _gh_available() -> bool:
     return shutil.which("gh") is not None
 
 
-def _publish(zip_path: Path, manifest_path: Path, notes: str) -> int:
-    """Create (or update) the GitHub Release and upload the zip + manifest."""
+def publish_assets(asset_paths: list[Path], manifest_path: Path, notes: str) -> int:
+    """Create (or update) the GitHub Release and upload all assets + manifest."""
     if not _gh_available():
         _log("ERROR: the GitHub CLI ('gh') is not on PATH. Install it with:")
         _log("       winget install GitHub.cli   (then: gh auth login)")
         return 1
     repo = f"{update_config.REPO_OWNER}/{update_config.REPO_NAME}"
     tag = _release_tag()
-    assets = [str(zip_path), str(manifest_path)]
+    assets = [str(p) for p in asset_paths] + [str(manifest_path)]
 
-    # Does the release already exist? If so, re-upload assets with --clobber;
-    # otherwise create it fresh.
     exists = subprocess.run(
         ["gh", "release", "view", tag, "-R", repo],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -214,21 +308,20 @@ def _publish(zip_path: Path, manifest_path: Path, notes: str) -> int:
         cmd = ["gh", "release", "create", tag, *assets,
                "-R", repo, "--title", f"{NAME} {__version__}",
                "--notes", notes or f"{NAME} {__version__}"]
-    _log("  " + " ".join(cmd))
+    _log("  gh " + " ".join(cmd[1:]))
     rc = subprocess.run(cmd).returncode
     if rc != 0:
         _log("gh failed — check 'gh auth status' and that the repo exists.")
         return rc
     _log("")
     _log(f"✓ Published {tag} to https://github.com/{repo}/releases/latest")
-    _log("  Friends' apps will pick it up on their next launch.")
     return 0
 
 
-def build(force: bool = False, publish: bool = False, notes: str = "") -> int:
-    rc = _check_prereqs()
-    if rc:
-        return rc
+def build_artifact(force: bool = False) -> Path | None:
+    """Build + package the bundle for the *current* OS. Returns its path."""
+    if _check_prereqs():
+        return None
 
     dist = PROJECT_ROOT / "dist"
     build_dir = PROJECT_ROOT / "build"
@@ -244,53 +337,54 @@ def build(force: bool = False, publish: bool = False, notes: str = "") -> int:
         "--name", NAME,
         "--noconfirm",
         "--onedir",
-        "--windowed",          # no console window
         "--clean",
         *_add_data_args(),
+        *_bundle_lib_args(),
     ]
+    if os.name == "nt":
+        cmd.append("--windowed")  # suppress the console window (Windows only)
     for mod in _hidden_imports():
         cmd += ["--hidden-import", mod]
     # PyNaCl ships a compiled libsodium extension + cffi backend used by the
     # updater's signature check; --collect-all grabs the binary reliably.
     cmd += ["--collect-all", "nacl", "--hidden-import", "_cffi_backend"]
 
-    _log("Running PyInstaller...")
-    _log("  " + " ".join(cmd))
+    _log(f"Running PyInstaller ({platform_tag()})...")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         _log("PyInstaller failed.")
-        return result.returncode
+        return None
 
     src = dist / NAME
     if not src.exists():
         _log(f"ERROR: expected output folder {src} not found.")
+        return None
+
+    tag = platform_tag()
+    out = _package(src, tag)
+    size_mb = out.stat().st_size / 1_048_576
+    _log(f"✓ {tag} artifact: {out.name}  ({size_mb:.1f} MB)")
+    return out
+
+
+def build(force: bool = False, publish: bool = False, notes: str = "") -> int:
+    """Build the current-OS artifact and optionally publish it single-platform.
+
+    For a full cross-platform release (Windows + Linux), use
+    ``scripts/release.py`` instead — it builds both and signs one manifest.
+    """
+    art = build_artifact(force=force)
+    if art is None:
         return 1
-
-    out_zip = dist / f"{NAME}-{__version__}-windows.zip"
-    _log(f"Zipping {src.name}/ → {out_zip.name}")
-    _zip_release(src, out_zip)
-
-    size_mb = out_zip.stat().st_size / 1_048_576
     _log("")
-    _log(f"✓ Release built: {out_zip}")
-    _log(f"  Size: {size_mb:.1f} MB")
-    _log("")
-    _log("Share with friends:")
-    _log(f"  1. Send them  {out_zip.name}")
-    _log(f"  2. They unzip and double-click  KanjiRe/{NAME}.exe")
-    _log("")
-    _log("Notes:")
-    _log("  - Japanese TTS (Haruka) needs the Windows Japanese language pack;")
-    _log("    without it the game still works, speech just no-ops.")
-    _log("  - Stats / settings save to  %APPDATA%\\KanjiRe\\")
-
+    _log(f"Built {art.name} for {platform_tag()}.")
     if publish:
-        _log("")
-        _log("Publishing to GitHub Releases…")
-        manifest_path = _sign_and_write_manifest(out_zip, notes)
-        if manifest_path is None:
+        _log("Publishing (single-platform) to GitHub Releases…")
+        manifest = build_combined_manifest({platform_tag(): art}, notes)
+        mpath = sign_manifest_to_file(manifest)
+        if mpath is None:
             return 1
-        return _publish(out_zip, manifest_path, notes)
+        return publish_assets([art], mpath, notes)
     return 0
 
 
@@ -298,14 +392,24 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--force", action="store_true",
                    help="wipe dist/ and build/ before building")
+    p.add_argument("--artifact-only", action="store_true",
+                   help="just build the current-OS bundle and print its path "
+                        "(used by release.py to build the Linux bundle in WSL)")
     p.add_argument("--publish", action="store_true",
-                   help="sign latest.json and upload it + the zip as a GitHub Release")
+                   help="sign latest.json and upload it + this OS's bundle "
+                        "(single-platform; prefer release.py for cross-platform)")
     p.add_argument("--notes", default="",
                    help="release notes shown to players in the update banner")
     p.add_argument("--notes-from-changelog", action="store_true",
                    help=f"use the CHANGELOG.md section for the current version "
                         f"({__version__}) as the release notes")
     args = p.parse_args(argv)
+    if args.artifact_only:
+        art = build_artifact(force=args.force)
+        if art is None:
+            return 1
+        print(f"ARTIFACT={art}")
+        return 0
     notes = args.notes
     if not notes and args.notes_from_changelog:
         notes = notes_from_changelog()

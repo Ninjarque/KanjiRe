@@ -115,8 +115,11 @@ def stage(
     into place by :func:`apply_and_restart`.
     """
     target = target or install_dir()
-    zip_path = _staging_dir() / f"KanjiRe-{info.version}.zip"
-    download(info, zip_path, progress=progress)
+    # Match the artifact's archive type (Windows .zip / Linux .tar.gz) so the
+    # extractor and on-disk perms come out right.
+    suffix = ".tar.gz" if info.url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
+    archive = _staging_dir() / f"KanjiRe-{info.version}{suffix}"
+    download(info, archive, progress=progress)
 
     # Extract to a sibling of the install so the final swap is a same-volume
     # rename. A fresh, cleaned folder each time avoids stale leftovers.
@@ -125,19 +128,54 @@ def stage(
 
     if extract_root.exists():
         shutil.rmtree(extract_root, ignore_errors=True)
-    verify.safe_extract(zip_path, extract_root)
+    verify.extract_archive(archive, extract_root)
     new_bundle = extract_root / _BUNDLE_DIRNAME
     if not (new_bundle / Path(sys.executable).name).exists() and not new_bundle.is_dir():
         raise ValueError(f"unexpected archive layout: {new_bundle} missing")
     return new_bundle
 
 
-def _swap_script(staging: Path) -> Path:
-    """Write the self-deleting swap/rollback ``.bat`` and return its path.
+_SWAP_SH = r"""#!/usr/bin/env bash
+# Args: $1 pid  $2 install dir  $3 new bundle dir  $4 exe to relaunch.
+PID="$1"; INSTALL="$2"; NEWDIR="$3"; EXE="$4"; BACKUP="${INSTALL}.old"
 
-    Arguments (all quoted by the caller): %1 pid, %2 install dir, %3 new bundle
-    dir, %4 exe to relaunch.
+# --- wait for the running app to exit ---
+while kill -0 "$PID" 2>/dev/null; do sleep 0.5; done
+
+rm -rf "$BACKUP"
+
+# --- back up current install (same-volume rename) ---
+if ! mv "$INSTALL" "$BACKUP" 2>/dev/null; then
+    # couldn't even back up; relaunch what's still there
+    setsid "$EXE" >/dev/null 2>&1 < /dev/null &
+    rm -f "$0"; exit 1
+fi
+
+# --- move the new bundle into place; roll back on failure ---
+if mv "$NEWDIR" "$INSTALL" 2>/dev/null; then
+    rm -rf "$BACKUP"
+else
+    rm -rf "$INSTALL"; mv "$BACKUP" "$INSTALL"
+fi
+
+# --- relaunch detached + clean up scratch and self ---
+setsid "$EXE" >/dev/null 2>&1 < /dev/null &
+rm -rf "$(dirname "$NEWDIR")"
+rm -f "$0"
+"""
+
+
+def _swap_script(staging: Path) -> Path:
+    """Write the self-deleting swap/rollback helper for the current OS.
+
+    Arguments (all quoted by the caller): pid, install dir, new bundle dir,
+    exe to relaunch. Windows gets a ``.bat``; POSIX gets a ``.sh``.
     """
+    if os.name != "nt":
+        sh = staging / "kanjire_swap.sh"
+        sh.write_text(_SWAP_SH, encoding="ascii", newline="\n")
+        sh.chmod(0o755)
+        return sh
     bat = staging / "kanjire_swap.bat"
     bat.write_text(
         r"""@echo off
@@ -200,13 +238,18 @@ def apply_and_restart(new_bundle: Path, *, target: Path | None = None) -> None:
     """
     target = target or install_dir()
     exe = target / Path(sys.executable).name
-    bat = _swap_script(_staging_dir())
-    # Detach fully so the helper outlives this process.
-    flags = 0
+    script = _swap_script(_staging_dir())
+    args = [str(os.getpid()), str(target), str(new_bundle), str(exe)]
+    # Detach fully so the helper outlives this process and can swap the folder.
     if os.name == "nt":
         flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
-    subprocess.Popen(
-        ["cmd", "/c", str(bat), str(os.getpid()), str(target), str(new_bundle), str(exe)],
-        creationflags=flags,
-        close_fds=True,
-    )
+        subprocess.Popen(
+            ["cmd", "/c", str(script), *args],
+            creationflags=flags, close_fds=True,
+        )
+    else:
+        subprocess.Popen(
+            ["/bin/bash", str(script), *args],
+            start_new_session=True, close_fds=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )

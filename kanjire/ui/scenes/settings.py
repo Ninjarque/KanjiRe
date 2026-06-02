@@ -165,7 +165,9 @@ class SettingsScene(Scene):
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=12,
         )
-        if not update_config.updates_enabled():
+        # Enable the manual check only when this install can actually self-update
+        # (a frozen bundle). pip/distro installs are updated by their manager.
+        if not (update_config.updates_enabled() and self.app.updater.self_update_capable()):
             self.update_btn.enabled = False
             self.update_btn._refresh()
         self.buttons.append(self.update_btn)
@@ -198,6 +200,8 @@ class SettingsScene(Scene):
         if not update_config.updates_enabled():
             return tr("UPDATE_DISABLED")
         u = self.app.updater
+        if not u.self_update_capable():
+            return tr("UPDATE_MANAGED")
         if u.status == update_ctrl.CHECKING:
             return tr("UPDATE_CHECKING")
         if u.status == update_ctrl.DOWNLOADING:

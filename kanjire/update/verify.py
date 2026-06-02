@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def _is_within(base: Path, target: Path) -> bool:
 
 
 def safe_extract(zip_path: Path, dest_dir: Path) -> None:
-    """Extract *zip_path* into *dest_dir*, rejecting any path traversal.
+    """Extract a **zip** into *dest_dir*, rejecting any path traversal.
 
     Raises :class:`ValueError` if a member would land outside *dest_dir*
     (absolute path, ``..`` components, or symlink-style escape).
@@ -105,3 +106,43 @@ def safe_extract(zip_path: Path, dest_dir: Path) -> None:
             if not _is_within(dest_dir, out):
                 raise ValueError(f"unsafe path in archive: {member!r}")
         zf.extractall(dest_dir)
+
+
+def safe_extract_tar(tar_path: Path, dest_dir: Path) -> None:
+    """Extract a **tar(.gz)** into *dest_dir*, preserving Unix perms/symlinks.
+
+    Used for Linux/macOS bundles, where a plain zip would drop the executable
+    bit off the launcher. Rejects path traversal and symlinks/hardlinks that
+    point outside *dest_dir* (zip-slip / link-escape).
+    """
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(tar_path, "r:*") as tf:
+        for m in tf.getmembers():
+            out = dest_dir / m.name
+            if not _is_within(dest_dir, out):
+                raise ValueError(f"unsafe path in archive: {m.name!r}")
+            if m.issym() or m.islnk():
+                target = (dest_dir / m.name).parent / m.linkname
+                if not _is_within(dest_dir, target):
+                    raise ValueError(
+                        f"unsafe link in archive: {m.name!r} -> {m.linkname!r}"
+                    )
+        # ``filter="data"`` (Py 3.12+) is extra defense — it also rejects
+        # traversal/links and strips setuid/sticky bits, while keeping the
+        # executable bit on regular files (needed for the Linux launcher).
+        try:
+            tf.extractall(dest_dir, filter="data")
+        except TypeError:  # very old Python without the filter kwarg
+            tf.extractall(dest_dir)
+
+
+def extract_archive(path: Path, dest_dir: Path) -> None:
+    """Safely extract *path* into *dest_dir*, dispatching by file extension."""
+    p = str(path).lower()
+    if p.endswith(".zip"):
+        safe_extract(path, dest_dir)
+    elif p.endswith((".tar.gz", ".tgz", ".tar")):
+        safe_extract_tar(path, dest_dir)
+    else:
+        raise ValueError(f"unsupported archive type: {path}")

@@ -1,19 +1,20 @@
-"""One-command release: bump version → stamp CHANGELOG → build → publish.
+"""One-command cross-platform release: bump → build Win + Linux → sign → publish.
 
-This is the normal way to ship an update. During development, jot player-facing
-bullets under the ``## [Unreleased]`` heading in ``CHANGELOG.md``; when the
-change is fully validated, run::
+Run from the Windows dev machine. During development, jot player-facing bullets
+under ``## [Unreleased]`` in ``CHANGELOG.md``; when the change is fully
+validated::
 
     python scripts/release.py patch    # 0.1.0 -> 0.1.1  (bug fixes, polish)
     python scripts/release.py minor    # 0.1.x -> 0.2.0  (new feature / mode)
     python scripts/release.py major    # 0.x   -> 1.0.0  (deliberate milestone)
 
-It bumps ``kanjire/__init__.py``'s ``__version__``, moves the Unreleased notes
-into a dated section, then builds the EXE and publishes it to GitHub Releases
-(signed) using those notes as the in-app banner text.
+It bumps ``__version__``, dates the CHANGELOG section, builds the **Windows**
+bundle here and the **Linux** bundle inside WSL, assembles one Ed25519-signed
+manifest covering both, and publishes everything to GitHub Releases.
 
-    --no-publish   build + bump locally but don't upload (no gh needed)
-    --dry-run      show what would change; touch nothing
+    --no-publish   build + sign locally, don't upload (no gh needed)
+    --skip-linux   Windows-only this time (e.g. WSL unavailable)
+    --dry-run      show the planned bump + notes, change nothing
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ import _bootstrap  # noqa: F401
 
 import argparse
 import re
+import shutil
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -35,11 +38,13 @@ for _stream in (sys.stdout, sys.stderr):
 
 INIT_PATH = PACKAGE_DIR / "__init__.py"
 CHANGELOG_PATH = PROJECT_ROOT / "CHANGELOG.md"
+WSL_DISTRO = "Ubuntu-24.04"
 
 
+# ---- version + changelog bumping -------------------------------------- #
 def _read_version() -> tuple[int, int, int]:
-    text = INIT_PATH.read_text(encoding="utf-8")
-    m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', text)
+    m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"',
+                  INIT_PATH.read_text(encoding="utf-8"))
     if not m:
         raise SystemExit(f"ERROR: couldn't find __version__ in {INIT_PATH}")
     return int(m[1]), int(m[2]), int(m[3])
@@ -61,10 +66,8 @@ def _write_version(new: str) -> None:
 
 
 def _unreleased_body() -> str:
-    """The bullet lines currently under ## [Unreleased] (for an empty-check)."""
-    lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
     body, capturing = [], False
-    for line in lines:
+    for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines():
         if line.startswith("## "):
             if capturing:
                 break
@@ -76,8 +79,6 @@ def _unreleased_body() -> str:
 
 
 def _stamp_changelog(new: str, today: str) -> None:
-    """Insert a dated heading right after ## [Unreleased] so its current bullets
-    become that version's notes and [Unreleased] is left empty for next time."""
     lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
     out, inserted = [], False
     for line in lines:
@@ -91,30 +92,62 @@ def _stamp_changelog(new: str, today: str) -> None:
     CHANGELOG_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
+# ---- Linux build via WSL ---------------------------------------------- #
+def _wsl_path(win_path: Path) -> str:
+    """``M:\\Japanese\\KanjiRe`` → ``/mnt/m/Japanese/KanjiRe``."""
+    p = Path(win_path)
+    drive = p.drive.rstrip(":").lower()
+    rest = p.as_posix()[len(p.drive):]
+    return f"/mnt/{drive}{rest}"
+
+
+def build_linux_via_wsl(linux_artifact_name: str) -> Path | None:
+    """Build the Linux tar.gz inside WSL; return its Windows-side path."""
+    if shutil.which("wsl") is None:
+        print("ERROR: 'wsl' not found — can't build the Linux bundle.")
+        return None
+    # The build recipe lives in scripts/build_linux.sh (bootstraps pip --user,
+    # installs deps, stages+bundles libGLU.so, builds the tar.gz). We invoke it
+    # by WSL path; subprocess passes argv straight to wsl.exe (no shell mangling).
+    repo = _wsl_path(PROJECT_ROOT)
+    script = _wsl_path(PROJECT_ROOT / "scripts" / "build_linux.sh")
+    print(f"Building Linux bundle in WSL ({WSL_DISTRO})… (first run installs deps)")
+    rc = subprocess.run(["wsl", "-d", WSL_DISTRO, "--", "bash", script, repo]).returncode
+    if rc != 0:
+        print("WSL Linux build failed.")
+        return None
+    out = PROJECT_ROOT / "dist" / linux_artifact_name
+    if not out.exists():
+        print(f"ERROR: expected Linux artifact not found: {out}")
+        return None
+    print(f"✓ Linux artifact: {out.name}")
+    return out
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("level", choices=("patch", "minor", "major"))
     p.add_argument("--no-publish", action="store_true",
-                   help="build + bump but don't upload to GitHub")
+                   help="build + sign locally but don't upload")
+    p.add_argument("--skip-linux", action="store_true",
+                   help="build Windows only this release")
     p.add_argument("--dry-run", action="store_true",
-                   help="print the planned bump and notes, change nothing")
+                   help="print the planned bump + notes, change nothing")
     args = p.parse_args(argv)
 
     cur = _read_version()
-    new = _bump(cur, args.level)
+    new_s = ".".join(map(str, _bump(cur, args.level)))
     cur_s = ".".join(map(str, cur))
-    new_s = ".".join(map(str, new))
     today = date.today().isoformat()
-
     body = _unreleased_body()
+
     print(f"Version: {cur_s} → {new_s}  ({args.level})")
     print(f"Date:    {today}")
     print("Notes (from [Unreleased]):")
     print("  " + (body.replace("\n", "\n  ") if body else "(empty!)"))
     if not body:
         print("WARNING: [Unreleased] is empty — players will see a generic note.")
-
     if args.dry_run:
         print("\n--dry-run: nothing written.")
         return 0
@@ -123,7 +156,7 @@ def main(argv=None) -> int:
     _stamp_changelog(new_s, today)
     print(f"\n✓ Bumped {INIT_PATH.name} and stamped CHANGELOG.md.")
 
-    # Import after the bump so build_release sees the new __version__.
+    # Reload so build_release sees the new __version__.
     import importlib
 
     import kanjire
@@ -132,12 +165,36 @@ def main(argv=None) -> int:
     importlib.reload(build_release)
 
     notes = build_release.notes_from_changelog(new_s)
-    rc = build_release.build(force=True, publish=not args.no_publish, notes=notes)
-    if rc == 0 and not args.no_publish:
-        print(f"\n✓ Released v{new_s}. Friends get it on their next launch.")
-    elif rc == 0:
-        print(f"\n✓ Built v{new_s} locally (not published). "
-              f"Run with publish when ready.")
+
+    # 1) Windows bundle (native, clean build).
+    win_art = build_release.build_artifact(force=True)
+    if win_art is None:
+        return 1
+    artifacts = {"windows": win_art}
+
+    # 2) Linux bundle (WSL). Must run AFTER the Windows zip exists (shared dist/).
+    if not args.skip_linux:
+        linux_name = build_release.artifact_name("linux")
+        linux_art = build_linux_via_wsl(linux_name)
+        if linux_art is None:
+            print("Linux build failed — aborting so we don't ship a half release.")
+            return 1
+        artifacts["linux"] = linux_art
+
+    # 3) One signed manifest covering every platform built.
+    manifest = build_release.build_combined_manifest(artifacts, notes)
+    mpath = build_release.sign_manifest_to_file(manifest)
+    if mpath is None:
+        return 1
+
+    # 4) Publish (or stop after signing).
+    if args.no_publish:
+        print(f"\n✓ Built + signed v{new_s} ({', '.join(artifacts)}) — NOT published.")
+        return 0
+    rc = build_release.publish_assets(list(artifacts.values()), mpath, notes)
+    if rc == 0:
+        plats = ", ".join(artifacts)
+        print(f"\n✓ Released v{new_s} for {plats}. Friends get it on next launch.")
     return rc
 
 

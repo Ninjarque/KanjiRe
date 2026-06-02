@@ -8,11 +8,23 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import urllib.request
 from dataclasses import dataclass
 
 from kanjire import __version__
 from kanjire.update import config, verify
+
+
+def current_platform() -> str:
+    """Normalised OS key matching the manifest's ``platforms`` map."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform == "darwin":
+        return "macos"
+    return sys.platform
 
 
 @dataclass(frozen=True)
@@ -90,10 +102,25 @@ def check_for_update(
 
     try:
         version = str(manifest["version"])
-        url = str(manifest["url"])
-        sha256 = str(manifest["sha256"]).lower()
-        size = int(manifest.get("size", 0))
         notes = str(manifest.get("notes", ""))
+        # Pick the asset for *this* OS. New manifests carry a ``platforms`` map;
+        # legacy 0.1.x manifests only had top-level fields (Windows-only).
+        platforms = manifest.get("platforms")
+        if isinstance(platforms, dict):
+            entry = platforms.get(current_platform())
+            if not entry:
+                return None  # this release has no build for our OS
+            url = str(entry["url"])
+            sha256 = str(entry["sha256"]).lower()
+            size = int(entry.get("size", 0))
+        else:
+            # Legacy single-platform manifest == Windows. Don't let a Linux/mac
+            # client download a Windows zip.
+            if current_platform() != "windows":
+                return None
+            url = str(manifest["url"])
+            sha256 = str(manifest["sha256"]).lower()
+            size = int(manifest.get("size", 0))
     except (KeyError, ValueError, TypeError):
         return None
 

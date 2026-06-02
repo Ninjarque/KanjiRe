@@ -37,16 +37,18 @@ class UpdateController:
         self._thread: threading.Thread | None = None
 
     # -- gating ---------------------------------------------------------- #
+    def self_update_capable(self) -> bool:
+        """True only for standalone frozen bundles (or the dev test override).
+
+        pip / distro-package installs are updated by their package manager, so
+        the in-app updater must stay inert there — even on a manual check, which
+        would otherwise try to swap a manager-owned install."""
+        return bool(applier.is_frozen() or os.environ.get("KANJIRE_UPDATE_TEST"))
+
     def _allowed(self, force: bool) -> bool:
-        """Auto-checks only happen in real (frozen) installs; a test override
-        env lets us exercise the flow from a dev run."""
-        if not config.updates_enabled():
-            return False
-        if force:
-            return True
-        if applier.is_frozen() or os.environ.get("KANJIRE_UPDATE_TEST"):
-            return True
-        return False
+        """Gate every check on (updates configured) AND (self-update capable).
+        ``force`` only skips the time throttle — it does NOT bypass these."""
+        return config.updates_enabled() and self.self_update_capable()
 
     def _due(self) -> bool:
         last = float(self.state.update_last_check or 0)

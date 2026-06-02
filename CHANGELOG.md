@@ -12,6 +12,10 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.2.0 — 2026-06-02
+- KanjiRe now runs on **Linux** too — same game, same one-click auto-updates as
+  on Windows. Download once and it keeps itself current; no terminal needed.
+
 ## 0.1.0 — 2026-06-02
 - First release with the built-in **self-updater**: KanjiRe now checks GitHub
   for new signed builds on launch and offers a one-click "Restart & update".
