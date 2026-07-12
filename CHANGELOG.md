@@ -11,6 +11,11 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Fixed: the Linux build crashed on startup** on many distros with
+  `undefined symbol: g_sort_array` / a GStreamer error. The bundle was
+  accidentally shipping the build machine's GLib, which clashed with the
+  system one. KanjiRe never needed GStreamer (all its sounds are generated
+  in-app), so it's gone — the Linux app now starts cleanly everywhere.
 
 ## 0.11.0 — 2026-07-12
 - **Multiplayer now needs nothing but a room code.** No IP addresses, no

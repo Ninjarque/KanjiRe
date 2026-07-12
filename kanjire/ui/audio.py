@@ -16,6 +16,24 @@ try:
 except Exception:
     _comtypes_client = None  # type: ignore[assignment]
 
+import sys
+
+# Block GObject-Introspection *before* pyglet.media is imported.
+#
+# pyglet registers its media codecs at ``pyglet.media`` import time and only
+# guards each one with ``except ImportError``. On Linux its GStreamer codec
+# does ``import gi`` and then initialises Gst - and if the system GStreamer
+# resolves its GLib symbols against a *different* libglib (e.g. an older one
+# bundled beside a frozen app), that init raises ``GLib.GError``, which is
+# NOT an ImportError, so it escapes and kills the process at startup. That's
+# exactly how the v0.11.0 Linux build died: "undefined symbol: g_sort_array".
+#
+# We never need GStreamer (every sound is synthesized in-process), so we make
+# ``import gi`` fail cleanly as an ImportError, which pyglet handles by simply
+# skipping the codec. The build also excludes gi/glib from the bundle; this is
+# the runtime belt to that braces, and it protects source installs too.
+sys.modules.setdefault("gi", None)  # type: ignore[assignment]
+
 import pyglet
 from pyglet.media import StaticSource
 from pyglet.media.synthesis import (

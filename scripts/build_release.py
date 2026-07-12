@@ -169,6 +169,58 @@ def _hidden_imports() -> list[str]:
     ]
 
 
+#: Anything matching these must never end up in a bundle: shipping the build
+#: machine's glib/gobject/gstreamer breaks the app on any distro whose system
+#: libs are newer (the v0.11.0 Linux crash: undefined symbol g_sort_array).
+_FORBIDDEN = ("libglib-2.0", "libgobject-2.0", "libgio-2.0", "libgstreamer",
+              "girepository", "gi_typelibs")
+
+
+def _check_bundle(folder: Path) -> int:
+    """Fail the build if a forbidden library slipped into the bundle."""
+    if not folder.exists():
+        return 0
+    bad: list[str] = []
+    for root, _dirs, files in os.walk(folder):
+        for fn in files:
+            low = fn.lower()
+            if any(f in low for f in _FORBIDDEN):
+                bad.append(str(Path(root).relative_to(folder) / fn))
+        for d in list(_dirs):
+            if d.lower() in ("gi", "gi_typelibs", "girepository"):
+                bad.append(str(Path(root).relative_to(folder) / d) + "/")
+    if bad:
+        _log("ERROR: forbidden libraries in the bundle (they break other "
+             "distros - see _exclude_modules):")
+        for b in bad[:12]:
+            _log(f"    {b}")
+        return 1
+    return 0
+
+
+def _exclude_modules() -> list[str]:
+    """Modules that must NOT be bundled.
+
+    ``gi`` (GObject-Introspection) is the big one on Linux: PyInstaller's
+    hook happily collects it *and the build machine's libglib*, and then on
+    a player's newer distro pyglet's gstreamer codec loads the SYSTEM
+    libgstreamer, which resolves its glib symbols against our older bundled
+    copy -> ``undefined symbol: g_sort_array`` and a hard crash at startup.
+
+    We never need gstreamer (SFX are synthesized in-process and TTS is
+    SAPI/none), and pyglet guards that codec with ``except ImportError`` -
+    so keeping ``gi`` out means the codec is skipped cleanly on every
+    distro. Never re-add it without re-testing on a non-build distro.
+
+    fsrs.optimizer/torch/pandas/tqdm are excluded for size: py-fsrs only
+    lazy-imports the optimizer, which once produced a 5 GB bundle.
+    """
+    return [
+        "gi", "gi.repository", "pyglet.media.codecs.gstreamer", "gst",
+        "fsrs.optimizer", "torch", "pandas", "tqdm",
+    ]
+
+
 def _zip_release(folder: Path, out: Path) -> None:
     if out.exists():
         out.unlink()
@@ -350,16 +402,16 @@ def build_artifact(force: bool = False) -> Path | None:
     # PyNaCl ships a compiled libsodium extension + cffi backend used by the
     # updater's signature check; --collect-all grabs the binary reliably.
     cmd += ["--collect-all", "nacl", "--hidden-import", "_cffi_backend"]
-    # fsrs's optional optimizer drags in torch (gigabytes) through imports
-    # that only matter for parameter training; the shipped scheduler never
-    # touches it. Excluding keeps the bundle small AND working.
-    for mod in ("fsrs.optimizer", "torch", "pandas", "tqdm"):
+    for mod in _exclude_modules():
         cmd += ["--exclude-module", mod]
 
     _log(f"Running PyInstaller ({platform_tag()})...")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         _log("PyInstaller failed.")
+        return None
+
+    if _check_bundle(dist / NAME):
         return None
 
     src = dist / NAME
