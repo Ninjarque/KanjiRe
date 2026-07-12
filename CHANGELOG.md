@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.8.1 — 2026-07-12
 - Fixed text overlapping in several places: KanjiRe is now **DPI-aware** on
   Windows, so with display scaling (125-175%) the window uses its real size —
   layouts stop squeezing into a smaller virtual one and all text renders
