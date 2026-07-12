@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.10.0 — 2026-07-12
 - **MULTIPLAYER!** New ⚡ button on the menu: host a room (or join with a
   4-letter code) and race your friends on a **shared board** — everyone
   sees the same cards, you play one turn each, matched groups vanish and
