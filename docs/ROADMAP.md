@@ -1,5 +1,12 @@
 # KanjiRe — Beginner-to-Reader Roadmap
 
+> **STATUS (2026-07-12): Tiers 0–3 are fully shipped** — v0.3.0 (Tier 0 +
+> FSRS spine), v0.4.0 (typed recall, confused-pair boards), v0.5.0 (kanji
+> anatomy, sentences, pitch, coverage, placement), v0.6.0 (Journey, Reading
+> Room, listening, leech hunts), v0.7.0 (Reading Room v2: own texts).
+> Tier 4 (handwriting, grammar-lite, Steam, sync) awaits discussion after
+> battle-testing. Implementation details live in `docs/ARCHITECTURE.md`.
+
 > Written 2026-07-12 from a three-track research pass (feature analysis of
 > WaniKani / jpdb / Anki+FSRS / Renshuu / Bunpro / Satori Reader / Wagotabi /
 > MaruMori / Kanji Study / Skritter / Ringotan / Duolingo; community

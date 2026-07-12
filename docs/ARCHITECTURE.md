@@ -4,6 +4,10 @@
 > function-level sweep of every module. This is the developer-facing map of
 > everything that is genuinely implemented. The player-facing intro lives in
 > `README.md`.
+>
+> **ADDENDUM — v0.3.0 through v0.7.0 (same day, the beginner-to-reader
+> pass; see §13 at the end for the delta).** Sections below describe the
+> v0.2.0 baseline and remain accurate for what they cover.
 
 KanjiRe is a pyglet (1.5) Japanese kanji matching mini-game inspired by
 Wagotabi's "Saeki's Kanji". Each word becomes up to 3 cards — kanji / reading /
@@ -451,3 +455,72 @@ honest edges of the codebase.
   `dist/KanjiRe/KanjiRe.exe` is still running — stop the process first.
 - The updater only updates builds that already contain it, so new users need
   one manual seed download (v0.2.0+ from the release page).
+
+
+## 13. Addendum: v0.3.0 - v0.7.0 (the beginner-to-reader pass)
+
+Shipped 2026-07-12 across five releases; every feature below is tested
+(92 pytest + 20 smoke checkpoints) and live via the auto-updater.
+
+**New modules**
+- `kanjire/srs/` - FSRS layer. `store.py::SrsStore` wraps py-fsrs 6 (soft
+  dependency; no-op without it): `srs_state` table in stats.db, `update()`
+  fed by StatsRecorder events (clean match=Good, fumbled=Hard,
+  confusion/failed recall=Again, typed recall=Easy), `due_keys()`
+  retrievability-sorted, `new_allowance()` (shrinks with due pile AND
+  words already introduced today - review debt structurally impossible),
+  `seed_known()` (placement, spread dues), `enqueue_new()` (Reading Room
+  mining), `leech_keys()`. `session.py::build_today_plan` assembles Today:
+  cross-deck due reviews + scoped new-word trickle, comeback plan
+  (20 most-at-risk, no new) after 4+ days away.
+- `kanjire/data/coverage.py` - frequency-weighted coverage per deck
+  (10^zipf; true counts for corpora) + next-5%-milestone estimate.
+- `kanjire/data/kanjidata.py` - read-only API over two new bundled
+  sidecars: `kanjidata.db` (kradfile-u components 13k kanji; WK-Keisei
+  phonetic series 2,945 kanji/591 series; kanjium pitch 124k entries;
+  built by `scripts/fetch_kanji_data.py`) and `sentences.db` (Tanaka
+  corpus, 62,399 sentences with complete per-sentence word indexes +
+  n_kanji_words; built by `scripts/fetch_sentences.py`).
+  `readable_sentences()` is the i+1 density query.
+- Scenes: `journey.py` (456-station frequency road, cleared at 12/15
+  known, gold frontier, boss every 5th station), `reading.py` (Reading
+  Room: i+1 feed with source picker General/imported corpora, word chips,
+  popup with +learn, read_log volume stats), `recall.py` (typed-recall
+  epilogue after Today/Journey sessions; alternates with listening
+  dictation when JP TTS available).
+
+**Engine/config changes** - `session_mode` (finite pool, win on clearing
+it, `session_left`, smaller final boards), `_group_errored` tracked in all
+modes, recorder protocol `matched(word, clean)`, `SelectResult.session_complete`.
+
+**Sampler** (`model/sampling.py`) - sequential weighted draw with stacked
+confusability boosts: shared kanji x8, same phonetic series x5 (keisei),
+historically-confused pairs x30 (review_log partner columns), same JLPT
+x1.5; `penalize` floor unchanged. Wired via GameScene for all modes.
+
+**Stats layer** - `review_log` (graded events + partner columns),
+`read_log` (sentences/chars read, per source), `recalled()` verb,
+`confusion_partners()`, `mark_known()` placement, heatmap `day_counts()`.
+Vocab DB gains `corpus_sentences`/`corpus_sentence_words` (captured at
+import by `ingest.index_sentences`; bundled Wikipedia deck ships 2,080).
+
+**UI** - 5-tab nav (Play/Journey/Read/Stats/Settings). Menu: Today+PLAY
+footer row (plan-aware label, done/bonus states), streak footer with
+banked freezes. Stats overview: two columns - coverage bars + face bars
+left; heatmap, accuracy, N5-N1 mark-known, WANTED leech-hunt button
+right; word detail overlay adds pitch [n], components, sound family,
+example sentence. Game: sentence toast after matches, session words-left
+HUD. Results: session-complete title, streak line, practice-tricky-words.
+`kana.py::romaji_to_hira` powers IME-free typed input.
+
+**UserState** - streak_count/streak_freezes/streak_day (1 freeze per 7
+days, bank 3, silently bridge gaps).
+
+**Build/release** - sidecars bundled; fsrs hidden-import with
+torch/fsrs.optimizer/pandas/tqdm excluded (a 5 GB-zip incident) + 300 MB
+size guard; `release.py --rebuild` resumes a failed release; WSL build
+installs fsrs; setup_data.py is now 7 steps.
+
+**Data licenses** - kradfile-u (EDRDG/KanjiCafe CC BY-SA), WK-Keisei db
+(GPL-3.0 - attribution in kanjidata.db meta), kanjium (CC BY-SA 4.0),
+Tanaka corpus (CC BY 2.0 FR).

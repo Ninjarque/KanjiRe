@@ -15,6 +15,25 @@ Inspired by the "Saeki's Kanji" matching mini-game in
 
 ## Features
 
+- **Today's Training** — a one-click daily session scheduled by a real memory
+  model (FSRS): words due for review plus a governed trickle of new ones,
+  ending in a typed-recall round (romaji auto-converts to kana — no IME
+  needed) that alternates with listening dictation. Daily streaks come with
+  earned freezes, and coming back after a break gets you a short refresher,
+  never a review mountain.
+- **The Journey** — the whole vocabulary as a 456-station road ordered by
+  real-world frequency, with a boss fight (鬼) every fifth station. Nothing
+  is ever locked.
+- **The Reading Room** — real Japanese sentences picked so you know every
+  word (or all but one), from a 62,000-sentence corpus *or your own imported
+  texts*. Tap any word for reading/pitch/meaning, tap **+ learn** to queue
+  it, and watch your characters-read counter grow.
+- **Kanji anatomy** — every word's detail card shows its components, pitch
+  accent, and phonetic **sound family** (晴 borrows 青's せい, like 清・精).
+  Boards deliberately pair same-family and previously-confused words.
+- **Honest progress** — a frequency-weighted coverage meter ("you can
+  recognize 23% of everyday vocabulary · 31 words to 25%"), a GitHub-style
+  activity heatmap, and N5–N1 "I already know this" placement buttons.
 - **Three-way matching** across writing systems (kanji ⇄ reading ⇄ meaning), or a
   simpler two-card (kanji ⇄ meaning) mode.
 - **Frequency-weighted** word selection — common words show up more often, with a
