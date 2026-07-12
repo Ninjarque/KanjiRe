@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.11.0 — 2026-07-12
 - **Multiplayer now needs nothing but a room code.** No IP addresses, no
   port forwarding, no router settings: create a room, read the 5 letters to
   your friend, they type them in and hit Join — anywhere in the world.
