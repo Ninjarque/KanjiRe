@@ -15,10 +15,13 @@ from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 from pyglet.window import key, mouse
 
+from kanjire.data import coverage as coverage_mod
+from kanjire.data import db
 from kanjire.data.stats import classify, knowledge_score
 from kanjire.i18n import tr
 from kanjire.jputil import capitalize_first, kanji_chars
 from kanjire.model.vocab import jlpt_label
+from kanjire.ui.widgets.button import Button
 from kanjire.ui import theme
 from kanjire.ui.fonts import JP_FONT
 from kanjire.ui.gfx import fill_quad
@@ -251,6 +254,43 @@ class StatsScene(Scene):
             tr("STATS_EMPTY"),
             14, theme.DIM,
         )) if (ov.get("total_words") or 0) == 0 else None
+
+        # Coverage meters: frequency-weighted "how much everyday vocabulary
+        # can you recognize", one row per deck (JLPT + imported corpora).
+        self._coverage = coverage_mod.all_coverage(self.app.con, self.app.stats)
+        self._cov_title = reg(self._label(tr("SEC_COVERAGE"), 16, theme.TEXT,
+                                           bold=True, anchor_x="left"))
+        self._cov_rows = []
+        for deck, cov in self._coverage:
+            if deck == "jlpt":
+                name = tr("COVERAGE_GENERAL")
+            else:
+                name = deck[len("corpus:"):].replace("-", " ").title()
+            nm = reg(self._label(name, 12, theme.TEXT, anchor_x="left"))
+            bar = shapes.Rectangle(0, 0, 1, 8, color=theme.GOLD,
+                                   batch=self.batch, group=self.g_panel)
+            self._ov_widgets.append(bar)
+            pct = reg(self._label(f"{cov['pct']:.0f}%", 13, theme.GOLD,
+                                  bold=True, anchor_x="right"))
+            self._cov_rows.append((nm, bar, pct, cov))
+        if self._coverage and self._coverage[0][1]["next_milestone_words"] > 0:
+            c0 = self._coverage[0][1]
+            self._cov_milestone = reg(self._label(
+                tr("COVERAGE_MILESTONE", n=c0["next_milestone_words"],
+                   pct=c0["next_milestone_pct"]),
+                11, theme.DIM, anchor_x="left"))
+        else:
+            self._cov_milestone = None
+
+        # Placement: bulk "I already know this level" seeding.
+        self._know_title = reg(self._label(tr("SEC_KNOW"), 12, theme.MUTED,
+                                            bold=True, anchor_x="left"))
+        self._ov_buttons: list[tuple[int, Button]] = []
+        for lv in (5, 4, 3, 2, 1):
+            b = Button(f"N{lv}", lambda lv=lv: self._confirm_mark_known(lv),
+                       self.batch, self.g_panel, self.g_text,
+                       accent=theme.SUCCESS, font_size=11)
+            self._ov_buttons.append((lv, b))
 
         # Activity heatmap: one cell per day over the trailing weeks, colored
         # by that day's review-event count (review_log).
@@ -499,6 +539,12 @@ class StatsScene(Scene):
                 w.opacity = op_ov
             else:
                 w.visible = showing_overview
+        for _lv, b in self._ov_buttons:
+            if showing_overview:
+                b.set_visible(True)
+            else:
+                b.set_rect(-4000, -4000, 1, 1)
+                b.set_visible(False)
 
         for tab in ("Words", "Kanji"):
             visible = self.active_tab == tab
@@ -532,6 +578,11 @@ class StatsScene(Scene):
         if self.inner.on_mouse_press(x, y):
             return
         tab = self.active_tab
+        if tab == "Overview":
+            for _lv, b in self._ov_buttons:
+                if b.enabled and b.contains(x, y):
+                    b.click()
+                    return
         if tab in ("Words", "Kanji"):
             if self._search[tab].on_mouse_press(x, y, button, modifiers):
                 return
@@ -601,6 +652,35 @@ class StatsScene(Scene):
         self._apply_sort_and_filter("Words")
         self._apply_sort_and_filter("Kanji")
 
+    def _confirm_mark_known(self, level: int) -> None:
+        """Placement: seed a whole JLPT level as already-known."""
+        try:
+            words = db.load_words(self.app.con, decks=["jlpt"], levels=[level],
+                                  require_kanji=True)
+        except Exception:
+            return
+        if not words:
+            return
+        import tkinter
+        from tkinter import messagebox
+        root = tkinter.Tk()
+        root.withdraw()
+        try:
+            ok = messagebox.askyesno(
+                tr("KNOW_CONFIRM_TITLE"),
+                tr("KNOW_CONFIRM_MSG", n=len(words), level=f"N{level}"),
+                parent=root,
+            )
+        finally:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+        if not ok:
+            return
+        self.app.stats.mark_known(words)
+        self.app.go_stats()   # rebuild: every number on this screen changed
+
     def _column_at_x(self, x: float) -> int | None:
         cols = self._columns_for(self.active_tab)
         for i, (cx, cw, _a) in enumerate(self._col_geometry(cols)):
@@ -611,6 +691,9 @@ class StatsScene(Scene):
     def on_mouse_motion(self, x, y, dx, dy) -> None:
         self.nav.on_mouse_motion(x, y)
         self.inner.on_mouse_motion(x, y)
+        if self.active_tab == "Overview":
+            for _lv, b in self._ov_buttons:
+                b.set_hover(b.enabled and b.contains(x, y))
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
         tab = self.active_tab
@@ -658,6 +741,8 @@ class StatsScene(Scene):
         self.nav.set_scale(s)
         self.inner.set_scale(s)
         self.content_panel.set_scale(s)
+        for _lv, b in self._ov_buttons:
+            b.set_scale(s)
         # Rescale every overview + header label font from its stored base.
         for w in self._ov_widgets:
             if isinstance(w, Label) and hasattr(w, "_base_fs"):
@@ -681,6 +766,8 @@ class StatsScene(Scene):
         self._refresh_visibility()
 
     def _layout_overview(self) -> None:
+        """Two-column overview: tiles across the top, then coverage + face
+        bars on the left and activity heatmap + placement on the right."""
         s = self._s
         cx = self.width / 2
         left = 60 * s
@@ -695,40 +782,64 @@ class StatsScene(Scene):
             tx = left + i * (tile_w + gap) + tile_w / 2
             val.x, val.y = tx, y
             label.x, label.y = tx, y - 30 * s
-        y -= 90 * s
-        self._face_title.x, self._face_title.y = left, y
+        col_top = y - 70 * s
+        col_w = cx - left - 40 * s
+        right = cx + 30 * s
+
+        # ---- LEFT column: coverage, then per-face mistake bars ---- #
+        ly = col_top
+        self._cov_title.x, self._cov_title.y = left, ly
+        ly -= 30 * s
+        bar_x = left + 150 * s
+        bar_max_w = col_w - 200 * s
+        for nm, bar, pct, cov in self._cov_rows:
+            nm.x, nm.y = left, ly
+            bar.x = bar_x
+            bar.y = ly - 4 * s
+            bar.height = max(4, round(8 * s))
+            bar.width = max(2, int(bar_max_w * min(1.0, cov["pct"] / 100.0)))
+            pct.x, pct.y = left + col_w, ly
+            ly -= 26 * s
+        if self._cov_milestone is not None:
+            self._cov_milestone.x, self._cov_milestone.y = left, ly
+            ly -= 26 * s
+        ly -= 16 * s
+        self._face_title.x, self._face_title.y = left, ly
         max_m = max(self._overview.get("m_kanji") or 0,
                     self._overview.get("m_reading") or 0,
                     self._overview.get("m_meaning") or 0, 1)
-        bar_x = 180 * s
-        bar_max_w = self.width - 240 * s
         for i, (name_lbl, count_lbl, bar, face) in enumerate(self._face_bars):
-            yy = y - 28 * s - i * 30 * s
+            yy = ly - 28 * s - i * 30 * s
             name_lbl.x, name_lbl.y = left, yy
             ratio = (self._overview.get(f"m_{face}") or 0) / max_m
             bar.x = bar_x
             bar.y = yy - 4 * s
             bar.height = max(4, round(8 * s))
             bar.width = max(1, int(bar_max_w * ratio))
-            count_lbl.x, count_lbl.y = bar_x + bar_max_w, yy
-        y -= 28 * s + len(self._face_bars) * 30 * s + 16 * s
-        self._accuracy.x, self._accuracy.y = cx, y
-        if self._empty_hint is not None:
-            self._empty_hint.x, self._empty_hint.y = cx, y - 30 * s
+            count_lbl.x, count_lbl.y = left + col_w, yy
 
-        # Heatmap block: title, then the week×weekday grid, newest at right.
-        y -= 44 * s
-        self._heat_title.x, self._heat_title.y = left, y
-        cell = max(6, min(round(15 * s),
-                          int((self.width - 2 * left) / HEAT_WEEKS) - 3))
-        gap = max(2, round(cell * 0.22))
-        grid_top = y - 24 * s
+        # ---- RIGHT column: heatmap, accuracy, placement row ---- #
+        ry = col_top
+        self._heat_title.x, self._heat_title.y = right, ry
+        cell = max(5, min(round(13 * s),
+                          int((self.width - right - 40 * s) / HEAT_WEEKS) - 3))
+        hgap = max(2, round(cell * 0.22))
+        grid_top = ry - 24 * s
         for rect, week, weekday in self._heat_cells:
             rect.width = rect.height = cell
-            rect.x = left + week * (cell + gap)
-            rect.y = grid_top - weekday * (cell + gap) - cell
-        grid_bottom = grid_top - 7 * (cell + gap)
-        self._heat_today.x, self._heat_today.y = left, grid_bottom - 10 * s
+            rect.x = right + week * (cell + hgap)
+            rect.y = grid_top - weekday * (cell + hgap) - cell
+        grid_bottom = grid_top - 7 * (cell + hgap)
+        self._heat_today.x, self._heat_today.y = right, grid_bottom - 12 * s
+        self._accuracy.anchor_x = "left"
+        self._accuracy.x, self._accuracy.y = right, grid_bottom - 38 * s
+        ky = grid_bottom - 74 * s
+        self._know_title.x, self._know_title.y = right, ky
+        bx = right
+        for i, (_lv, b) in enumerate(self._ov_buttons):
+            b.set_rect(bx + i * 54 * s, ky - 40 * s, 48 * s, 26 * s)
+        if self._empty_hint is not None:
+            self._empty_hint.x, self._empty_hint.y = cx, 60 * s
 
     def _col_geometry(self, cols) -> list:
         """(x, width, align) per column, scaled — shared by layout + hit-test."""
@@ -808,6 +919,8 @@ class StatsScene(Scene):
         self.nav.delete()
         self.inner.delete()
         self.content_panel.delete()
+        for _lv, b in self._ov_buttons:
+            b.delete()
         for w in self._ov_widgets:
             try: w.delete()
             except Exception: pass

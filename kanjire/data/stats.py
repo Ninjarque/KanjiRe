@@ -301,6 +301,37 @@ class StatsRecorder:
             out.setdefault(key, set()).add(partner)
         return out
 
+    def mark_known(self, words: Iterable[Word]) -> int:
+        """Placement: record the given words as already known.
+
+        Seeds both the lifetime stats (one clean match — enough for the
+        *known* bucket) and the scheduler (spread review dates). Words with
+        existing stats keep them. Returns the number of words seeded."""
+        ts = _now()
+        keys = []
+        n = 0
+        for w in words:
+            row = self.get_for(w.expression, w.reading)
+            if row is None or not row.get("matches"):
+                self.con.execute(
+                    """
+                    INSERT INTO word_stats (expression, reading, meaning, seen,
+                                            matches, current_streak,
+                                            last_seen_at, last_correct_at)
+                    VALUES (?, ?, ?, 1, 1, 1, ?, ?)
+                    ON CONFLICT(expression, reading) DO UPDATE SET
+                      matches        = MAX(matches, 1),
+                      current_streak = MAX(current_streak, 1)
+                    """,
+                    (w.expression, w.reading, w.meaning, ts, ts),
+                )
+                n += 1
+            keys.append((w.expression, w.reading))
+        self.con.commit()
+        if self.srs is not None:
+            self.srs.seed_known(keys)
+        return n
+
     def day_counts(self) -> dict[str, int]:
         """Review events per player-local day (heatmap fuel): {YYYY-MM-DD: n}."""
         return {

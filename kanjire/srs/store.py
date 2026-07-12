@@ -230,6 +230,40 @@ class SrsStore:
             base = round(NEW_TARGET_PER_DAY * (1 - due / DUE_SOFT_CEILING))
         return max(0, base - self.introduced_today())
 
+    def seed_known(self, keys, *, rng=None, spread_days: int = 45) -> int:
+        """Bulk-mark words as already known (placement / "I know these").
+
+        Creates review-state cards with a healthy stability and due dates
+        spread uniformly over the next *spread_days*, so seeding 600 words
+        trickles them into Today reviews instead of dumping a 600-card pile
+        (the no-review-debt rule applies to placement too). Words that
+        already have SRS state are left untouched. Returns how many seeded.
+        """
+        if not self.enabled:
+            return 0
+        import random as _random
+        rng = rng or _random.Random()
+        now = datetime.now(timezone.utc)
+        existing = self.tracked_keys()
+        n = 0
+        for expression, reading in keys:
+            if (expression, reading) in existing:
+                continue
+            due = now + timedelta(days=rng.uniform(1.0, float(spread_days)))
+            card = Card(
+                card_id=abs(hash((expression, reading))) & 0x7FFFFFFF,
+                state=2,                    # Review
+                step=None,
+                stability=float(spread_days),
+                difficulty=5.0,             # mid-scale; adapts from here
+                due=due,
+                last_review=now,
+            )
+            self._save_card(expression, reading, card, 0)
+            n += 1
+        self.con.commit()
+        return n
+
     def reset_word(self, expression: str, reading: str) -> None:
         self.con.execute(
             "DELETE FROM srs_state WHERE expression=? AND reading=?",

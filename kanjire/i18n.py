@@ -178,6 +178,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_ACTIVITY":        "ACTIVITY",
         "ACTIVITY_TODAY":      "{n} reviews today",
         "DETAIL_CLOSE_HINT":   "Click anywhere or press Esc to close",
+        "SEC_COVERAGE":        "COVERAGE",
+        "COVERAGE_GENERAL":    "Everyday vocabulary",
+        "COVERAGE_MILESTONE":  "next: {n} more words to reach {pct}%",
+        "SEC_KNOW":            "I ALREADY KNOW…",
+        "KNOW_CONFIRM_TITLE":  "Mark level as known",
+        "KNOW_CONFIRM_MSG":    ("Mark all {n} {level} words as already known?\n\n"
+                                "They'll show up as occasional reviews instead "
+                                "of new words. Words you've already played keep "
+                                "their history."),
         "INNER_OVERVIEW":      "Overview",
         "INNER_WORDS":         "Words",
         "INNER_KANJI":         "Kanji",
@@ -385,6 +394,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_ACTIVITY":        "ACTIVITÉ",
         "ACTIVITY_TODAY":      "{n} révisions aujourd'hui",
         "DETAIL_CLOSE_HINT":   "Cliquez n'importe où ou Échap pour fermer",
+        "SEC_COVERAGE":        "COUVERTURE",
+        "COVERAGE_GENERAL":    "Vocabulaire courant",
+        "COVERAGE_MILESTONE":  "prochain palier : {n} mots pour atteindre {pct}%",
+        "SEC_KNOW":            "JE CONNAIS DÉJÀ…",
+        "KNOW_CONFIRM_TITLE":  "Marquer le niveau comme connu",
+        "KNOW_CONFIRM_MSG":    ("Marquer les {n} mots {level} comme déjà connus ?\n\n"
+                                "Ils apparaîtront en révisions occasionnelles "
+                                "plutôt qu'en nouveaux mots. Les mots déjà joués "
+                                "gardent leur historique."),
         "INNER_OVERVIEW":      "Vue d'ensemble",
         "INNER_WORDS":         "Mots",
         "INNER_KANJI":         "Kanji",
