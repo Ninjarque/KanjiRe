@@ -26,6 +26,7 @@ from kanjire.data import db
 from kanjire.i18n import tr
 from kanjire.model.sampling import weighted_sample_words
 from kanjire.net.client import NetClient
+from kanjire.net.room_client import RoomClient
 from kanjire.net.server import DEFAULT_PORT, start_in_thread
 from kanjire.ui import theme
 from kanjire.ui.anim import Animator, ease_out_back, ease_out_cubic, ease_out_elastic
@@ -105,12 +106,17 @@ class MultiplayerScene(Scene):
         self.in_name = TextInput(self.batch, self.g_bg, self.g_text,
                                  self.g_text, font_size=14, placeholder="")
         self.in_addr = TextInput(self.batch, self.g_bg, self.g_text,
-                                 self.g_text, font_size=14, placeholder="")
+                                 self.g_text, font_size=14,
+                                 placeholder=tr("MP_ADDR_PH"))
         self.in_code = TextInput(self.batch, self.g_bg, self.g_text,
                                  self.g_text, font_size=14,
                                  placeholder=tr("MP_CODE_PH"))
         self.in_name.set_text(app.state.setting("mp_name", ""))
-        self.in_addr.set_text(app.state.setting("mp_address", ""))
+        # The address stays EMPTY by default: an empty field means the
+        # code-only relay path, which is what nearly everyone wants. (A
+        # remembered address is offered only if the player used one before
+        # AND explicitly re-enters it - we never silently force the direct
+        # path on them.)
         self.inputs = [self.in_name, self.in_addr, self.in_code]
 
         self.host_btn = Button(tr("MP_HOST"), self._host, self.batch,
@@ -208,39 +214,52 @@ class MultiplayerScene(Scene):
         return [{"kanji": w.expression, "reading": w.reading,
                  "meaning": w.get_meaning(loc)} for w in picked]
 
+    def _make_client(self, addr: str):
+        """Room-code-only by default (relay, no setup); a direct server
+        address is the optional advanced path (LAN / self-hosted)."""
+        if addr:
+            self.app.state.set_setting("mp_address", addr)
+            client = NetClient()
+            err = client.connect(addr, self._my_name())
+        else:
+            client = RoomClient()
+            err = client.connect(self._my_name())
+        if err:
+            self.status = tr("MP_ERR_CONNECT", err=err)
+            return None
+        self.client = client
+        self.status = tr("MP_CONNECTING")
+        return client
+
     def _host(self) -> None:
         pool = self._sample_pool()
         if len(pool) < 4:
             self.status = tr("MP_ERR_POOL")
             return
-        try:
-            self.server = start_in_thread(port=DEFAULT_PORT)
-        except OSError:
-            self.server = None      # port busy: assume a server runs already
-        self.client = NetClient()
-        err = self.client.connect(f"127.0.0.1:{DEFAULT_PORT}", self._my_name())
-        if err:
-            self.status = tr("MP_ERR_CONNECT", err=err)
+        addr = self.in_addr.text.strip()
+        if addr:
+            # Advanced: also run a server here so friends can connect direct.
+            try:
+                self.server = start_in_thread(port=DEFAULT_PORT)
+            except OSError:
+                self.server = None      # already running: reuse it
+            addr = f"127.0.0.1:{DEFAULT_PORT}"
+        client = self._make_client(addr)
+        if client is None:
             return
-        self.client.send({"t": "create", "pool": pool,
-                          "faces": ["kanji", "reading", "meaning"],
-                          "board_size": 6, "turns_each": self.turns_each})
-        self.status = tr("MP_CONNECTING")
+        client.send({"t": "create", "pool": pool,
+                     "faces": ["kanji", "reading", "meaning"],
+                     "board_size": 6, "turns_each": self.turns_each})
 
     def _join(self) -> None:
-        addr = self.in_addr.text.strip()
         code = self.in_code.text.strip().upper()
-        if not addr or not code:
-            self.status = tr("MP_ERR_FIELDS")
+        if not code:
+            self.status = tr("MP_ERR_CODE")
             return
-        self.app.state.set_setting("mp_address", addr)
-        self.client = NetClient()
-        err = self.client.connect(addr, self._my_name())
-        if err:
-            self.status = tr("MP_ERR_CONNECT", err=err)
+        client = self._make_client(self.in_addr.text.strip())
+        if client is None:
             return
-        self.client.send({"t": "join", "room": code})
-        self.status = tr("MP_CONNECTING")
+        client.send({"t": "join", "room": code})
 
     def _set_turns(self, n: int) -> None:
         """Turns-per-player, chosen on the connect screen before hosting."""
@@ -499,21 +518,22 @@ class MultiplayerScene(Scene):
             # below the text height on small windows.
             in_w, in_h = max(280, 340 * s), max(32, 34 * s)
             in_x = cx - in_w / 2 + 40 * s
-            y0 = height - 170 * s
+            y0 = height - 160 * s
             self.lbl_name.x, self.lbl_name.y = in_x - 14 * s, y0 + in_h / 2
             self.in_name.set_rect(in_x, y0, in_w, in_h)
-            y1 = y0 - 60 * s
-            self.lbl_addr.x, self.lbl_addr.y = in_x - 14 * s, y1 + in_h / 2
-            self.in_addr.set_rect(in_x, y1, in_w, in_h)
-            y2 = y1 - 60 * s
-            self.lbl_code.x, self.lbl_code.y = in_x - 14 * s, y2 + in_h / 2
-            self.in_code.set_rect(in_x, y2, in_w, in_h)
-            y3 = y2 - 54 * s
-            self.lbl_turns.x, self.lbl_turns.y = in_x - 14 * s, y3 + 14 * s
+            y1 = y0 - 58 * s
+            self.lbl_code.x, self.lbl_code.y = in_x - 14 * s, y1 + in_h / 2
+            self.in_code.set_rect(in_x, y1, in_w, in_h)
+            y2 = y1 - 52 * s
+            self.lbl_turns.x, self.lbl_turns.y = in_x - 14 * s, y2 + 14 * s
             for i, (_n, b) in enumerate(self.turns_btns):
-                b.set_rect(in_x + i * 64 * s, y3, 56 * s, 28 * s)
-            self.host_btn.set_rect(cx - 260 * s, y3 - 84 * s, 240 * s, 48 * s)
-            self.join_btn.set_rect(cx + 20 * s, y3 - 84 * s, 240 * s, 48 * s)
+                b.set_rect(in_x + i * 64 * s, y2, 56 * s, 28 * s)
+            self.host_btn.set_rect(cx - 260 * s, y2 - 80 * s, 240 * s, 48 * s)
+            self.join_btn.set_rect(cx + 20 * s, y2 - 80 * s, 240 * s, 48 * s)
+            # Advanced (optional): direct server address for LAN/self-hosting.
+            y3 = y2 - 152 * s
+            self.lbl_addr.x, self.lbl_addr.y = in_x - 14 * s, y3 + in_h / 2
+            self.in_addr.set_rect(in_x, y3, in_w, in_h)
         elif self.phase == "lobby":
             self.big_code.x, self.big_code.y = cx, height - 150 * s
             for i, lbl in enumerate(self.player_lbls):

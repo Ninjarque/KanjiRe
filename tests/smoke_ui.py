@@ -623,6 +623,7 @@ def run() -> int:
         assert isinstance(mp, MultiplayerScene)
         frames2(4)
         mp.in_name.set_text("hosty")
+        mp.in_addr.set_text("127.0.0.1")   # advanced: direct-server path
         mp._set_turns(5)
         mp._host()
         guard = 0
@@ -630,7 +631,7 @@ def run() -> int:
             frames2(2)
             guard += 1
         assert mp.phase == "lobby", f"host stuck: {mp.status!r}"
-        assert len(mp.room) == 4
+        assert len(mp.room) == 5
 
         fs = _sock.create_connection(("127.0.0.1", DEFAULT_PORT), timeout=5)
         fs.settimeout(5)
@@ -709,7 +710,73 @@ def run() -> int:
         mp._leave()
         assert isinstance(app2.scene, MenuScene)
         frames2(4)
-        print("PASS multiplayer host + join + turn cycle")
+        print("PASS multiplayer host + join + turn cycle (direct server)")
+
+        # 22) Code-only multiplayer through the UI: the scene creates a room
+        # over the relay (loopback broker here) and a friend joins with the
+        # 5-letter code ALONE - no address anywhere - then plays a turn.
+        from kanjire.net.room_client import RoomClient
+        from kanjire.net.transport import LoopbackBroker, LoopbackTransport
+
+        broker = LoopbackBroker()
+        app2.go_multiplayer()
+        mp2 = app2.scene
+        mp2.in_name.set_text("hosty")
+        mp2.in_addr.set_text("")          # code-only path
+        orig_make = mp2._make_client
+
+        def _relay_client(addr):
+            c = RoomClient(transport=LoopbackTransport(broker))
+            assert c.connect(mp2._my_name()) is None
+            mp2.client = c
+            return c
+        mp2._make_client = _relay_client
+        mp2._host()
+        frames2(6)
+        assert mp2.phase == "lobby" and len(mp2.room) == 5, mp2.room
+        code = mp2.room
+
+        friend = RoomClient(transport=LoopbackTransport(broker))
+        assert friend.connect("friend") is None
+        friend.send({"t": "join", "room": code.lower()})   # code only!
+        assert any(m.get("t") == "welcome" and m.get("player") == 1
+                   for m in friend.poll())
+        frames2(6)
+        assert mp2.state["players"] == ["hosty", "friend"]
+
+        mp2._start()
+        frames2(6)
+        assert mp2.phase == "play" and len(mp2.cards) == 18
+        fstates = [m["state"] for m in friend.poll() if m.get("t") == "state"]
+        assert fstates and fstates[-1]["started"]
+        assert [c["id"] for c in fstates[-1]["board"]] == \
+            [c["id"] for c in mp2.state["board"]], "boards differ!"
+
+        # Host takes its turn through real UI clicks.
+        g0 = mp2.state["board"][0]["group"]
+        for cid in [c["id"] for c in mp2.state["board"] if c["group"] == g0]:
+            cv = mp2.cards[cid]
+            mp2.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+            frames2(3)
+        assert mp2.state["scores"][0] == 100 and mp2.state["turn"] == 1
+        fs2 = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
+        assert fs2["scores"] == [100, 0] and fs2["turn"] == 1
+        assert len(fs2["board"]) == 18, "board did not refill for everyone"
+
+        # Friend's turn: their match lands on the host's board too.
+        gf = fs2["board"][0]["group"]
+        for cid in [c["id"] for c in fs2["board"] if c["group"] == gf]:
+            friend.send({"t": "select", "card": cid})
+        friend.poll()
+        frames2(6)
+        assert mp2.state["scores"][1] == 100, mp2.state["scores"]
+        assert mp2.state["turn"] == 0
+
+        friend.close()
+        mp2._make_client = orig_make
+        mp2._leave()
+        frames2(4)
+        print("PASS multiplayer code-only (relay, no address)")
 
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()

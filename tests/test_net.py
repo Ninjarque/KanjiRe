@@ -78,7 +78,7 @@ def test_full_two_player_game_flow():
         assert w["t"] == "welcome" and w["player"] == 0
         st = a.recv_state()
         room = st["room"]
-        assert len(room) == 4 and room.isupper()
+        assert len(room) == 5 and room.isupper()
 
         b.send({"t": "join", "room": room.lower()})   # case-insensitive
         wb = b.recv()

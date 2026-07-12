@@ -1,4 +1,4 @@
-"""Lightweight UI translations.
+﻿"""Lightweight UI translations.
 
 ``tr(key, **fmt)`` returns the string for the current locale, falling back to
 English if the key is missing, then to the key itself if even English is
@@ -171,18 +171,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_LOBBY":            "ROOM LOBBY",
         "MP_DONE":             "FINAL SCORES",
         "MP_CONNECT_HINT":     "same board for everyone · take turns · highest score wins",
+        "MP_ADDR_PH":          "leave empty — advanced only",
         "MP_LOBBY_HINT":       "waiting for players…",
         "MP_NAME":             "Your name",
-        "MP_ADDR":             "Server address",
+        "MP_ADDR":             "Server (optional)",
         "MP_CODE":             "Room code",
-        "MP_CODE_PH":          "e.g. QZXK (join only)",
+        "MP_CODE_PH":          "5 letters, to join",
         "MP_TURNS":            "Turns each",
-        "MP_HOST":             "Host a room",
+        "MP_HOST":             "Create a room",
         "MP_JOIN":             "Join a room",
         "MP_START":            "▶  Start game",
-        "MP_HOST_HINT":        ("Friends: enter YOUR address (IP:24857) and this code. "
-                                "Hosting over the internet needs port 24857 forwarded, "
-                                "or run scripts/run_server.py on any server."),
+        "MP_HOST_HINT":        ("Share this code — that's all your friends need. "
+                                "They open Multiplayer, type it in, and hit Join."),
         "MP_PLAY_HINT":        "Esc leaves the game",
         "MP_YOU":              "  (you)",
         "MP_GONE":             "(left)",
@@ -191,7 +191,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_TURNS_LEFT":       "{n} turns left",
         "MP_CONNECTING":       "connecting…",
         "MP_ERR_CONNECT":      "Could not connect: {err}",
-        "MP_ERR_FIELDS":       "Enter a server address and a room code",
+        "MP_ERR_CODE":         "Enter the room code your friend shared",
         "MP_ERR_POOL":         "No words available to host with",
 
         # --- journey ---------------------------------------------- #
@@ -448,18 +448,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_LOBBY":            "SALON",
         "MP_DONE":             "SCORES FINAUX",
         "MP_CONNECT_HINT":     "même plateau pour tous · chacun son tour · le meilleur score gagne",
+        "MP_ADDR_PH":          "laisser vide — avancé",
         "MP_LOBBY_HINT":       "en attente de joueurs…",
         "MP_NAME":             "Votre nom",
-        "MP_ADDR":             "Adresse du serveur",
+        "MP_ADDR":             "Serveur (optionnel)",
         "MP_CODE":             "Code du salon",
-        "MP_CODE_PH":          "ex. QZXK (pour rejoindre)",
+        "MP_CODE_PH":          "5 lettres, pour rejoindre",
         "MP_TURNS":            "Tours chacun",
-        "MP_HOST":             "Héberger un salon",
+        "MP_HOST":             "Créer un salon",
         "MP_JOIN":             "Rejoindre",
         "MP_START":            "▶  Lancer la partie",
-        "MP_HOST_HINT":        ("Vos amis entrent VOTRE adresse (IP:24857) et ce code. "
-                                "Sur internet : redirigez le port 24857, ou lancez "
-                                "scripts/run_server.py sur un serveur."),
+        "MP_HOST_HINT":        ("Partagez ce code — c'est tout ce qu'il faut à vos amis. "
+                                "Ils ouvrent Multijoueur, le saisissent et rejoignent."),
         "MP_PLAY_HINT":        "Échap pour quitter la partie",
         "MP_YOU":              "  (vous)",
         "MP_GONE":             "(parti)",
@@ -468,7 +468,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_TURNS_LEFT":       "{n} tours restants",
         "MP_CONNECTING":       "connexion…",
         "MP_ERR_CONNECT":      "Connexion impossible : {err}",
-        "MP_ERR_FIELDS":       "Entrez une adresse et un code de salon",
+        "MP_ERR_CODE":         "Entrez le code du salon partagé par votre ami",
         "MP_ERR_POOL":         "Aucun mot disponible pour héberger",
 
         # --- périple ----------------------------------------------- #

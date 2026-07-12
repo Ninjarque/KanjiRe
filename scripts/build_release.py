@@ -152,9 +152,9 @@ def _bundle_lib_args() -> list[str]:
 
 def _hidden_imports() -> list[str]:
     """Per-OS modules PyInstaller occasionally misses for pyglet/TTS."""
-    # fsrs is imported inside a try/except (soft dependency), which some
-    # PyInstaller analyses skip - name it explicitly so the scheduler ships.
-    common = ["pyglet.media.codecs.wave", "fsrs"]
+    # fsrs and paho are imported lazily / inside try-excepts, which some
+    # PyInstaller analyses skip - name them so they actually ship.
+    common = ["pyglet.media.codecs.wave", "fsrs", "paho.mqtt.client"]
     if os.name == "nt":
         return common + [
             "pyglet.media.codecs.wmf",

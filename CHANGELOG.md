@@ -11,6 +11,12 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Multiplayer now needs nothing but a room code.** No IP addresses, no
+  port forwarding, no router settings: create a room, read the 5 letters to
+  your friend, they type them in and hit Join — anywhere in the world.
+  (Under the hood everyone connects *out* to a public relay, which is
+  exactly what home routers allow by default. A direct server address is
+  still there as an optional advanced field for LAN/self-hosting.)
 
 ## 0.10.0 — 2026-07-12
 - **MULTIPLAYER!** New ⚡ button on the menu: host a room (or join with a

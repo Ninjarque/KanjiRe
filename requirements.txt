@@ -4,6 +4,7 @@ pyglet>=1.5,<2.0
 pynacl>=1.5         # Ed25519 signature check for the self-updater
 comtypes>=1.2; sys_platform == "win32"   # direct SAPI text-to-speech
 fsrs>=6.0,<7        # FSRS spaced-repetition scheduler (per-word memory model)
+paho-mqtt>=2.0      # code-only multiplayer relay (no port forwarding needed)
 
 # ---- Dataset build & corpus ingestion (offline tooling) ----
 # Needed only to (re)generate kanjire/data/kanjire.db or import your own text.

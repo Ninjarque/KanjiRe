@@ -42,7 +42,9 @@ _MAX_ROOMS = 64
 
 
 def _room_code(rng) -> str:
-    return "".join(rng.choice(string.ascii_uppercase) for _ in range(4))
+    from kanjire.net import config
+    return "".join(rng.choice(string.ascii_uppercase)
+                   for _ in range(config.CODE_LEN))
 
 
 class Room:
