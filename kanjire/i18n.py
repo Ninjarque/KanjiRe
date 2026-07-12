@@ -165,6 +165,35 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_LISTEN_TITLE": "TYPE WHAT YOU HEAR",
         "RECALL_LISTEN_HINT":  "listen carefully — F1 replays the audio",
 
+        # --- multiplayer ------------------------------------------ #
+        "BTN_MULTIPLAYER":     "⚡ Multiplayer…",
+        "MP_TITLE":            "MULTIPLAYER",
+        "MP_LOBBY":            "ROOM LOBBY",
+        "MP_DONE":             "FINAL SCORES",
+        "MP_CONNECT_HINT":     "same board for everyone · take turns · highest score wins",
+        "MP_LOBBY_HINT":       "waiting for players…",
+        "MP_NAME":             "Your name",
+        "MP_ADDR":             "Server address",
+        "MP_CODE":             "Room code",
+        "MP_CODE_PH":          "e.g. QZXK (join only)",
+        "MP_TURNS":            "Turns each",
+        "MP_HOST":             "Host a room",
+        "MP_JOIN":             "Join a room",
+        "MP_START":            "▶  Start game",
+        "MP_HOST_HINT":        ("Friends: enter YOUR address (IP:24857) and this code. "
+                                "Hosting over the internet needs port 24857 forwarded, "
+                                "or run scripts/run_server.py on any server."),
+        "MP_PLAY_HINT":        "Esc leaves the game",
+        "MP_YOU":              "  (you)",
+        "MP_GONE":             "(left)",
+        "MP_YOUR_TURN":        "YOUR TURN — match a group!",
+        "MP_THEIR_TURN":       "{name} is playing…",
+        "MP_TURNS_LEFT":       "{n} turns left",
+        "MP_CONNECTING":       "connecting…",
+        "MP_ERR_CONNECT":      "Could not connect: {err}",
+        "MP_ERR_FIELDS":       "Enter a server address and a room code",
+        "MP_ERR_POOL":         "No words available to host with",
+
         # --- journey ---------------------------------------------- #
         "NAV_JOURNEY":         "Journey",
         "JOURNEY_TITLE":       "THE ROAD TO READING",
@@ -412,6 +441,35 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_ANSWER":       "Réponse :  {reading}",
         "RECALL_LISTEN_TITLE": "TAPEZ CE QUE VOUS ENTENDEZ",
         "RECALL_LISTEN_HINT":  "écoutez bien — F1 pour réécouter",
+
+        # --- multijoueur ------------------------------------------- #
+        "BTN_MULTIPLAYER":     "⚡ Multijoueur…",
+        "MP_TITLE":            "MULTIJOUEUR",
+        "MP_LOBBY":            "SALON",
+        "MP_DONE":             "SCORES FINAUX",
+        "MP_CONNECT_HINT":     "même plateau pour tous · chacun son tour · le meilleur score gagne",
+        "MP_LOBBY_HINT":       "en attente de joueurs…",
+        "MP_NAME":             "Votre nom",
+        "MP_ADDR":             "Adresse du serveur",
+        "MP_CODE":             "Code du salon",
+        "MP_CODE_PH":          "ex. QZXK (pour rejoindre)",
+        "MP_TURNS":            "Tours chacun",
+        "MP_HOST":             "Héberger un salon",
+        "MP_JOIN":             "Rejoindre",
+        "MP_START":            "▶  Lancer la partie",
+        "MP_HOST_HINT":        ("Vos amis entrent VOTRE adresse (IP:24857) et ce code. "
+                                "Sur internet : redirigez le port 24857, ou lancez "
+                                "scripts/run_server.py sur un serveur."),
+        "MP_PLAY_HINT":        "Échap pour quitter la partie",
+        "MP_YOU":              "  (vous)",
+        "MP_GONE":             "(parti)",
+        "MP_YOUR_TURN":        "À VOUS — associez un groupe !",
+        "MP_THEIR_TURN":       "{name} joue…",
+        "MP_TURNS_LEFT":       "{n} tours restants",
+        "MP_CONNECTING":       "connexion…",
+        "MP_ERR_CONNECT":      "Connexion impossible : {err}",
+        "MP_ERR_FIELDS":       "Entrez une adresse et un code de salon",
+        "MP_ERR_POOL":         "Aucun mot disponible pour héberger",
 
         # --- périple ----------------------------------------------- #
         "NAV_JOURNEY":         "Périple",

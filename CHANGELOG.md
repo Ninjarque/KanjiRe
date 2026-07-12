@@ -11,6 +11,13 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **MULTIPLAYER!** New ⚡ button on the menu: host a room (or join with a
+  4-letter code) and race your friends on a **shared board** — everyone
+  sees the same cards, you play one turn each, matched groups vanish and
+  refill for everyone, and combos build your score across your turns.
+  Pick 5/10/15 turns per player; highest score wins. Hosting runs the tiny
+  server inside the app (forward port 24857 to play over the internet), or
+  run `scripts/run_server.py` on any machine with Python.
 
 ## 0.9.0 — 2026-07-12
 - **Romaji cards!** The CARDS PER WORD option now has a third choice:

@@ -205,6 +205,11 @@ class GameApp:
 
         self.set_scene(JourneyScene(self))
 
+    def go_multiplayer(self) -> None:
+        from kanjire.ui.scenes.multiplayer import MultiplayerScene
+
+        self.set_scene(MultiplayerScene(self))
+
     def go_reading(self) -> None:
         from kanjire.ui.scenes.reading import ReadingScene
 

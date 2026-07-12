@@ -336,6 +336,9 @@ class MenuScene(Scene):
             tr("BTN_SAVE_PRESET"), self._save_preset_dialog,
             accent=theme.GOLD, font_size=12,
         )
+        self.mp_btn = self._btn(tr("BTN_MULTIPLAYER"),
+                                lambda: self.app.go_multiplayer(),
+                                accent=theme.DANGER, font_size=12)
 
         self.play_btn = self._btn(tr("BTN_PLAY"), self._play, accent=theme.SUCCESS, font_size=20)
         # Today's Training: the daily-habit entry point (label set in _refresh).
@@ -1055,6 +1058,7 @@ class MenuScene(Scene):
         self.today_btn.set_rect(cx - 340 * s, 120 * s, 330 * s, 56 * s)
         self.play_btn.set_rect(cx + 10 * s, 120 * s, 330 * s, 56 * s)
         self.save_preset_btn.set_rect(16 * s, 16 * s, 180 * s, 26 * s)
+        self.mp_btn.set_rect(self.width - 196 * s, 16 * s, 180 * s, 26 * s)
         self.avail_label.x, self.avail_label.y = cx, 90 * s
         self.hiscore_label.x, self.hiscore_label.y = cx, 64 * s
         self.streak_label.x, self.streak_label.y = cx, 40 * s

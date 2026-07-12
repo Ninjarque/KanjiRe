@@ -610,6 +610,107 @@ def run() -> int:
         frames2(6)
         print("PASS leech bounty hunt")
 
+        # 21) Multiplayer end-to-end: the app hosts (in-process server), a
+        # second player joins over a raw socket, and a shared-board turn
+        # cycle runs: host completes a group, friend mismatches.
+        import json as _json
+        import socket as _sock
+        from kanjire.net.server import DEFAULT_PORT, PROTOCOL
+        from kanjire.ui.scenes.multiplayer import MultiplayerScene
+
+        app2.go_multiplayer()
+        mp = app2.scene
+        assert isinstance(mp, MultiplayerScene)
+        frames2(4)
+        mp.in_name.set_text("hosty")
+        mp._set_turns(5)
+        mp._host()
+        guard = 0
+        while mp.phase != "lobby" and guard < 150:
+            frames2(2)
+            guard += 1
+        assert mp.phase == "lobby", f"host stuck: {mp.status!r}"
+        assert len(mp.room) == 4
+
+        fs = _sock.create_connection(("127.0.0.1", DEFAULT_PORT), timeout=5)
+        fs.settimeout(5)
+        ff = fs.makefile("rb")
+
+        def fsend(obj):
+            fs.sendall((_json.dumps(obj) + "\n").encode("utf-8"))
+
+        def frecv_state():
+            while True:
+                m = _json.loads(ff.readline())
+                if m["t"] == "state":
+                    return m["state"]
+                assert m["t"] != "error", m
+
+        fsend({"t": "hello", "name": "friend", "proto": PROTOCOL})
+        assert _json.loads(ff.readline())["t"] == "welcome"
+        fsend({"t": "join", "room": mp.room})
+        assert _json.loads(ff.readline())["player"] == 1
+        frecv_state()
+        guard = 0
+        while (not mp.state or len(mp.state.get("players", [])) < 2) \
+                and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.state["players"] == ["hosty", "friend"]
+
+        mp._start()
+        fst = frecv_state()          # start broadcast reaches the friend
+        assert fst["started"] and len(fst["board"]) == 18
+        guard = 0
+        while mp.phase != "play" and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.phase == "play" and len(mp.cards) == 18
+
+        # Host's turn: click one full group through the real scene input.
+        g0 = mp.state["board"][0]["group"]
+        ids = [c["id"] for c in mp.state["board"] if c["group"] == g0]
+        for cid in ids:
+            cv = mp.cards[cid]
+            mp.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+            frames2(4)
+        for _ in range(len(ids)):
+            fst = frecv_state()
+        guard = 0
+        while (mp.state["scores"][0] != 100) and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.state["scores"][0] == 100, mp.state["scores"]
+        assert mp.state["combos"][0] == 1
+        assert mp.state["turn"] == 1
+        assert len(mp.state["board"]) == 18      # refilled from the pool
+
+        # Friend's turn: a mismatch resets their combo and passes the turn.
+        s_now = fst
+        ga = s_now["board"][0]["group"]
+        a_id = next(c["id"] for c in s_now["board"] if c["group"] == ga)
+        b_id = next(c["id"] for c in s_now["board"] if c["group"] != ga)
+        fsend({"t": "select", "card": a_id})
+        frecv_state()
+        fsend({"t": "select", "card": b_id})
+        fst = frecv_state()
+        assert fst["turn"] == 0 and fst["turns_used"] == 2
+        guard = 0
+        while mp.state["turn"] != 0 and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.state["turn"] == 0, "host did not get the turn back"
+
+        for closer in (ff.close, fs.close):
+            try:
+                closer()
+            except OSError:
+                pass
+        mp._leave()
+        assert isinstance(app2.scene, MenuScene)
+        frames2(4)
+        print("PASS multiplayer host + join + turn cycle")
+
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()
         app2.audio.shutdown()

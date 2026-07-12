@@ -89,6 +89,14 @@ class UserState:
         self.data.setdefault("settings", {})["update_last_check"] = float(ts)
         self.save()
 
+    # ---- generic string settings (multiplayer name/address, ...) ----- #
+    def setting(self, key: str, default: str = "") -> str:
+        return str(self.data.get("settings", {}).get(key, default))
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.data.setdefault("settings", {})[key] = str(value)
+        self.save()
+
     # ---- visual theme palette --------------------------------------- #
     @property
     def palette(self) -> str:
