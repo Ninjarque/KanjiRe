@@ -11,6 +11,12 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Multiplayer: a completed group now stays up for two seconds.** It used to be
+  scored and swept off the board the instant the last card was clicked, so the
+  other players never got to see which cards went together — the whole point of
+  watching someone else's turn. The group lights up and holds, the board is
+  frozen for everyone (nobody can click through it), and it clears and passes
+  the turn at the same moment on every screen.
 
 ## 0.14.0 — 2026-07-12
 - **The updater actually updates now.** On Windows it downloaded the new

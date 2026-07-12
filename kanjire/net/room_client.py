@@ -309,6 +309,12 @@ class RoomClient:
                 except Exception:  # noqa: BLE001 — a failed ping is not fatal
                     pass
             if self.is_host:
+                # A completed group is held on the board for everyone to see;
+                # this is what clears it (and hands over the turn) once the
+                # reveal is up. Server-side, so every player's board resumes at
+                # the same moment.
+                if self.room is not None and self.room.tick(now):
+                    self._publish_state({"type": "reveal_end"})
                 self._reap_silent(now)
             elif not self._host_lost:
                 if not self._host_seen:

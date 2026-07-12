@@ -114,6 +114,15 @@ def test_full_two_player_game_flow():
         s = last["state"]
         assert s["scores"] == [100, 0]
         assert s["combos"] == [1, 0]
+        # The completed group is held on the board for everyone to see; the
+        # server's ticker clears it (and passes the turn) once the reveal is up.
+        assert sorted(s["revealing"]) == sorted(gids)
+        assert s["turn"] == 0, "the turn passed before anyone could look"
+        st = a.recv_state()          # blocks ~2s for the reveal to end (5s sock timeout)
+        b.recv_state()
+        assert st["event"]["type"] == "reveal_end"
+        s = st["state"]
+        assert not s["revealing"]
         assert s["turn"] == 1 and s["turns_used"] == 1
         # Board refilled back to 4 groups from the pool.
         assert len(s["board"]) == 12

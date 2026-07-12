@@ -650,7 +650,7 @@ def run() -> int:
         # cycle runs: host completes a group, friend mismatches.
         import json as _json
         import socket as _sock
-        from kanjire.net.server import DEFAULT_PORT, PROTOCOL
+        from kanjire.net.server import DEFAULT_PORT, PROTOCOL, REVEAL_SECONDS
         from kanjire.ui.scenes.multiplayer import MultiplayerScene
 
         app2.go_multiplayer()
@@ -675,11 +675,19 @@ def run() -> int:
         def fsend(obj):
             fs.sendall((_json.dumps(obj) + "\n").encode("utf-8"))
 
-        def frecv_state():
+        def frecv_state(event=None):
+            """Next state broadcast, or the next one carrying *event*.
+
+            The reveal pause adds a 'reveal_end' broadcast that the friend also
+            receives, so counting messages is no longer safe - wait for the
+            event you actually care about.
+            """
             while True:
                 m = _json.loads(ff.readline())
                 if m["t"] == "state":
-                    return m["state"]
+                    if event is None or (m.get("event") or {}).get("type") == event:
+                        return m["state"]
+                    continue
                 assert m["t"] != "error", m
 
         fsend({"t": "hello", "name": "friend", "proto": PROTOCOL})
@@ -723,18 +731,33 @@ def run() -> int:
             guard += 1
         assert mp.state["scores"][0] == 100, mp.state["scores"]
         assert mp.state["combos"][0] == 1
-        assert mp.state["turn"] == 1
+        # The completed group is HELD on the board for ~2s so every player can
+        # see which cards went together: scored at once, but still on screen and
+        # still the completer's turn until the reveal ends.
+        assert sorted(mp.state["revealing"]) == sorted(ids), mp.state["revealing"]
+        assert mp.state["turn"] == 0, "the turn passed before the reveal ended"
+        assert all(mp.cards[cid].model.matched for cid in ids)
+        # ...and now let the reveal actually elapse (real seconds: the server's
+        # ticker is what clears it).
+        deadline = time.time() + REVEAL_SECONDS + 5
+        while mp.state["turn"] != 1 and time.time() < deadline:
+            frames2(1)
+        assert mp.state["turn"] == 1, "the reveal never ended"
+        assert not mp.state["revealing"]
+        assert all(cid not in [c["id"] for c in mp.state["board"]] for cid in ids)
         assert len(mp.state["board"]) == expect   # refilled from the pool
 
         # Friend's turn: a mismatch resets their combo and passes the turn.
-        s_now = fst
+        # Use the CURRENT board: the pre-reveal snapshot still lists the group
+        # that has since been cleared, and clicking a dead card is a no-op.
+        s_now = mp.state
         ga = s_now["board"][0]["group"]
         a_id = next(c["id"] for c in s_now["board"] if c["group"] == ga)
         b_id = next(c["id"] for c in s_now["board"] if c["group"] != ga)
         fsend({"t": "select", "card": a_id})
-        frecv_state()
+        frecv_state("select")
         fsend({"t": "select", "card": b_id})
-        fst = frecv_state()
+        fst = frecv_state("mismatch")
         assert fst["turn"] == 0 and fst["turns_used"] == 2
         guard = 0
         while mp.state["turn"] != 0 and guard < 100:
@@ -833,15 +856,32 @@ def run() -> int:
         assert [c["id"] for c in fstates[-1]["board"]] == \
             [c["id"] for c in mp2.state["board"]], "boards differ!"
 
+        def wait_turn(who: int, why: str) -> None:
+            """Let the completed-group reveal actually elapse (real seconds -
+            the host's per-frame tick is what ends it)."""
+            end = time.time() + REVEAL_SECONDS + 5
+            while mp2.state["turn"] != who and time.time() < end:
+                frames2(1)
+            assert mp2.state["turn"] == who, why
+
         # Host takes its turn through real UI clicks.
         g0 = mp2.state["board"][0]["group"]
-        for cid in [c["id"] for c in mp2.state["board"] if c["group"] == g0]:
+        held = [c["id"] for c in mp2.state["board"] if c["group"] == g0]
+        for cid in held:
             cv = mp2.cards[cid]
             mp2.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
             frames2(3)
-        assert mp2.state["scores"][0] == 100 and mp2.state["turn"] == 1
+        # Held up for everyone before it's swept away, the friend included.
+        assert mp2.state["scores"][0] == 100
+        assert sorted(mp2.state["revealing"]) == sorted(held)
+        fhold = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
+        assert sorted(fhold["revealing"]) == sorted(held), \
+            "the friend never saw the completed group"
+        assert all(cid in [c["id"] for c in fhold["board"]] for cid in held)
+        wait_turn(1, "the reveal never ended for the host")
         fs2 = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
         assert fs2["scores"] == [100, 0] and fs2["turn"] == 1
+        assert not fs2["revealing"]
         assert len(fs2["board"]) == 16, "board did not refill for everyone"
 
         # Friend's turn: their match lands on the host's board too.
@@ -849,6 +889,7 @@ def run() -> int:
         for cid in [c["id"] for c in fs2["board"] if c["group"] == gf]:
             friend.send({"t": "select", "card": cid})
         friend.poll()
+        wait_turn(0, "the friend's reveal never ended")
         frames2(6)
         assert mp2.state["scores"][1] == 100, mp2.state["scores"]
         assert mp2.state["turn"] == 0

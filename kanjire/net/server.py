@@ -30,6 +30,7 @@ import socket
 import socketserver
 import string
 import threading
+import time
 
 #: 2 = lobby settings (create carries settings, start carries the pool),
 #: plus pause / resume / back-to-lobby. Old clients are rejected at hello.
@@ -38,6 +39,11 @@ DEFAULT_PORT = 24857
 
 #: Per-group score, multiplied by the scorer's combo (mirrors solo play).
 BASE_POINTS = 100
+
+#: How long a completed group stays on the board before it's cleared, so every
+#: player gets to see which cards went together (and read the word) rather than
+#: watching them vanish the instant the clicker finished the set.
+REVEAL_SECONDS = 2.0
 _MAX_NAME = 18
 _MAX_PLAYERS = 8
 _MAX_ROOMS = 64
@@ -107,6 +113,9 @@ class Room:
         self.board: list[int] = []
         self.selection: list[int] = []
         self.current_group: int | None = None
+        #: A completed group being shown to everyone before it's cleared.
+        self.pending_clear: list[int] = []
+        self.pending_at: float | None = None
         self._next_card = 0
         self._next_group = 0
 
@@ -206,6 +215,8 @@ class Room:
                 return                       # nothing to play with
             self.started = True
             self.paused = False
+            self.pending_clear = []
+            self.pending_at = None
             self.turns_taken = [0] * len(self.clients)
             self.turns_used = 0
             self.turn = next((i for i in range(len(self.connected))
@@ -232,6 +243,8 @@ class Room:
             self.board.clear()
             self.selection.clear()
             self.current_group = None
+            self.pending_clear = []
+            self.pending_at = None
             self.pool = []
             self.turn = 0
             self.turns_used = 0
@@ -271,6 +284,8 @@ class Room:
             if (not self.started or self.finished or self.paused
                     or player != self.turn):
                 return None
+            if self.pending_clear:
+                return None      # a group is being shown: nobody clicks through it
             card = self.cards.get(card_id)
             if card is None or card.get("matched"):
                 return None
@@ -299,22 +314,60 @@ class Room:
             return self._mismatch(player, card_id)
 
     def _complete_group(self, player: int, group_ids: list[int]) -> dict:
+        """Score the group, then HOLD it on the board for everyone to see.
+
+        The cards used to be removed and the turn advanced in this same call,
+        so a completed group blinked out of existence before anyone but the
+        clicker could read it. Now the group stays up, flagged ``matched``, and
+        :meth:`tick` clears it after :data:`REVEAL_SECONDS` - which keeps the
+        pause server-side, so every player's board holds and resumes together
+        instead of each client guessing.
+        """
         self.combos[player] += 1
         points = BASE_POINTS * self.combos[player]
         self.scores[player] += points
         texts = {self.cards[c]["face"]: self.cards[c]["text"]
                  for c in group_ids}
         for cid in group_ids:
+            self.cards[cid]["matched"] = True
+            self.cards[cid]["selected"] = True
+        self.pending_clear = list(group_ids)
+        self.pending_at = None          # deadline is set on the next tick
+        return {"type": "complete", "player": player, "points": points,
+                "combo": self.combos[player], "word": texts,
+                "cards": list(group_ids)}
+
+    def tick(self, now: float) -> bool:
+        """Finish a revealed group once its 2 seconds are up.
+
+        Returns True when the board changed (the caller then broadcasts). The
+        host's client and the standalone server both drive this.
+        """
+        with self.lock:
+            if not self.pending_clear or self.finished:
+                return False
+            if self.paused:
+                self.pending_at = None      # don't burn the reveal while paused
+                return False
+            if self.pending_at is None:
+                self.pending_at = now + REVEAL_SECONDS
+                return False
+            if now < self.pending_at:
+                return False
+            self._clear_revealed()
+            return True
+
+    def _clear_revealed(self) -> None:
+        for cid in self.pending_clear:
             self.cards.pop(cid, None)
             if cid in self.board:
                 self.board.remove(cid)
+        self.pending_clear = []
+        self.pending_at = None
         if self.pool:
             self._deal_group(self.pool.pop())
         self.rng.shuffle(self.board)
-        event = {"type": "complete", "player": player, "points": points,
-                 "combo": self.combos[player], "word": texts}
         self._advance_turn()
-        return event
 
     def _mismatch(self, player: int, offending: int) -> dict:
         affected = list(self.selection) + [offending]
@@ -336,6 +389,9 @@ class Room:
                 "paused": self.paused,
                 "started": self.started,
                 "finished": self.finished,
+                # The group currently held up for everyone to look at (empty
+                # most of the time). Clients pulse these and block input.
+                "revealing": list(self.pending_clear),
                 "turn": self.turn,
                 "turns_used": self.turns_used,
                 "turns_total": self.turns_total,
@@ -507,6 +563,26 @@ class RoomServer(socketserver.ThreadingTCPServer):
     def __init__(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
         super().__init__((host, port), Handler)
         self.hub = Hub()
+        # Rooms are otherwise only ever driven by an incoming message, and the
+        # end of a group reveal isn't one: without this the board would sit on
+        # the completed group forever, waiting for a click it refuses to accept.
+        self._ticking = True
+        threading.Thread(target=self._tick_rooms, daemon=True,
+                         name="kanjire-room-ticker").start()
+
+    def _tick_rooms(self) -> None:
+        while self._ticking:
+            time.sleep(0.05)
+            with self.hub.lock:
+                rooms = list(self.hub.rooms.values())
+            now = time.monotonic()
+            for room in rooms:
+                if room.tick(now):
+                    room.broadcast({"type": "reveal_end"})
+
+    def server_close(self) -> None:
+        self._ticking = False
+        super().server_close()
 
 
 def start_in_thread(host: str = "0.0.0.0",

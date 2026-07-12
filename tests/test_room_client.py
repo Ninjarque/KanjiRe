@@ -43,6 +43,24 @@ def _drain_state(client):
     return st
 
 
+#: Monotonic-ish clock for the reveal ticks; each call moves well past the hold.
+_T = [1000.0]
+
+
+def _finish_reveal(host):
+    """Run the host's clock past the completed-group reveal.
+
+    A finished group is now held on the board for everyone to look at, and only
+    a tick clears it - so tests that complete a group must let time pass.
+    """
+    from kanjire.net.server import REVEAL_SECONDS
+
+    host.tick(_T[0])                       # arms the deadline
+    _T[0] += REVEAL_SECONDS + 0.5
+    host.tick(_T[0])                       # deadline passed: clear + next turn
+    _T[0] += 1.0
+
+
 def _group_ids(state, group):
     return [c["id"] for c in state["board"] if c["group"] == group]
 
@@ -86,6 +104,12 @@ def test_join_by_code_alone_and_play_turns():
     hst = _drain_state(host)
     gst = _drain_state(guest)
     assert hst["scores"] == [100, 0] and hst["combos"] == [1, 0]
+    # The group is HELD up for everyone first - it doesn't vanish on the click.
+    assert sorted(gst["revealing"]) == sorted(gids)
+    assert hst["turn"] == 0, "the turn passes when the reveal ends, not before"
+    _finish_reveal(host)
+    hst = _drain_state(host)
+    gst = _drain_state(guest)
     assert hst["turn"] == 1 and hst["turns_used"] == 1
     # Cards were removed and the board refilled for BOTH players.
     assert len(hst["board"]) == 12 and len(gst["board"]) == 12
@@ -105,6 +129,63 @@ def test_join_by_code_alone_and_play_turns():
     assert gst["combos"] == [1, 0] and gst["scores"] == [100, 0]
     assert gst["turn"] == 0 and hst["turn"] == 0
     assert gst["turns_used"] == 2
+
+
+def test_completed_group_is_held_on_screen_for_everyone():
+    """The whole point of the pause: a group used to be scored and swept off the
+    board inside the same click, so nobody except the player who completed it
+    ever saw which cards went together."""
+    from kanjire.net.server import REVEAL_SECONDS
+
+    broker = LoopbackBroker()
+    host = _mk(broker, "alice", 50)
+    host.send({"t": "create", "settings": {"board_size": 4, "cards": 2}})
+    guest = _mk(broker, "bob", 51)
+    guest.send({"t": "join", "room": host.code})
+    host.poll(); guest.poll()
+    host.send({"t": "start", "pool": _pool(20), "faces": ["kanji", "meaning"],
+               "board_size": 4, "turns_each": 3})
+    hst = _drain_state(host); guest.poll()
+
+    gids = _group_ids(hst, hst["board"][0]["group"])
+    for cid in gids:
+        host.send({"t": "select", "card": cid})
+    hst = _drain_state(host)
+    gst = _drain_state(guest)
+
+    # 1) The cards are still on the board - for the GUEST too, who has to be
+    #    able to look at them - flagged matched+selected so they stand out.
+    board_ids = [c["id"] for c in gst["board"]]
+    assert all(cid in board_ids for cid in gids), "the group vanished instantly"
+    held = [c for c in gst["board"] if c["id"] in gids]
+    assert all(c.get("matched") and c.get("selected") for c in held), held
+    assert sorted(gst["revealing"]) == sorted(gids)
+    assert sorted(hst["revealing"]) == sorted(gids)
+    # 2) Scored immediately, but the turn is still the completer's.
+    assert gst["scores"] == [100, 0]
+    assert gst["turn"] == 0
+
+    # 3) Nobody can click through the hold - not even the player whose turn it is.
+    other = next(c["id"] for c in hst["board"] if c["id"] not in gids)
+    host.send({"t": "select", "card": other})
+    assert not [m for m in host.poll() if m.get("t") == "state"], \
+        "a click during the reveal changed the board"
+
+    # 4) Half-way through, it's still up.
+    t = 2000.0
+    host.tick(t)
+    host.tick(t + REVEAL_SECONDS / 2)
+    assert host.room.pending_clear, "the reveal ended early"
+
+    # 5) Once the hold is up the group clears, the board refills and the turn
+    #    passes - for everyone, at the same moment.
+    host.tick(t + REVEAL_SECONDS + 0.1)
+    hst = _drain_state(host)
+    gst = _drain_state(guest)
+    assert not hst["revealing"] and not gst["revealing"]
+    assert all(cid not in [c["id"] for c in gst["board"]] for cid in gids)
+    assert len(gst["board"]) == 8 and len(hst["board"]) == 8
+    assert gst["turn"] == 1 and hst["turn"] == 1
 
 
 def test_out_of_turn_clicks_are_ignored():

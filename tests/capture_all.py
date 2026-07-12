@@ -206,6 +206,34 @@ def main() -> int:
             render(8)
             shot(f"mp_lobby_{who}", size)
 
+        # Multiplayer mid-reveal: a completed group held up for everyone.
+        mp = MultiplayerScene(app)
+        app.set_scene(mp)
+        mp.me = 1                      # a GUEST watching someone else score
+        mp.room = "KANJI"
+        mp.client = None
+        board = []
+        cid = 0
+        for g in range(4):
+            for face, text in (("kanji", "食"), ("reading", "たべる"),
+                               ("meaning", "to eat")):
+                board.append({"id": cid, "group": g, "face": face,
+                              "text": f"{text}{g}"})
+                cid += 1
+        held = [c["id"] for c in board if c["group"] == 0]
+        for c in board:
+            if c["id"] in held:
+                c["matched"] = True
+                c["selected"] = True
+        playing = dict(snap, started=True, turn=0, turns_used=3,
+                       turns_total=30, turns_left=27, board=board,
+                       revealing=held, scores=[900, 400, 100], combos=[2, 0, 0])
+        mp._on_state(playing, {"type": "complete", "player": 0, "points": 200,
+                               "combo": 2, "cards": held,
+                               "word": {"kanji": "食0"}})
+        render(30)
+        shot("mp_reveal", size)
+
         # Multiplayer results: the host gets Play-again next to Lobby.
         done = dict(snap, started=True, finished=True,
                     scores=[4200, 3100, 900], combos=[3, 1, 0],

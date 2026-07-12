@@ -62,7 +62,8 @@ class _MPCard:
         self.group = d["group"]
         self.face = d["face"]
         self.text = d["text"]
-        self.matched = False
+        # True while a completed group is held on the board for everyone to see.
+        self.matched = bool(d.get("matched"))
         self.selected = bool(d.get("selected"))
 
 
@@ -529,10 +530,13 @@ class MultiplayerScene(Scene):
             self._set_phase("play")
         else:
             self._set_phase("lobby")
-        if event:
-            self._on_event(event)
+        # Board first, THEN the event: _sync_board assigns glow/scale for newly
+        # selected cards, so running it afterwards would overwrite the
+        # completed group's reveal animation with a plain selection glow.
         if self.phase == "play":
             self._sync_board(state)
+        if event:
+            self._on_event(event)
         # Settings / pause state can change without a phase change (the host
         # tweaking the lobby, or pausing mid-game), so always re-apply.
         self._apply_phase()
@@ -548,6 +552,17 @@ class MultiplayerScene(Scene):
             if (self.app.state.tts_on_match
                     and (event.get("word") or {}).get("reading")):
                 self.app.audio.speech.say_jp(event["word"]["reading"])
+            # The server holds this group on the board for REVEAL_SECONDS so
+            # everyone can see what went together - make it unmissable while
+            # it's up, instead of the cards just sitting there.
+            for cid in event.get("cards") or []:
+                cv = self.cards.get(cid)
+                if cv is None:
+                    continue
+                cv.glow = 1.0
+                cv.scale = 1.16
+                self.anim.to(cv, "scale", 1.0, 0.45, ease=ease_out_back)
+                self.anim.to(cv, "glow", 0.75, 0.5, ease=ease_out_cubic)
         elif et == "mismatch":
             sfx.play("mismatch")
             for cid in event.get("cards") or []:
@@ -620,6 +635,9 @@ class MultiplayerScene(Scene):
                 cv = self.cards.get(d["id"])
                 if cv is not None:
                     was = cv.model.selected
+                    # A revealed group keeps the same card ids, so this branch
+                    # (not the rebuild above) is what learns it was matched.
+                    cv.model.matched = bool(d.get("matched"))
                     cv.model.selected = bool(d.get("selected"))
                     if cv.model.selected and not was:
                         cv.glow = 0.85
@@ -717,6 +735,9 @@ class MultiplayerScene(Scene):
                 return
         if (self.phase == "play" and self.state
                 and not self.state.get("paused")
+                # A completed group is being shown: the board is frozen for
+                # everyone (the server rejects clicks anyway - don't pretend).
+                and not self.state.get("revealing")
                 and self.state.get("turn") == self.me
                 and self.client is not None):
             for cv in self.cards.values():
@@ -728,6 +749,7 @@ class MultiplayerScene(Scene):
         for b in self.buttons:
             b.set_hover(b.enabled and b.contains(x, y))
         if self.phase == "play" and self.state \
+                and not self.state.get("revealing") \
                 and self.state.get("turn") == self.me:
             for cv in self.cards.values():
                 if not cv.model.selected:
