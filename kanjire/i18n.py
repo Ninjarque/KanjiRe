@@ -1,4 +1,4 @@
-﻿"""Lightweight UI translations.
+"""Lightweight UI translations.
 
 ``tr(key, **fmt)`` returns the string for the current locale, falling back to
 English if the key is missing, then to the key itself if even English is
@@ -93,7 +93,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MODE_LEARN":     "Learn",
 
         # --- buttons / toggles ------------------------------------- #
-        "BTN_PLAY":            "▶  PLAY",
+        "BTN_PLAY":            "PLAY",
         "BTN_SAVE_PRESET":     "★  Save as preset…",
         "BTN_IMPORT_FILE":     "+  Import file…",
         "BTN_PASTE_TEXT":      "+  Paste text…",
@@ -143,7 +143,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "STAT_LEARNED":        "Words learned",
         "RESULTS_REVIEW":      "WORDS YOU MATCHED",
         "RESULTS_MORE":        "+ {n} more",
-        "BTN_AGAIN":           "↻  Play again",
+        "BTN_AGAIN":           "Play again",
         "BTN_PRACTICE":        "Practice tricky words",
         "BTN_MENU":            "Menu",
         "RESULTS_DONE":        "SESSION COMPLETE!",
@@ -152,8 +152,8 @@ STRINGS: dict[str, dict[str, str]] = {
         # --- today's training / streak -------------------------- #
         "BTN_TODAY":           "Today  ·  {rev} reviews + {new} new",
         "TODAY_COMEBACK":      "Welcome back!  ·  {n} words picked to refresh",
-        "TODAY_DONE":          "✓ Training done for today",
-        "TODAY_MORE":          "✓ Done  ·  bonus: {rev} reviews + {new} new",
+        "TODAY_DONE":          "○ Training done for today",
+        "TODAY_MORE":          "○ Done  ·  bonus: {rev} reviews + {new} new",
         "STREAK_FOOTER":       "Day {n} streak",
         "HUD_LEFT":            "words left",
 
@@ -166,7 +166,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_LISTEN_HINT":  "listen carefully — F1 replays the audio",
 
         # --- multiplayer ------------------------------------------ #
-        "BTN_MULTIPLAYER":     "⚡ Multiplayer…",
+        "BTN_MULTIPLAYER":     "★ Multiplayer…",
         "MP_TITLE":            "MULTIPLAYER",
         "MP_LOBBY":            "ROOM LOBBY",
         "MP_DONE":             "FINAL SCORES",
@@ -180,15 +180,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_TURNS":            "Turns each",
         "MP_HOST":             "Create a room",
         "MP_JOIN":             "Join a room",
-        "MP_START":            "▶  Start game",
+        "MP_START":            "Start game",
         "MP_HOST_HINT":        ("Share this code — that's all your friends need. "
                                 "They open Multiplayer, type it in, and hit Join."),
         "MP_PLAY_HINT":        "Esc leaves the game",
         "MP_GUEST_HINT":       "the host is setting up the game — you'll play these settings",
-        "MP_PAUSE":            "❙❙  Pause",
-        "MP_RESUME":           "▶  Resume",
+        "MP_PAUSE":            "Pause",
+        "MP_RESUME":           "Resume",
         "MP_PAUSED":           "PAUSED BY THE HOST",
-        "MP_TO_LOBBY":         "◀  Lobby",
+        "MP_TO_LOBBY":         "Lobby",
         "MP_YOU":              "  (you)",
         "MP_GONE":             "(left)",
         "MP_YOUR_TURN":        "YOUR TURN — match a group!",
@@ -270,7 +270,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "COL_BUCKET":          "BUCKET",
         "COL_KANJI":           "KANJI",
         "COL_WORDS":           "WORDS",
-        "BUCKET_KNOWN":        "✓ known",
+        "BUCKET_KNOWN":        "○ known",
         "BUCKET_LESS_KNOWN":   "△ slipping",
         "BUCKET_UNKNOWN":      "○ new",
         "RESET_WORD_TITLE":    "Reset word",
@@ -376,7 +376,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MODE_LEARN":     "Apprendre",
 
         # --- buttons / toggles --------------------------------- #
-        "BTN_PLAY":            "▶  JOUER",
+        "BTN_PLAY":            "JOUER",
         "BTN_SAVE_PRESET":     "★  Enregistrer comme préréglage…",
         "BTN_IMPORT_FILE":     "+  Importer un fichier…",
         "BTN_PASTE_TEXT":      "+  Coller du texte…",
@@ -387,7 +387,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "WRITE_VERT":          "Vert.",
         "FACES_THREE":         "Kanji · Lecture · Sens",
         "FACES_TWO":           "Kanji · Sens",
-        "FACES_FOUR":          "+ Rōmaji (4 cartes)",
+        "FACES_FOUR":          "+ Romaji (4 cartes)",
         "TOGGLE_OFF":          "Désact.",
         "TOGGLE_ON":           "Activé",
         "LEARN_NONE":          "Aucun",
@@ -425,7 +425,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "STAT_LEARNED":        "Mots appris",
         "RESULTS_REVIEW":      "MOTS ASSOCIÉS",
         "RESULTS_MORE":        "+ {n} de plus",
-        "BTN_AGAIN":           "↻  Rejouer",
+        "BTN_AGAIN":           "Rejouer",
         "BTN_PRACTICE":        "Revoir les mots difficiles",
         "BTN_MENU":            "Menu",
         "RESULTS_DONE":        "SESSION TERMINÉE !",
@@ -434,21 +434,21 @@ STRINGS: dict[str, dict[str, str]] = {
         # --- entraînement du jour / série ------------------------ #
         "BTN_TODAY":           "Aujourd'hui  ·  {rev} révisions + {new} nouveaux",
         "TODAY_COMEBACK":      "Bon retour !  ·  {n} mots à rafraîchir",
-        "TODAY_DONE":          "✓ Entraînement du jour terminé",
-        "TODAY_MORE":          "✓ Fait  ·  bonus : {rev} révisions + {new} nouveaux",
+        "TODAY_DONE":          "○ Entraînement du jour terminé",
+        "TODAY_MORE":          "○ Fait  ·  bonus : {rev} révisions + {new} nouveaux",
         "STREAK_FOOTER":       "Série de {n} jours",
         "HUD_LEFT":            "mots restants",
 
         # --- rappel écrit ---------------------------------------- #
         "RECALL_TITLE":        "TAPEZ LA LECTURE",
-        "RECALL_HINT":         "en rōmaji (conversion auto) ou en kana  ·  Entrée pour valider  ·  Échap pour finir",
+        "RECALL_HINT":         "en romaji (conversion auto) ou en kana  ·  Entrée pour valider  ·  Échap pour finir",
         "RECALL_TRY_AGAIN":    "Presque — encore un essai",
         "RECALL_ANSWER":       "Réponse :  {reading}",
         "RECALL_LISTEN_TITLE": "TAPEZ CE QUE VOUS ENTENDEZ",
         "RECALL_LISTEN_HINT":  "écoutez bien — F1 pour réécouter",
 
         # --- multijoueur ------------------------------------------- #
-        "BTN_MULTIPLAYER":     "⚡ Multijoueur…",
+        "BTN_MULTIPLAYER":     "★ Multijoueur…",
         "MP_TITLE":            "MULTIJOUEUR",
         "MP_LOBBY":            "SALON",
         "MP_DONE":             "SCORES FINAUX",
@@ -462,15 +462,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_TURNS":            "Tours chacun",
         "MP_HOST":             "Créer un salon",
         "MP_JOIN":             "Rejoindre",
-        "MP_START":            "▶  Lancer la partie",
+        "MP_START":            "Lancer la partie",
         "MP_HOST_HINT":        ("Partagez ce code — c'est tout ce qu'il faut à vos amis. "
                                 "Ils ouvrent Multijoueur, le saisissent et rejoignent."),
         "MP_PLAY_HINT":        "Échap pour quitter la partie",
         "MP_GUEST_HINT":       "l'hôte règle la partie — vous jouerez avec ces réglages",
-        "MP_PAUSE":            "❙❙  Pause",
-        "MP_RESUME":           "▶  Reprendre",
+        "MP_PAUSE":            "Pause",
+        "MP_RESUME":           "Reprendre",
         "MP_PAUSED":           "PARTIE EN PAUSE",
-        "MP_TO_LOBBY":         "◀  Salon",
+        "MP_TO_LOBBY":         "Salon",
         "MP_YOU":              "  (vous)",
         "MP_GONE":             "(parti)",
         "MP_YOUR_TURN":        "À VOUS — associez un groupe !",
@@ -553,7 +553,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "COL_BUCKET":          "GROUPE",
         "COL_KANJI":           "KANJI",
         "COL_WORDS":           "MOTS",
-        "BUCKET_KNOWN":        "✓ connu",
+        "BUCKET_KNOWN":        "○ connu",
         "BUCKET_LESS_KNOWN":   "△ vacille",
         "BUCKET_UNKNOWN":      "○ nouveau",
         "RESET_WORD_TITLE":    "Réinitialiser le mot",

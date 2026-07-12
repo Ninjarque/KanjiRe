@@ -34,6 +34,8 @@ class TextInput:
         self._focused = False
         self.x = self.y = 0.0
         self.w = self.h = 10.0
+        self._base_fs = font_size
+        self._fs = font_size
 
         self._bg = shapes.BorderedRectangle(
             0, 0, 10, 10, border=2,
@@ -60,20 +62,39 @@ class TextInput:
         )
 
     # ---------------------------------------------------------------- #
+    def set_scale(self, s: float) -> None:
+        """Scale the text with the rest of the UI.
+
+        Without this the glyphs stayed at their construction-time size while
+        the box around them was scaled, so the text was tiny on big screens and
+        clipped out of a too-short box on small ones.
+        """
+        fs = max(9, round(self._base_fs * s))
+        if fs == self._fs:
+            return
+        self._fs = fs
+        self._document.set_style(0, len(self._document.text) or 1,
+                                 {"font_size": fs})
+        self._placeholder.font_size = fs
+
     def set_rect(self, x: float, y: float, w: float, h: float) -> None:
         self.x, self.y, self.w, self.h = x, y, w, h
         self._bg.x = x
         self._bg.y = y
         self._bg.width = w
         self._bg.height = h
-        pad_x = 10
-        pad_y = 4
+        pad_x = max(6, round(0.7 * self._fs))
+        # Centre one line of text in the box instead of pinning it a fixed 4px
+        # above the bottom edge: at large scales the glyphs used to overflow the
+        # top of the scissor rect and get sliced in half.
+        line_h = self._fs * 1.4
+        pad_y = max(2, (h - line_h) / 2)
         # IncrementalTextLayout feeds these straight into glScissor, which needs
         # ints — callers may pass scaled floats, so coerce here.
         self._layout.x = int(x + pad_x)
         self._layout.y = int(y + pad_y)
         self._layout.width = int(max(10, w - 2 * pad_x))
-        self._layout.height = int(max(8, h - 2 * pad_y))
+        self._layout.height = int(max(line_h, h - 2 * pad_y))
         self._placeholder.x = x + pad_x
         self._placeholder.y = y + h / 2
 
@@ -131,6 +152,13 @@ class TextInput:
     def on_text(self, text: str) -> bool:
         if not self._focused:
             return False
+        # pyglet delivers Enter/Tab to on_text as "\r" / "\n" / "\t". The caret
+        # happily inserts them into this single-line box, where they showed up
+        # as a stray glyph (an empty box on Linux, whose font has no CR) and
+        # polluted the search query. Drop every control character.
+        text = "".join(ch for ch in text if ch >= " " and ch != "\x7f")
+        if not text:
+            return True
         self._caret.on_text(text)
         self._notify()
         return True
@@ -152,7 +180,9 @@ class TextInput:
         if not self._focused:
             return False
         from pyglet.window import key
-        if symbol == key.ESCAPE:
+        if symbol in (key.ESCAPE, key.ENTER, key.RETURN, key.NUM_ENTER):
+            # Enter means "done typing" for a search box - it must never reach
+            # the document as text.
             self.unfocus()
             return True
         return False

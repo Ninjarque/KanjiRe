@@ -125,7 +125,7 @@ class JourneyScene(Scene):
             elif boss:
                 accent, text = theme.DANGER, f"鬼 {i + 1}"
             elif i == self.frontier:
-                accent, text = theme.GOLD, f"▶ {i + 1}"
+                accent, text = theme.GOLD, f"● {i + 1}"
             else:
                 accent, text = theme.DIM, str(i + 1)
             b = Button(text, lambda i=i: self._play_station(i),

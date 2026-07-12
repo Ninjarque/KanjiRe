@@ -298,6 +298,41 @@ def run() -> int:
         frames2(2)
         print("PASS heatmap + word detail overlay")
 
+        # 13c) The search box as a PLAYER uses it: click it, type, hit Enter.
+        # Three shipped bugs live here - Enter was inserted into the query as a
+        # literal character (an empty box on Linux), the filtered rows were
+        # created but never positioned (so nothing changed until you resized the
+        # window), and the text didn't scale with the box.
+        sc._set_tab("Words")
+        frames2(4)
+        box = sc._search["Words"]
+        # Type a character we KNOW is in the data (a hard-coded あ silently
+        # matched nothing and made the assertions vacuous).
+        needle = next(r["reading"][0] for r in sc._filtered["Words"]
+                      if r.get("reading"))
+        box.focus()
+        sc.on_text(needle)
+        frames2(2)
+        assert box.text == needle, f"typing didn't reach the search box: {box.text!r}"
+        assert sc._query["Words"] == needle, "typing didn't run the filter"
+        assert sc._filtered["Words"], f"search for {needle!r} matched nothing"
+        assert sc._row_labels, "no row labels after searching"
+        assert any(lbl.y > 0 for lbl in sc._row_labels), \
+            "filtered rows were never laid out (the 'resize the window' bug)"
+        sc.on_text("\r")
+        sc.on_text("\n")
+        frames2(2)
+        assert box.text == needle, \
+            f"Enter/newline leaked into the query as text: {box.text!r}"
+        box.set_scale(2.0)
+        box.set_rect(40, 100, 360, 40)
+        assert box._fs > box._base_fs, "search text does not scale with the UI"
+        box.set_text("")
+        box.unfocus()
+        sc._set_tab("Overview")
+        frames2(2)
+        print("PASS stats search box (typing, Enter, live relayout, scaling)")
+
         # 14) Learn mode picks from the right buckets when we have stats data.
         # Seed: 6 different words seen + matched but also flubbed (=> genuinely
         # "less_known": a clean single match now classifies as "known", so we
@@ -513,7 +548,7 @@ def run() -> int:
         assert st["count"] >= 1 and st["done_today"], f"streak not stamped: {st}"
         app2.go_menu()
         frames2(4)
-        assert "✓" in app2.scene.today_btn.text, \
+        assert "○" in app2.scene.today_btn.text, \
             "menu button did not flip to done/bonus state"
         # Clean the streak stamp back out of the persisted state.
         for k in ("streak_count", "streak_freezes", "streak_day"):

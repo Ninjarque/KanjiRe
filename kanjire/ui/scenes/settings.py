@@ -1,4 +1,4 @@
-﻿"""Settings scene: audio toggles, language selector and a theme picker.
+"""Settings scene: audio toggles, language selector and a theme picker.
 
 Lives in the Play | Stats | Settings top nav. Sections are framed in titled
 :class:`Panel` cards. The THEME row switches colour palette live via

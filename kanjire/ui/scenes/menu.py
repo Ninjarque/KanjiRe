@@ -1,4 +1,4 @@
-﻿"""The main menu: pick a mode, a deck, levels, and board options, then play."""
+"""The main menu: pick a mode, a deck, levels, and board options, then play."""
 from __future__ import annotations
 
 import pyglet
@@ -715,8 +715,10 @@ class MenuScene(Scene):
             self.today_btn.enabled = True
         self.today_btn._refresh()
         if streak["count"] > 0:
-            frz = " ❄" * streak["freezes"]
-            check = " ✓" if streak["done_today"] else ""
+            # Only glyphs the bundled fonts actually carry - ❄ and ✓ don't
+            # exist in them and shipped as empty boxes on Linux.
+            frz = " ◇" * streak["freezes"]
+            check = " ○" if streak["done_today"] else ""
             self.streak_label.text = tr("STREAK_FOOTER", n=streak["count"]) \
                 + frz + check
         else:

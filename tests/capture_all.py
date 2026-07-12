@@ -165,6 +165,28 @@ def main() -> int:
         render(6)
         shot("stats_history", size)
 
+        # multiplayer lobby, host AND guest view (a guest's settings buttons
+        # are read-only but must still show what the host picked). No network:
+        # the scene renders whatever snapshot it was last handed.
+        from kanjire.net.server import DEFAULT_SETTINGS
+        from kanjire.ui.scenes.multiplayer import MultiplayerScene
+        snap = {
+            "players": ["hina", "kenji", "you"],
+            "scores": [0, 0, 0], "combos": [0, 0, 0],
+            "connected": [True, True, True],
+            "started": False, "finished": False, "paused": False,
+            "settings": dict(DEFAULT_SETTINGS),
+        }
+        for who, me in (("host", 0), ("guest", 2)):
+            mp = MultiplayerScene(app)
+            app.set_scene(mp)
+            mp.me = me
+            mp.room = "KANJI"
+            mp.client = None          # no polling; we drive the state by hand
+            mp._on_state(snap, None)
+            render(8)
+            shot(f"mp_lobby_{who}", size)
+
         # settings / reading / journey / recall
         app.go_settings()
         render(8)

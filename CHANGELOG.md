@@ -12,6 +12,21 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.13.0 — 2026-07-12
+- **Fixed the missing characters on Linux.** 漢字 in the title, the streak
+  icons and several buttons showed up as empty boxes. Two causes: the bundled
+  Japanese fonts were being thrown away at startup, and **bold** text fell back
+  to a font with no Japanese in it at all. Both fixed — Linux now renders the
+  same as Windows.
+- **Fixed the search box** (Stats → Words / Kanji / History): pressing Enter
+  used to type a stray character into it, results didn't appear until you
+  resized the window, and the text didn't scale with the rest of the UI.
+- **Multiplayer: cards per word now offers 2, 3 or 4** with the same labels as
+  the single-player Advanced tab, including the romaji card.
+- **You can finally see what the host picked.** Guests' settings buttons are
+  read-only, but the selected option is now clearly highlighted instead of
+  every button looking identically greyed out.
+
 ## 0.12.0 — 2026-07-12
 - **Multiplayer rooms now have full game settings** — deck, JLPT levels,
   words per round, cards per word (including the romaji card) and turns

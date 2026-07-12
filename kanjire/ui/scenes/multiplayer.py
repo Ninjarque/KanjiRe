@@ -189,10 +189,16 @@ class MultiplayerScene(Scene):
                        accent=theme.SUCCESS, font_size=11))
             for n in BOARD_CHOICES
         ]
+        # Same labels as the single-player Advanced tab, so "cards per word"
+        # reads identically in both places.
+        _CARD_LABELS = {2: "FACES_TWO", 3: "FACES_THREE", 4: "FACES_FOUR"}
         self.cards_btns = [
-            (n, Button(str(n), lambda n=n: self._set_setting("cards", n),
+            (n, Button(tr(_CARD_LABELS[n]),
+                       lambda n=n: self._set_setting("cards", n),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.FACE_COLORS["meaning"], font_size=11))
+                       accent=(theme.FACE_COLORS["romaji"] if n == 4
+                               else theme.FACE_COLORS["meaning"]),
+                       font_size=10))
             for n in CARDS_CHOICES
         ]
         self.lturns_btns = [
@@ -260,7 +266,9 @@ class MultiplayerScene(Scene):
         # what they're about to play), but only the host can click them.
         for _v, b in self.setting_btns:
             b.set_visible(ph == "lobby")
-            b.enabled = (ph == "lobby" and self.me == 0)
+            # set_enabled (not `.enabled = ...`) so the colours repaint: a
+            # guest's read-only buttons must still show what's selected.
+            b.set_enabled(ph == "lobby" and self.me == 0)
             if ph != "lobby":
                 b.set_rect(-4000, -4000, 1, 1)
         for lb in self.settings_labels:
@@ -297,7 +305,7 @@ class MultiplayerScene(Scene):
             b.set_selected(d == s.get("deck"))
         for lv, b in self.level_btns:
             b.set_selected(is_jlpt and lv in (s.get("levels") or []))
-            b.enabled = (self.phase == "lobby" and self.me == 0 and is_jlpt)
+            b.set_enabled(self.phase == "lobby" and self.me == 0 and is_jlpt)
         for n, b in self.words_btns:
             b.set_selected(n == s.get("board_size"))
         for n, b in self.cards_btns:
@@ -695,8 +703,8 @@ class MultiplayerScene(Scene):
         self.back_btn.set_rect(16 * s, 16 * s, 120 * s, 26 * s)
 
         if self.phase == "connect":
-            # TextInput's font doesn't scale, so its box must not shrink
-            # below the text height on small windows.
+            for w in self.inputs:
+                w.set_scale(s)
             in_w, in_h = max(280, 340 * s), max(32, 34 * s)
             in_x = cx - in_w / 2 + 40 * s
             y0 = height - 160 * s
@@ -729,7 +737,7 @@ class MultiplayerScene(Scene):
                 (self.lbl_s_deck, self.deck_btns, 108 * s),
                 (self.lbl_s_level, self.level_btns, 46 * s),
                 (self.lbl_s_words, self.words_btns, 46 * s),
-                (self.lbl_s_cards, self.cards_btns, 46 * s),
+                (self.lbl_s_cards, self.cards_btns, 168 * s),
                 (self.lbl_s_turns, self.lturns_btns, 46 * s),
             ]
             ry = height - 200 * s - n_players * 26 * s

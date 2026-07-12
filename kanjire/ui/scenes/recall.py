@@ -98,7 +98,7 @@ class RecallScene(Scene):
         self._advancing = False
         if self.mode == "listen":
             # Dictation: hear it, type it. Kanji revealed on the answer.
-            self.kanji.text = "🔊"
+            self.kanji.text = "♪"
             self.title.text = tr("RECALL_LISTEN_TITLE")
             self.meaning.text = tr("RECALL_LISTEN_HINT")
             self.app.audio.speech.say_jp(w.reading)
@@ -131,7 +131,7 @@ class RecallScene(Scene):
                 pass
             self.app.audio.sfx.play("match_hi" if first_try else "match")
             self.feedback.color = theme.with_alpha(theme.SUCCESS, 255)
-            self.feedback.text = w.reading + "  ✓"
+            self.feedback.text = w.reading + "  ○"
             if self.mode == "listen":     # reveal what you transcribed
                 self.kanji.text = w.expression
             self._advance_after(0.7)

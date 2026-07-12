@@ -1,4 +1,4 @@
-﻿"""Stats screen: Overview / Words / Kanji tabs, with search + reset.
+"""Stats screen: Overview / Words / Kanji tabs, with search + reset.
 
 The Words and Kanji tabs share a row-list layout (sortable, scrollable, with a
 search box). Right-click a Words row to reset that word's stats. The Kanji tab
@@ -399,7 +399,12 @@ class StatsScene(Scene):
         self._filtered[tab] = rows
         if self.active_tab == tab:
             self._rebuild_rows()
-            self._refresh_visibility()
+            # _rebuild_rows only *creates* the labels - _layout_rows is what
+            # places them. Without this the freshly-filtered rows sat at their
+            # default position until something else triggered a relayout, which
+            # is why searching appeared to do nothing until you resized the
+            # window. (_layout_rows ends with _refresh_visibility.)
+            self._layout_rows()
 
     def _visible_rows(self) -> int:
         content_top = self.height - 200 * self._s
@@ -1030,8 +1035,11 @@ class StatsScene(Scene):
         if tab not in ("Words", "Kanji", "History"):
             return
         s = self._s
-        # Search input at top
-        self._search[tab].set_rect(40 * s, self.height - 138 * s, 360 * s, 28 * s)
+        # Search input at top. Scale the glyphs before sizing the box, so the
+        # box is measured against the text it actually has to hold.
+        self._search[tab].set_scale(s)
+        self._search[tab].set_rect(40 * s, self.height - 138 * s,
+                                   360 * s, max(28, 30 * s))
         cols = self._columns_for(tab)
         col_xs = self._col_geometry(cols)
 

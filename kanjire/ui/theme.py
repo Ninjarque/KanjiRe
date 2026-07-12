@@ -1,4 +1,4 @@
-﻿"""Theme palettes + the live colour constants every other module reads.
+"""Theme palettes + the live colour constants every other module reads.
 
 The rest of the UI imports this module with ``from kanjire.ui import theme``
 and reads ``theme.BG``, ``theme.TEXT`` etc. as normal attributes, so calling
