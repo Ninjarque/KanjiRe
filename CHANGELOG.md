@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.12.0 — 2026-07-12
 - **Multiplayer rooms now have full game settings** — deck, JLPT levels,
   words per round, cards per word (including the romaji card) and turns
   each. The host sets them in the lobby and **everyone watches the choices
