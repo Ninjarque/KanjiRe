@@ -333,6 +333,40 @@ def run() -> int:
         frames2(2)
         print("PASS stats search box (typing, Enter, live relayout, scaling)")
 
+        # 13d) The update banner must show on EVERY tab. It used to live inside
+        # the menu scene, so a player sitting in Stats or the Reading Room was
+        # never told an update was ready.
+        from kanjire.update import controller as _uc
+        from kanjire.update.checker import UpdateInfo
+
+        u = app2.updater
+        saved = (u.status, u.info, u.staged)
+        u.info = UpdateInfo(version="9.9.9", url="https://x.invalid/a.zip",
+                            sha256="0" * 64, size=1, notes="- something new")
+        u.staged = None
+        u.status = _uc.READY
+        for go, name in ((app2.go_menu, "menu"), (app2.go_stats, "stats"),
+                         (app2.go_settings, "settings"),
+                         (app2.go_journey, "journey"),
+                         (app2.go_reading, "reading")):
+            go()
+            frames2(4)
+            assert app2.banner.visible, f"no update banner on the {name} tab"
+            assert app2.banner.height() > 0
+        # The menu's footer gets out of its way instead of being covered.
+        app2.go_menu()
+        frames2(4)
+        assert app2.scene.mp_btn.y > app2.banner.height() * 0.5, \
+            "the banner is sitting on top of the menu footer buttons"
+        # "Later" dismisses it everywhere.
+        app2.banner._dismiss()
+        frames2(4)
+        assert not app2.banner.visible
+        u.status, u.info, u.staged = saved
+        app2.updater._dismissed = False
+        frames2(2)
+        print("PASS update banner shows on every tab (and lifts the footer)")
+
         # 14) Learn mode picks from the right buckets when we have stats data.
         # Seed: 6 different words seen + matched but also flubbed (=> genuinely
         # "less_known": a clean single match now classifies as "known", so we
@@ -893,6 +927,27 @@ def run() -> int:
         frames2(6)
         assert mp2.state["scores"][1] == 100, mp2.state["scores"]
         assert mp2.state["turn"] == 0
+
+        # Hover-to-point: dwell on a card and the whole room sees it light up,
+        # so the player on turn can show what they're weighing up. Driven the
+        # way a player does it - real mouse motion, then time passing.
+        from kanjire.ui.scenes.multiplayer import POINT_DELAY
+
+        cv = next(c for c in mp2.cards.values() if not c.model.selected)
+        mp2.on_mouse_motion(cv.cx, cv.cy, 1, 1)
+        frames2(2)
+        assert mp2.state.get("pointer") is None, "pointed before dwelling"
+        end = time.time() + POINT_DELAY + 3
+        while mp2.state.get("pointer") is None and time.time() < end:
+            frames2(1)
+        assert mp2.state["pointer"] == cv.model.id, "dwelling never pointed"
+        fpt = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
+        assert fpt["pointer"] == cv.model.id, \
+            "the other player never saw what the current one is looking at"
+        # Moving off the board withdraws it.
+        mp2.on_mouse_motion(2, 2, 1, 1)
+        frames2(3)
+        assert mp2.state["pointer"] is None, "the pointer stuck after moving away"
 
         # Host pauses: clicks are dead for everyone, and the friend is told.
         mp2._pause()

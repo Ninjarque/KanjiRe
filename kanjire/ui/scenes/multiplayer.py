@@ -42,6 +42,8 @@ from kanjire.ui.widgets.textinput import TextInput
 
 HUD_H = 110
 POOL_SIZE = 140
+#: Dwell this long on a card and the room is told you're looking at it.
+POINT_DELAY = 1.0
 TURNS_CHOICES = (5, 10, 15)
 BOARD_CHOICES = (4, 6, 8)
 CARDS_CHOICES = (2, 3, 4)
@@ -88,6 +90,12 @@ class MultiplayerScene(Scene):
         self.cards: dict[int, CardView] = {}
         self._board_sig: tuple = ()
         self._s = 1.0
+        # Hover-to-point: dwell on a card for POINT_DELAY and everyone sees it
+        # light up, so the player on turn can show what they're considering.
+        self._hover_card: int | None = None
+        self._hover_for = 0.0
+        self._pointed: int | None = None        # what we last told the room
+        self._pointer_shown: int | None = None  # what the room last told us
 
         def lbl(size, color, *, bold=False, anchor_x="center"):
             out = Label("", font_name=JP_FONT, font_size=size, bold=bold,
@@ -507,6 +515,7 @@ class MultiplayerScene(Scene):
             return
         # Heartbeat: proves we're still here, and drops anyone who isn't.
         self.client.tick()
+        self._tick_pointer(dt)
         for msg in self.client.poll():
             t = msg.get("t")
             if t == "welcome" and "player" in msg:
@@ -520,6 +529,29 @@ class MultiplayerScene(Scene):
                 self.room = msg.get("room") or self.room
                 self._on_state(msg.get("state") or {}, msg.get("event"))
         self.status_lbl.text = self.status
+
+    def _tick_pointer(self, dt: float) -> None:
+        """Publish (or withdraw) our pointer once we've dwelt long enough.
+
+        Only the player on turn points - it exists so *they* can think out loud.
+        Sent once per change, never per frame: this rides the same room state as
+        everything else and mustn't turn into a firehose of mouse positions.
+        """
+        st = self.state or {}
+        if (self.phase != "play" or st.get("turn") != self.me
+                or st.get("paused") or st.get("revealing")):
+            if self._pointed is not None:
+                self._pointed = None
+                self.client.send({"t": "point", "card": None})
+            return
+        if self._hover_card is None:
+            want = None
+        else:
+            self._hover_for += dt
+            want = self._hover_card if self._hover_for >= POINT_DELAY else None
+        if want != self._pointed:
+            self._pointed = want
+            self.client.send({"t": "point", "card": want})
 
     def _on_state(self, state: dict, event: dict | None) -> None:
         self.state = state
@@ -584,6 +616,7 @@ class MultiplayerScene(Scene):
             c.delete()
         self.cards.clear()
         self._board_sig = ()
+        self._pointer_shown = None   # the card it referred to is gone
 
     def _card_style(self, d: dict) -> tuple[str | None, str]:
         """(font, direction) for one card - identical on every client.
@@ -645,6 +678,25 @@ class MultiplayerScene(Scene):
                     elif was and not cv.model.selected:
                         cv.glow = 0.0
                         cv.scale = 1.0
+        self._show_pointer(state.get("pointer"))
+
+    def _show_pointer(self, pointer) -> None:
+        """Light up the card the player on turn is dwelling on, on every screen.
+
+        Weaker than a selection glow on purpose: "they're thinking about this
+        one" must not be mistakable for "they've picked it".
+        """
+        if pointer == self._pointer_shown:
+            return
+        prev = self.cards.get(self._pointer_shown) if self._pointer_shown else None
+        if prev is not None and not prev.model.selected:
+            prev.glow = 0.0
+            prev.scale = 1.0
+        self._pointer_shown = pointer
+        cv = self.cards.get(pointer) if pointer is not None else None
+        if cv is not None and not cv.model.selected:
+            cv.glow = 0.5
+            cv.scale = 1.05
 
     def _layout_cards(self) -> None:
         n = len(self.cards)
@@ -751,12 +803,23 @@ class MultiplayerScene(Scene):
         if self.phase == "play" and self.state \
                 and not self.state.get("revealing") \
                 and self.state.get("turn") == self.me:
+            under = None
             for cv in self.cards.values():
                 if not cv.model.selected:
                     hover = cv.contains(x, y)
                     target = 0.25 if hover else 0.0
                     if abs(cv.glow - target) > 0.01 and cv.glow not in (0.85,):
                         cv.glow = target
+                if cv.visible and cv.contains(x, y):
+                    under = cv.model.id
+            # Restart the dwell timer whenever the card under the cursor
+            # changes; _tick_pointer publishes once it's been held long enough.
+            if under != self._hover_card:
+                self._hover_card = under
+                self._hover_for = 0.0
+        else:
+            self._hover_card = None
+            self._hover_for = 0.0
 
     def on_text(self, text) -> None:
         for w in self.inputs:

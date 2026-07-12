@@ -291,6 +291,24 @@ def _fake_app(dirpath, tag: str, marker):
     return exe
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX swap helper")
+def test_posix_swap_does_not_wait_for_a_stuck_app_forever():
+    """The helper used to wait on the app's pid with an unbounded loop.
+
+    If the window closed but the process lingered (a stuck GL teardown, a
+    non-daemon thread), it waited for eternity and the update silently never
+    applied - "it just closes and does nothing". It must give the app a while,
+    then insist, and swap regardless: renaming a directory is safe on POSIX even
+    with the old process still alive.
+    """
+    t = applier._SWAP_SH
+    assert "while kill -0 \"$PID\" 2>/dev/null; do sleep 0.5; done" not in t, \
+        "the unbounded wait loop is back"
+    assert "kill -9" in t and "app still alive" in t
+    # And the relaunch can't depend on setsid existing everywhere.
+    assert "nohup" in t and "command -v setsid" in t
+
+
 def test_swap_replaces_the_install_and_relaunches(tmp_path, monkeypatch):
     """Run the real swap helper end-to-end against a throwaway install.
 

@@ -11,6 +11,18 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Fixed: updating did nothing on Linux.** It downloaded, you clicked restart,
+  the app closed and that was that — same version. The helper that swaps the
+  folders waited for the app's process to disappear with a loop that could wait
+  *forever*, and if the window closed while the process lingered, it did exactly
+  that. It now gives the app 30 seconds, insists, and applies the update either
+  way (renaming a folder is safe on Linux even if the old process is still up).
+- **The update banner now shows on every tab**, not just Play — sitting in Stats
+  or the Reading Room, you'd never have been told an update was ready.
+- **Multiplayer: hover a card for a second and everyone sees it light up.** The
+  player whose turn it is can point at what they're considering, so the others
+  can follow their thinking instead of watching a still board. It's yours only
+  on your turn, and it never lingers into someone else's.
 
 ## 0.15.0 — 2026-07-12
 - **Multiplayer: a completed group now stays up for two seconds.** It used to be

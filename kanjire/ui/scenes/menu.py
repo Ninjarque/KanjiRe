@@ -91,10 +91,6 @@ class MenuScene(Scene):
         self.g_bg = OrderedGroup(0)
         self.g_text = OrderedGroup(1)
         # The update banner floats above everything else.
-        self.g_banner_bg = OrderedGroup(5)
-        self.g_banner_text = OrderedGroup(6)
-        self._banner: dict | None = None
-        self._banner_buttons: list[Button] = []
 
         # ---- state ---- #
         # Saved presets are loaded into self._user_presets below; use them to
@@ -821,10 +817,6 @@ class MenuScene(Scene):
                 if name in self._user_preset_names and btn.contains(x, y):
                     self._confirm_delete_preset(name)
                     return
-        for b in self._banner_buttons:
-            if b.enabled and b.contains(x, y):
-                b.click()
-                return
         if self.nav.on_mouse_press(x, y):
             return
         if self.subtabs.on_mouse_press(x, y):
@@ -863,8 +855,6 @@ class MenuScene(Scene):
         self.nav.on_mouse_motion(x, y)
         self.subtabs.on_mouse_motion(x, y)
         for b in self.buttons:
-            b.set_hover(b.enabled and b.contains(x, y))
-        for b in self._banner_buttons:
             b.set_hover(b.enabled and b.contains(x, y))
 
     def on_key_press(self, symbol, modifiers) -> None:
@@ -951,7 +941,6 @@ class MenuScene(Scene):
             self._layout_advanced(cx, content_top, s)
 
         self._layout_footer(cx, s)
-        self._layout_banner()
         # Apply selection / enabled / conditional visibility on top of the
         # base per-tab show/hide.
         self._refresh()
@@ -1052,13 +1041,6 @@ class MenuScene(Scene):
             self._set_group_visible(*learn_widgets, False)
             self._set_group_visible(*survival_widgets, False)
 
-    def _banner_height(self) -> float:
-        """Vertical space the update banner takes at the bottom (0 if hidden)."""
-        if not self._banner:
-            return 0.0
-        s = getattr(self, "_s", 1.0)
-        return (56 if self._banner.get("notes") else 40) * s + 22 * s
-
     def _layout_footer(self, cx, s) -> None:
         # Persistent footer, bottom-anchored so the buttons sit in the same
         # place on both sub-tabs. Today's Training and PLAY share one row (the
@@ -1068,7 +1050,10 @@ class MenuScene(Scene):
         # The update banner is its own bottom strip, so everything here rides up
         # by its height while it's showing - it used to sit straight on top of
         # Multiplayer, Save-as-preset and the streak line.
-        lift = self._banner_height()
+        # The update banner is an app-level strip along the bottom, so the
+        # footer rides up by its height while it's showing (it used to sit
+        # straight on top of Multiplayer, Save-as-preset and the streak line).
+        lift = self.app.banner.height()
         self.today_btn.set_rect(cx - 340 * s, 120 * s + lift, 330 * s, 56 * s)
         self.play_btn.set_rect(cx + 10 * s, 120 * s + lift, 330 * s, 56 * s)
         self.save_preset_btn.set_rect(16 * s, 16 * s + lift, 180 * s, 26 * s)
@@ -1078,132 +1063,8 @@ class MenuScene(Scene):
         self.streak_label.x, self.streak_label.y = cx, 40 * s + lift
 
     # ------------------------------------------------------------------ #
-    # Update banner (bottom strip) — appears when a verified update is staged.
-    # ------------------------------------------------------------------ #
     def update(self, dt: float) -> None:
-        self._sync_banner()
-
-    def _sync_banner(self) -> None:
-        want = self.app.updater.banner_visible
-        if want and self._banner is None:
-            self._build_banner()
-        elif not want and self._banner is not None:
-            self._destroy_banner()
-        else:
-            return
-        # The footer sits above the banner, so its height just changed.
-        self.on_resize(self.width, self.height)
-
-    def _build_banner(self) -> None:
-        from pyglet import shapes
-
-        info = self.app.updater.info
-        writable = self.app.updater.can_apply()
-        bg = shapes.BorderedRectangle(
-            0, 0, 10, 10, border=2,
-            color=theme.PANEL,
-            border_color=theme.SUCCESS if writable else theme.DANGER,
-            batch=self.batch, group=self.g_banner_bg,
-        )
-        text = tr("UPDATE_BANNER", version=info.version if info else "")
-        if not writable:
-            text = f"{text}  ·  {tr('UPDATE_NOWRITE')}"
-        label = Label(
-            text, font_name=JP_FONT, font_size=13,
-            color=theme.with_alpha(theme.TEXT, 255),
-            anchor_x="left", anchor_y="center",
-            batch=self.batch, group=self.g_banner_text,
-        )
-        # Optional second line: the release notes (from the signed manifest),
-        # so players can see what's new without opening anything.
-        notes_txt = self._format_notes(info.notes if info else "") if writable else ""
-        notes = None
-        if notes_txt:
-            notes = Label(
-                notes_txt, font_name=JP_FONT, font_size=11,
-                color=theme.with_alpha(theme.MUTED, 255),
-                anchor_x="left", anchor_y="center",
-                batch=self.batch, group=self.g_banner_text,
-            )
-        restart = Button(
-            tr("UPDATE_RESTART"), self._apply_update,
-            self.batch, self.g_banner_bg, self.g_banner_text,
-            accent=theme.SUCCESS, font_size=12,
-        )
-        if not writable:
-            restart.enabled = False
-            restart._refresh()
-        later = Button(
-            tr("UPDATE_LATER"), self._dismiss_banner,
-            self.batch, self.g_banner_bg, self.g_banner_text,
-            accent=theme.DIM, font_size=12,
-        )
-        self._banner = {"bg": bg, "label": label, "notes": notes,
-                        "restart": restart, "later": later}
-        self._banner_buttons = [restart, later]
-        self._layout_banner()
-
-    @staticmethod
-    def _format_notes(raw: str) -> str:
-        """Flatten changelog bullets into one compact, truncated banner line."""
-        parts = [ln.strip().lstrip("-*• ").strip() for ln in (raw or "").splitlines()]
-        parts = [p for p in parts if p]
-        s = "  ·  ".join(parts)
-        return (s[:116] + "…") if len(s) > 117 else s
-
-    def _layout_banner(self) -> None:
-        if not self._banner:
-            return
-        s = getattr(self, "_s", 1.0)
-        notes = self._banner.get("notes")
-        pad = 16 * s
-        h = (56 if notes else 40) * s
-        y = 14 * s
-        w = self.width - 2 * pad
-        bg = self._banner["bg"]
-        bg.x, bg.y, bg.width, bg.height = pad, y, w, h
-        cy = y + h / 2
-        text_x = pad + 16 * s
-        label = self._banner["label"]
-        label.x = text_x
-        label.font_size = max(9, round(13 * s))
-        if notes:
-            label.y = cy + 11 * s
-            notes.x = text_x
-            notes.y = cy - 11 * s
-            notes.font_size = max(8, round(11 * s))
-        else:
-            label.y = cy
-        rb_w, lb_w, bh, gap = 168 * s, 92 * s, 28 * s, 10 * s
-        restart, later = self._banner["restart"], self._banner["later"]
-        restart.set_scale(s)
-        later.set_scale(s)
-        rx = pad + w - 16 * s - rb_w
-        restart.set_rect(rx, cy - bh / 2, rb_w, bh)
-        later.set_rect(rx - gap - lb_w, cy - bh / 2, lb_w, bh)
-
-    def _destroy_banner(self) -> None:
-        if not self._banner:
-            return
-        self._banner["bg"].delete()
-        self._banner["label"].delete()
-        if self._banner.get("notes"):
-            self._banner["notes"].delete()
-        for b in self._banner_buttons:
-            b.delete()
-        self._banner = None
-        self._banner_buttons = []
-
-    def _apply_update(self) -> None:
-        restart = self._banner and self._banner.get("restart")
-        if restart is not None and not restart.enabled:
-            return
-        if self.app.updater.apply():
-            pyglet.app.exit()  # run()'s finally closes DB/audio so the swap can take the lock
-
-    def _dismiss_banner(self) -> None:
-        self.app.updater.dismiss()
-        self._destroy_banner()
+        pass
 
     # ------------------------------------------------------------------ #
     def draw(self) -> None:
@@ -1211,7 +1072,6 @@ class MenuScene(Scene):
         self.batch.draw()
 
     def on_exit(self) -> None:
-        self._destroy_banner()
         self.nav.delete()
         self.subtabs.delete()
         for b in self.buttons:

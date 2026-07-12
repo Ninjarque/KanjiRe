@@ -1,6 +1,7 @@
 """Application shell: the window, the frame clock, and scene switching."""
 from __future__ import annotations
 
+import os
 import sys
 
 import pyglet
@@ -64,13 +65,22 @@ class _Window(pyglet.window.Window):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.current_scene: Scene | None = None
+        #: App-level overlay drawn on top of every scene (the update banner).
+        self.overlay = None
 
     def on_draw(self) -> None:
         self.clear()
         if self.current_scene:
             self.current_scene.draw()
+        if self.overlay is not None:
+            self.overlay.draw()
 
     def on_mouse_press(self, x, y, button, modifiers) -> None:
+        # The overlay sits on top, so it gets first refusal: a click on the
+        # update strip must not fall through to whatever is underneath it.
+        if self.overlay is not None and self.overlay.on_mouse_press(
+                x, y, button, modifiers):
+            return
         if self.current_scene:
             self.current_scene.on_mouse_press(x, y, button, modifiers)
 
@@ -79,6 +89,8 @@ class _Window(pyglet.window.Window):
             self.current_scene.on_mouse_release(x, y, button, modifiers)
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
+        if self.overlay is not None:
+            self.overlay.on_mouse_motion(x, y, dx, dy)
         if self.current_scene:
             self.current_scene.on_mouse_motion(x, y, dx, dy)
 
@@ -110,6 +122,8 @@ class _Window(pyglet.window.Window):
 
     def on_resize(self, width, height) -> None:
         super().on_resize(width, height)
+        if self.overlay is not None:
+            self.overlay.layout()
         if self.current_scene:
             self.current_scene.on_resize(width, height)
 
@@ -139,6 +153,7 @@ class GameApp:
         # baked in). Scenes poll ``self.updater`` to show the update banner.
         from kanjire.update.controller import UpdateController
         self.updater = UpdateController(self.state)
+        self._update_selftest = bool(os.environ.get("KANJIRE_UPDATE_SELFTEST"))
         win_w, win_h = _initial_window_size(1180, 1020)
         self.window = _Window(
             width=win_w,
@@ -152,6 +167,14 @@ class GameApp:
         # Flat background via glClearColor (no more gradient banding). Needs the
         # window's GL context, so it runs after _Window(...).
         _set_clear_color(theme.BG)
+        # The "update ready" strip belongs to the app, not to the menu: it used
+        # to live in MenuScene, so a player sitting in Stats or the Reading Room
+        # was never told an update was waiting. Drawn over every scene, and it
+        # needs the window (and its GL context), so it comes after _Window(...).
+        from kanjire.ui.widgets.update_banner import UpdateBanner
+
+        self.banner = UpdateBanner(self)
+        self.window.overlay = self.banner
         self.scene: Scene | None = None
         self.go_menu()
 
@@ -229,6 +252,44 @@ class GameApp:
     def _tick(self, dt: float) -> None:
         if self.scene:
             self.scene.update(dt)
+        if self.banner.sync():
+            self.on_banner_changed()
+        if self._update_selftest:
+            self._run_update_selftest()
+
+    def on_banner_changed(self) -> None:
+        """The banner appeared/vanished: it eats space at the bottom, so let the
+        current scene re-lay out around it."""
+        self.banner.layout()
+        if self.scene:
+            self.scene.on_resize(self.window.width, self.window.height)
+
+    def _run_update_selftest(self) -> None:
+        """KANJIRE_UPDATE_SELFTEST=1: click "Restart & update" for us.
+
+        Exists so the *frozen* bundle can be driven through the whole
+        check -> download -> swap -> relaunch path on a real machine. Reasoning
+        about that path is how it shipped broken twice; this way it can actually
+        be run.
+        """
+        import sys as _sys
+
+        from kanjire.update import controller as _c
+
+        u = self.updater
+        if u.status in (_c.CHECKING, _c.DOWNLOADING):
+            return
+        print(f"[selftest] status={u.status} staged={u.staged} "
+              f"can_apply={u.can_apply()} err={u.error}",
+              file=_sys.stderr, flush=True)
+        if u.status == _c.READY and u.can_apply():
+            print("[selftest] applying update + exiting", file=_sys.stderr,
+                  flush=True)
+            if u.apply():
+                pyglet.app.exit()
+                return
+        print("[selftest] nothing to apply; exiting", file=_sys.stderr, flush=True)
+        pyglet.app.exit()
 
     def toggle_mute(self) -> bool:
         muted = self.audio.toggle_mute()

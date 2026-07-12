@@ -137,38 +137,79 @@ def stage(
     return new_bundle
 
 
-_SWAP_SH = r"""#!/usr/bin/env bash
+#: POSIX swap helper. Plain /bin/sh (not bash: it isn't guaranteed on every
+#: distro, and we do nothing bash-specific).
+_SWAP_SH = r"""#!/bin/sh
 # Args: $1 pid  $2 install dir  $3 new bundle dir  $4 exe to relaunch.
 PID="$1"; INSTALL="$2"; NEWDIR="$3"; EXE="$4"; BACKUP="${INSTALL}.old"
 LOG="$(dirname "$0")/update.log"
+say() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >>"$LOG"; }
+
+# `setsid` lives in util-linux and isn't on every distro (nor on macOS), so fall
+# back to nohup and then to a bare background job: the relaunch must not be the
+# thing that fails.
+_relaunch() {
+    chmod +x "$EXE" 2>/dev/null
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$EXE" >/dev/null 2>&1 </dev/null &
+    elif command -v nohup >/dev/null 2>&1; then
+        nohup "$EXE" >/dev/null 2>&1 </dev/null &
+    else
+        "$EXE" >/dev/null 2>&1 </dev/null &
+    fi
+    say "relaunched $EXE"
+}
 
 # Never stand inside the directory we're about to rename.
 cd / 2>/dev/null
+say "swap start: pid=$PID install=$INSTALL new=$NEWDIR"
 
-# --- wait for the running app to exit ---
-while kill -0 "$PID" 2>/dev/null; do sleep 0.5; done
+# --- wait for the app to exit, but NEVER forever ---
+# This loop used to be `while kill -0 $PID; do sleep; done`, i.e. unbounded. If
+# the app's window closed but its process lingered (a stuck GL teardown, a
+# non-daemon thread), the helper waited for eternity and the update silently
+# never applied - which looks exactly like "it just closed and did nothing".
+i=0
+while kill -0 "$PID" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -gt 60 ]; then break; fi        # 30s
+    sleep 0.5
+done
+if kill -0 "$PID" 2>/dev/null; then
+    say "app still alive after 30s; asking it to quit"
+    kill "$PID" 2>/dev/null
+    i=0
+    while kill -0 "$PID" 2>/dev/null; do
+        i=$((i + 1))
+        if [ "$i" -gt 20 ]; then break; fi    # 10s
+        sleep 0.5
+    done
+    kill -9 "$PID" 2>/dev/null
+    sleep 1
+fi
+# Either way we go ahead: renaming a directory is safe on POSIX even if the old
+# process somehow survives - it keeps running from the inode it already opened.
 
 rm -rf "$BACKUP"
 
 # --- back up current install (same-volume rename) ---
 if ! mv "$INSTALL" "$BACKUP" 2>>"$LOG"; then
-    # couldn't even back up; relaunch what's still there
-    echo "FAILED: could not rename $INSTALL aside; update not applied" >>"$LOG"
-    setsid "$EXE" >/dev/null 2>&1 < /dev/null &
+    say "FAILED: could not rename $INSTALL aside; update not applied"
+    _relaunch
     exit 1
 fi
 
 # --- move the new bundle into place; roll back on failure ---
 if mv "$NEWDIR" "$INSTALL" 2>>"$LOG"; then
     rm -rf "$BACKUP"
-    echo "OK: updated $INSTALL" >>"$LOG"
+    say "OK: updated $INSTALL"
 else
-    echo "FAILED: could not move $NEWDIR into place; rolled back" >>"$LOG"
+    say "FAILED: could not move $NEWDIR into place; rolled back"
     rm -rf "$INSTALL"; mv "$BACKUP" "$INSTALL"
 fi
 
 # --- relaunch detached + clean up scratch and self ---
-setsid "$EXE" >/dev/null 2>&1 < /dev/null &
+_relaunch
 rm -rf "$(dirname "$NEWDIR")"
 rm -f "$0"
 """
@@ -295,7 +336,26 @@ def apply_and_restart(
         )
     else:
         subprocess.Popen(
-            ["/bin/bash", str(script), *args],
-            start_new_session=True, close_fds=True, cwd=cwd,
+            ["/bin/sh", str(script), *args],
+            start_new_session=True, close_fds=True, cwd=cwd, env=_child_env(),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+
+
+def _child_env() -> dict:
+    """The environment the app was launched with, not the one PyInstaller made.
+
+    A frozen build prepends its own bundled libraries to ``LD_LIBRARY_PATH``.
+    Children inherit that, so ``sh``/``mv`` can end up resolving glibc/OpenSSL
+    against libraries we're about to *rename out from under them* - and the
+    relaunched app would inherit the same poisoned path. PyInstaller stashes the
+    real values in ``*_ORIG``; restore them.
+    """
+    env = dict(os.environ)
+    for var in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+        original = env.pop(f"{var}_ORIG", None)
+        if original is not None:
+            env[var] = original
+        elif is_frozen():
+            env.pop(var, None)
+    return env

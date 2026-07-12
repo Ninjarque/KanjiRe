@@ -125,6 +125,8 @@ class RoomClient:
             elif not self.is_host or self.room is None:
                 if t == "select":
                     self._select(int(msg.get("card", -1)))
+                elif t == "point":
+                    self._point(msg.get("card"))
                 return
             # ---- host-only room controls ---- #
             elif t == "config":
@@ -142,6 +144,20 @@ class RoomClient:
                 self._publish_state({"type": "lobby"})
             elif t == "select":
                 self._select(int(msg.get("card", -1)))
+            elif t == "point":
+                self._point(msg.get("card"))
+
+    def _point(self, card_id) -> None:
+        """Tell everyone which card the player on turn is dwelling on."""
+        cid = None if card_id is None else int(card_id)
+        if self.is_host:
+            if self.room is not None and self.room.point_at(self.me, cid):
+                self._publish_state({"type": "point"})
+        else:
+            self.transport.publish(
+                self._t("act"),
+                json.dumps({"uid": self.uid, "point": cid,
+                            "kind": "point"}).encode("utf-8"))
 
     def _create(self, msg: dict) -> None:
         self.code = _code(self.rng)
@@ -260,6 +276,12 @@ class RoomClient:
             if uid not in self.uids:
                 return
             player = self.uids.index(uid)
+            if msg.get("kind") == "point":
+                # A hover, not a click: only worth a broadcast when it moves.
+                cid = msg.get("point")
+                if room.point_at(player, None if cid is None else int(cid)):
+                    self._publish_state({"type": "point"})
+                return
             event = room.select(player, int(msg.get("card", -1)))
             if event is not None:
                 if room.finished:

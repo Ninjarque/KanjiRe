@@ -116,6 +116,8 @@ class Room:
         #: A completed group being shown to everyone before it's cleared.
         self.pending_clear: list[int] = []
         self.pending_at: float | None = None
+        #: The card the player on turn is dwelling on (shown to everyone).
+        self.pointer: int | None = None
         self._next_card = 0
         self._next_group = 0
 
@@ -245,6 +247,7 @@ class Room:
             self.current_group = None
             self.pending_clear = []
             self.pending_at = None
+            self.pointer = None
             self.pool = []
             self.turn = 0
             self.turns_used = 0
@@ -263,6 +266,7 @@ class Room:
                 self.turns_taken[self.turn] += 1
         self.selection.clear()
         self.current_group = None
+        self.pointer = None      # never leave one player's pointer on another's turn
         for cid in self.cards:
             self.cards[cid]["selected"] = False
         if self._turns_left() <= 0 or not self.board:
@@ -277,6 +281,28 @@ class Room:
                 self.turn = cand
                 return
         self.finished = True   # nobody left with turns
+
+    def point_at(self, player: int, card_id: int | None) -> bool:
+        """The current player has been hovering *card_id* - show everyone.
+
+        Lets the player whose turn it is think out loud: the card they're
+        dwelling on lights up on every screen, so the others can follow what
+        they're considering instead of staring at a still board. Only the
+        player on turn can point, and only at a card that's actually in play.
+        Returns True when the pointer moved (so the caller broadcasts).
+        """
+        with self.lock:
+            if (not self.started or self.finished or self.paused
+                    or player != self.turn or self.pending_clear):
+                return False
+            if card_id is not None:
+                card = self.cards.get(card_id)
+                if card is None or card.get("matched"):
+                    card_id = None
+            if card_id == self.pointer:
+                return False
+            self.pointer = card_id
+            return True
 
     def select(self, player: int, card_id: int) -> dict | None:
         """Apply one click. Returns the event dict (or None for a no-op)."""
@@ -392,6 +418,8 @@ class Room:
                 # The group currently held up for everyone to look at (empty
                 # most of the time). Clients pulse these and block input.
                 "revealing": list(self.pending_clear),
+                # The card the player on turn is dwelling on, or None.
+                "pointer": self.pointer,
                 "turn": self.turn,
                 "turns_used": self.turns_used,
                 "turns_total": self.turns_total,
@@ -545,6 +573,13 @@ class Handler(socketserver.StreamRequestHandler):
                     if self.room.finished:
                         event["finished"] = True
                     self.room.broadcast(event)
+            elif t == "point":
+                if self.room is None:
+                    continue
+                card = msg.get("card")
+                if self.room.point_at(self.player,
+                                      None if card is None else int(card)):
+                    self.room.broadcast({"type": "point"})
             elif t == "bye":
                 break
 

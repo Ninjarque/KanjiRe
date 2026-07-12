@@ -188,6 +188,49 @@ def test_completed_group_is_held_on_screen_for_everyone():
     assert gst["turn"] == 1 and hst["turn"] == 1
 
 
+def test_hover_pointer_is_shown_to_everyone_but_only_on_your_turn():
+    """Dwelling on a card shows it to the whole room, so the player on turn can
+    think out loud. It's theirs alone, and it must not outlive their turn."""
+    broker = LoopbackBroker()
+    host = _mk(broker, "alice", 60)
+    host.send({"t": "create", "settings": {"board_size": 4, "cards": 2}})
+    guest = _mk(broker, "bob", 61)
+    guest.send({"t": "join", "room": host.code})
+    host.poll(); guest.poll()
+    host.send({"t": "start", "pool": _pool(20), "faces": ["kanji", "meaning"],
+               "board_size": 4, "turns_each": 3})
+    hst = _drain_state(host); guest.poll()
+    assert hst["turn"] == 0 and hst["pointer"] is None
+
+    target = hst["board"][2]["id"]
+    host.send({"t": "point", "card": target})
+    assert _drain_state(host)["pointer"] == target
+    assert _drain_state(guest)["pointer"] == target, \
+        "the other player never saw what the current one is looking at"
+
+    # Moving off the card withdraws it.
+    host.send({"t": "point", "card": None})
+    assert _drain_state(guest)["pointer"] is None
+
+    # It's the turn-holder's pointer: bob can't point on alice's turn.
+    guest.send({"t": "point", "card": target})
+    assert not [m for m in guest.poll() if m.get("t") == "state"]
+    assert host.room.pointer is None
+
+    # And it never survives the turn changing.
+    host.send({"t": "point", "card": target})
+    _drain_state(host); _drain_state(guest)
+    ga = hst["board"][0]["group"]
+    a_id = _group_ids(hst, ga)[0]
+    b_id = next(c["id"] for c in hst["board"] if c["group"] != ga)
+    host.send({"t": "select", "card": a_id})
+    host.poll(); guest.poll()
+    host.send({"t": "select", "card": b_id})       # mismatch -> turn passes
+    hst2 = _drain_state(host)
+    assert hst2["turn"] == 1
+    assert hst2["pointer"] is None, "alice's pointer stayed up on bob's turn"
+
+
 def test_out_of_turn_clicks_are_ignored():
     broker = LoopbackBroker()
     host = _mk(broker, "alice", 3)
