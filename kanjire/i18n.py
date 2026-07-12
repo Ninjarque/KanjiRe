@@ -149,6 +149,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "STREAK_LINE":         "Day {n} streak",
 
         # --- today's training / streak -------------------------- #
+        "SEC_ROMAJI":          "ROMAJI ON KANA CARDS",
         "BTN_TODAY":           "Today  ·  {rev} reviews + {new} new",
         "TODAY_COMEBACK":      "Welcome back!  ·  {n} words picked to refresh",
         "TODAY_DONE":          "✓ Training done for today",
@@ -390,6 +391,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "STREAK_LINE":         "Série de {n} jours",
 
         # --- entraînement du jour / série ------------------------ #
+        "SEC_ROMAJI":          "RŌMAJI SUR LES CARTES KANA",
         "BTN_TODAY":           "Aujourd'hui  ·  {rev} révisions + {new} nouveaux",
         "TODAY_COMEBACK":      "Bon retour !  ·  {n} mots à rafraîchir",
         "TODAY_DONE":          "✓ Entraînement du jour terminé",

@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kanjire.kana import romaji_to_hira
+from kanjire.kana import hira_to_romaji, romaji_to_hira
 
 
 CASES = [
@@ -50,6 +50,34 @@ def test_mixed_input():
 def test_unknown_chars_survive():
     # A wrong answer must stay wrong - no silent dropping.
     assert "q" in romaji_to_hira("qqq")
+
+
+REVERSE_CASES = [
+    ("たべます", "tabemasu"),
+    ("きょう", "kyou"),
+    ("がっこう", "gakkou"),
+    ("しんぶん", "shinbun"),
+    ("まっちゃ", "matcha"),          # っち -> tch (Hepburn)
+    ("ほん", "hon"),
+    ("つづく", "tsuzuku"),           # づ
+    ("らーめん", "ra-men".replace("-", "a")),  # ー repeats the vowel: raamen
+    ("ジュース", "juusu"),           # katakana folded, ー after u
+    ("ぱーてぃー", "paatii"),
+]
+
+
+def test_hira_to_romaji():
+    for src, want in REVERSE_CASES:
+        got = hira_to_romaji(src)
+        assert got == want, f"{src!r}: {got!r} != {want!r}"
+
+
+def test_romaji_roundtrip_common_words():
+    # Converting a reading to romaji and typing it back must reproduce the
+    # original kana (the display hint doubles as a valid typed answer).
+    for word in ("たべる", "がっこう", "きょねん", "しんぶん", "ちょっと",
+                 "でんしゃ", "ひゃく", "ざっし"):
+        assert romaji_to_hira(hira_to_romaji(word)) == word, word
 
 
 def _run_all():

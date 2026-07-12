@@ -360,12 +360,21 @@ def run() -> int:
         cfg = PRESETS["Zen"]().with_(
             decks=("kana",), levels=(), faces=("kanji", "reading", "meaning"),
             words_per_round=6, kana_length=2, kana_script="both",
+            show_romaji=True,
         )
         app2.go_game(cfg)
         gs2 = app2.scene
         assert isinstance(gs2, GameScene)
         assert len(gs2.engine.round_words) == 6
         assert all(w.deck == kana.KANA_DECK for w in gs2.engine.round_words)
+        # ROMAJI toggle: kana cards carry a pronunciation hint that matches
+        # the converter; meaning (romaji) cards don't get a redundant one.
+        kana_cards = [c for c in gs2.cards.values() if c.face != "meaning"]
+        assert kana_cards and all(c._romaji is not None for c in kana_cards)
+        sample = kana_cards[0]
+        assert sample._romaji.text == kana.hira_to_romaji(sample.model.text)
+        assert all(c._romaji is None for c in gs2.cards.values()
+                   if c.face == "meaning")
         # Solve the first group to confirm engine + matching work on synthetic words.
         for cid in list(gs2.engine.group_cards[0]):
             cv = gs2.cards[cid]

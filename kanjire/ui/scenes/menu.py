@@ -66,7 +66,7 @@ def _deck_label(name: str, description: str = "") -> str:
 _PRESET_FIELDS = (
     "decks", "levels", "faces", "words_per_round", "frequency_bias",
     "duration", "max_mistakes", "base_points", "mismatch_penalty", "round_bonus",
-    "repetitions", "random_fonts", "vertical_writing",
+    "repetitions", "random_fonts", "vertical_writing", "show_romaji",
     "learn_known", "learn_less_known", "learn_unknown",
     "lives_mode", "start_lives", "max_lives", "heart_chance",
     "name",
@@ -121,6 +121,7 @@ class MenuScene(Scene):
         # Visual toggles (also part of saved presets)
         self.random_fonts = False
         self.vertical_writing = "off"
+        self.show_romaji = False
         self.repetitions = 1
         # Learn-mode bucket mix (only shown when "Learn" is the active mode).
         self.learn_known = 0
@@ -269,6 +270,14 @@ class MenuScene(Scene):
                             accent=theme.FACE_COLORS["reading"], font_size=12))
             for val, lab_key in WRITING_OPTIONS
         ]
+        # Romaji pronunciation hint under kana cards (Off | On).
+        self.lbl_romaji = self._section(tr("SEC_ROMAJI"))
+        self.romaji_btns = [
+            (False, self._btn(tr("TOGGLE_OFF"), lambda: self._set_romaji(False),
+                              accent=theme.FACE_COLORS["meaning"], font_size=12)),
+            (True,  self._btn(tr("TOGGLE_ON"), lambda: self._set_romaji(True),
+                              accent=theme.FACE_COLORS["meaning"], font_size=12)),
+        ]
         self.lbl_repeat = self._section(tr("SEC_PASSES"))
         self.repeat_btns = [
             (n, self._btn(f"{n}×", lambda n=n: self._set_repeat(n),
@@ -367,12 +376,14 @@ class MenuScene(Scene):
             self.lbl_kana_length, self.lbl_kana_script, self.lbl_size,
         ]
         self._adv_buttons = _btns(
-            self.faces_btns, self.font_btns, self.writing_btns, self.repeat_btns,
+            self.faces_btns, self.font_btns, self.writing_btns,
+            self.romaji_btns, self.repeat_btns,
             self.known_btns, self.less_known_btns, self.unknown_btns,
             self.hearts_btns, self.bounty_btns,
         )
         self._adv_labels = [
-            self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat,
+            self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_romaji,
+            self.lbl_repeat,
             self.lbl_known, self.lbl_less_known, self.lbl_unknown,
             self.lbl_hearts, self.lbl_bounty,
         ]
@@ -411,6 +422,7 @@ class MenuScene(Scene):
     def _set_size(self, s):       self.board_size = s;           self._after_change()
     def _set_faces(self, three):  self.faces3 = three;           self._after_change()
     def _set_random_fonts(self, v): self.random_fonts = bool(v); self._after_change()
+    def _set_romaji(self, v):     self.show_romaji = bool(v);    self._after_change()
     def _set_writing(self, v):    self.vertical_writing = v;     self._after_change()
     def _set_repeat(self, n):     self.repetitions = int(n);     self._after_change()
 
@@ -449,6 +461,7 @@ class MenuScene(Scene):
             "faces3": self.faces3,
             "random_fonts": self.random_fonts,
             "vertical_writing": self.vertical_writing,
+            "show_romaji": self.show_romaji,
             "repetitions": self.repetitions,
             "learn_known": self.learn_known,
             "learn_less_known": self.learn_less_known,
@@ -474,6 +487,8 @@ class MenuScene(Scene):
             self.random_fonts = bool(d["random_fonts"])
         if d.get("vertical_writing") in {v for v, _ in WRITING_OPTIONS}:
             self.vertical_writing = d["vertical_writing"]
+        if "show_romaji" in d:
+            self.show_romaji = bool(d["show_romaji"])
         if d.get("repetitions") in REPEAT_OPTIONS:
             self.repetitions = int(d["repetitions"])
         if d.get("learn_known") in LEARN_STEPS:
@@ -498,6 +513,7 @@ class MenuScene(Scene):
             return
         self.random_fonts = bool(cfg.get("random_fonts", False))
         self.vertical_writing = cfg.get("vertical_writing", "off")
+        self.show_romaji = bool(cfg.get("show_romaji", False))
         self.repetitions = int(cfg.get("repetitions", 1))
         self.learn_known = int(cfg.get("learn_known", 0))
         self.learn_less_known = int(cfg.get("learn_less_known", 0))
@@ -628,6 +644,8 @@ class MenuScene(Scene):
                 b.set_selected(val == self.random_fonts)
             for val, b in self.writing_btns:
                 b.set_selected(val == self.vertical_writing)
+            for val, b in self.romaji_btns:
+                b.set_selected(val == self.show_romaji)
             for n, b in self.repeat_btns:
                 b.set_selected(n == self.repetitions)
             # Learn-mode bucket selectors: visible only in Learn mode.
@@ -747,6 +765,7 @@ class MenuScene(Scene):
             words_per_round=self.board_size,
             random_fonts=self.random_fonts,
             vertical_writing=self.vertical_writing,
+            show_romaji=self.show_romaji,
             repetitions=self.repetitions,
             learn_known=self.learn_known,
             learn_less_known=self.learn_less_known,
@@ -992,9 +1011,22 @@ class MenuScene(Scene):
         section(self.lbl_faces, dy=10)
         y -= 30 * s
         self._row(self.faces_btns, y, 250 * s, 40 * s, gap=12 * s)
-        section(self.lbl_fonts)
+        # FONTS (left) and ROMAJI (right) share one line so the Advanced tab
+        # keeps its vertical budget (Learn mode adds three more rows below).
+        y -= 42 * s
+        self.lbl_fonts.x, self.lbl_fonts.y = cx - 180 * s, y
+        self.lbl_romaji.x, self.lbl_romaji.y = cx + 180 * s, y
         y -= 28 * s
-        self._row(self.font_btns, y, 120 * s, 32 * s, gap=12 * s)
+        bh = 32 * s
+        gap = 10 * s
+        bw = 110 * s
+        x0 = cx - 180 * s - (2 * bw + gap) / 2
+        for i, (_v, b) in enumerate(self.font_btns):
+            b.set_rect(x0 + i * (bw + gap), y - bh / 2, bw, bh)
+        rw = 84 * s
+        x0 = cx + 180 * s - (2 * rw + gap) / 2
+        for i, (_v, b) in enumerate(self.romaji_btns):
+            b.set_rect(x0 + i * (rw + gap), y - bh / 2, rw, bh)
         section(self.lbl_writing)
         y -= 28 * s
         self._row(self.writing_btns, y, 100 * s, 32 * s, gap=12 * s)

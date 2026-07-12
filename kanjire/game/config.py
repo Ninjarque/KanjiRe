@@ -43,6 +43,9 @@ class GameConfig:
     random_fonts: bool = False
     #: 'off' | 'random' (per-card 50/50) | 'all' (every kanji/reading vertical).
     vertical_writing: str = "off"
+    #: When True, cards whose text is entirely kana show a small romaji
+    #: pronunciation hint along their bottom edge.
+    show_romaji: bool = False
 
     # ---- learn mode (bucket mix; 0-3 ≈ None/Few/Some/Many) ------------- #
     learn_known:      int = 0

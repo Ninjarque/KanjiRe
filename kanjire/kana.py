@@ -119,6 +119,69 @@ _R2H.update({
 })
 _VOWELS = "aeiou"
 
+#: Reverse table for displaying romaji under kana: hiragana -> Hepburn-ish
+#: romaji. Built from the game table plus the rarer kana it doesn't drill.
+_H2R: dict[str, str] = {}
+for _r, _h, _k in KANA_SOUNDS:
+    _H2R.setdefault(_h, _r)
+_H2R.update({
+    "ぢ": "ji", "づ": "zu", "ゔ": "vu",
+    "ふぁ": "fa", "ふぃ": "fi", "ふぇ": "fe", "ふぉ": "fo",
+    "ゔぁ": "va", "ゔぃ": "vi", "ゔぇ": "ve", "ゔぉ": "vo",
+    "うぃ": "wi", "うぇ": "we", "うぉ": "wo",
+    "しぇ": "she", "ちぇ": "che", "じぇ": "je",
+    "てぃ": "ti", "でぃ": "di", "てゅ": "tyu", "でゅ": "dyu",
+    "とぅ": "tu", "どぅ": "du",
+    "ぁ": "a", "ぃ": "i", "ぅ": "u", "ぇ": "e", "ぉ": "o",
+    "ゃ": "ya", "ゅ": "yu", "ょ": "yo", "ゎ": "wa",
+})
+
+
+def hira_to_romaji(text: str) -> str:
+    """Kana -> romaji for display hints ("がっこう" -> "gakkou").
+
+    Handles yōon digraphs, っ (doubles the next consonant; っち -> tchi),
+    ー (repeats the previous vowel) and ん. Katakana is folded to hiragana
+    first; anything unknown passes through unchanged.
+    """
+    from kanjire.jputil import kata_to_hira
+
+    s = kata_to_hira(text)
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "っ":
+            # find the next mora's romaji and double its first consonant
+            nxt = ""
+            for ln in (2, 1):
+                frag = s[i + 1:i + 1 + ln]
+                if frag in _H2R:
+                    nxt = _H2R[frag]
+                    break
+            if nxt and nxt[0] not in _VOWELS:
+                out.append("t" if nxt.startswith("ch") else nxt[0])
+            i += 1
+            continue
+        if ch == "ー":
+            prev = out[-1] if out else ""
+            if prev and prev[-1] in _VOWELS:
+                out.append(prev[-1])
+            else:
+                out.append("-")
+            i += 1
+            continue
+        for ln in (2, 1):
+            frag = s[i:i + ln]
+            if frag in _H2R:
+                out.append(_H2R[frag])
+                i += ln
+                break
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
 
 def romaji_to_hira(text: str) -> str:
     """IME-style romaji -> hiragana ("kyou" -> きょう, "gakkou" -> がっこう).

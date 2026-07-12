@@ -14,6 +14,7 @@ from kanjire.data.stats import knowledge_score
 from kanjire.game.config import GameConfig
 from kanjire.game.engine import GameEngine, Phase
 from kanjire.i18n import tr
+from kanjire.jputil import is_kana
 from kanjire.model.sampling import learn_sample_words, weighted_sample_words
 from kanjire.ui import theme
 from kanjire.ui.anim import (
@@ -286,6 +287,15 @@ class GameScene(Scene):
             return "vertical" if random.random() < 0.5 else "horizontal"
         return "horizontal"
 
+    def _romaji_hint(self, model) -> str | None:
+        """Romaji for all-kana card text when the ROMAJI toggle is on."""
+        if not self.config.show_romaji or model.face == "meaning":
+            return None
+        text = model.text
+        if not text or not all(is_kana(ch) or ch == "ー" for ch in text):
+            return None
+        return kana.hira_to_romaji(text)
+
     def _build_round(self, initial: bool = False) -> None:
         self._clear_cards()
         for model in self.engine.board_cards:
@@ -293,6 +303,7 @@ class GameScene(Scene):
                 model, self.batch, self.g_glow, self.g_cardbg, self.g_text,
                 font_name=self._pick_font(model.face),
                 direction=self._pick_direction(model.face),
+                romaji=self._romaji_hint(model),
             )
         self._layout_cards()
         if self.config.lives_mode:

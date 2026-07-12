@@ -217,6 +217,7 @@ class CardView:
         *,
         font_name: str | None = None,
         direction: str = "horizontal",
+        romaji: str | None = None,
     ) -> None:
         self.model = model
         self.face = model.face
@@ -260,6 +261,16 @@ class CardView:
             color=theme.with_alpha(theme.GOLD, 0),
             anchor_x="right", anchor_y="top", batch=batch, group=text_group,
         )
+        # Optional romaji pronunciation hint along the bottom edge (shown on
+        # kana cards when the ROMAJI toggle is on).
+        self._romaji = None
+        if romaji:
+            self._romaji = Label(
+                romaji, font_name=JP_FONT, font_size=10,
+                color=theme.with_alpha(theme.MUTED, 210),
+                anchor_x="center", anchor_y="bottom",
+                batch=batch, group=text_group,
+            )
         self._text = CardText(
             self.display_text, model.face,
             font_name or JP_FONT, direction,
@@ -277,6 +288,8 @@ class CardView:
     def set_slot(self, cx: float, cy: float, w: float, h: float) -> None:
         self.cx, self.cy, self.bw, self.bh = cx, cy, w, h
         self._text.set_geometry(cx, cy, w, h)
+        if self._romaji is not None:
+            self._romaji.font_size = int(max(8, min(12, h * 0.11)))
         self.apply()
 
     def contains(self, px: float, py: float) -> bool:
@@ -294,6 +307,8 @@ class CardView:
             self._text.apply(self.offset_y, self.shake, 0.0)
             self._badge.color = theme.with_alpha(self.face_color, 0)
             self._sticker.color = theme.with_alpha(self._sticker_color, 0)
+            if self._romaji is not None:
+                self._romaji.color = theme.with_alpha(theme.MUTED, 0)
             return
 
         s = self.scale
@@ -340,6 +355,12 @@ class CardView:
             self._sticker_color, int(235 * a) if self._sticker_text else 0
         )
 
+        if self._romaji is not None:
+            self._romaji.x = x + w / 2
+            self._romaji.y = y + 6
+            self._romaji.color = theme.with_alpha(
+                theme.readable_on(fill), int(200 * a))
+
         self._text.apply(self.offset_y, self.shake, a)
 
     def delete(self) -> None:
@@ -347,4 +368,6 @@ class CardView:
         self._bg.delete()
         self._badge.delete()
         self._sticker.delete()
+        if self._romaji is not None:
+            self._romaji.delete()
         self._text.delete()

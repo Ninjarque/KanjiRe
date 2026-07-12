@@ -11,6 +11,11 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- New **ROMAJI ON KANA CARDS** toggle (Advanced tab): kana cards — reading
+  cards and both faces in Kana mode — show their romaji pronunciation in
+  small type along the bottom edge. Great while you're still getting
+  comfortable with the kana; saved per mode and in presets like every
+  other toggle.
 
 ## 0.7.0 — 2026-07-12
 - **Read your own texts!** The Reading Room now has a source picker: pick
