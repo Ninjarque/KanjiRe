@@ -67,6 +67,13 @@ class GameConfig:
     #: 'hira' | 'kata' | 'both'.  Decides which scripts appear as cards.
     kana_script: str = "both"
 
+    # ---- finite sessions (Today's Training, practice rematches) -------- #
+    #: When True the game runs over a fixed pool and is *won* once every word
+    #: in it has been matched: boards draw only from words not yet cleared,
+    #: the final board may be smaller, and clearing the last word ends the
+    #: game with ``session_complete``.
+    session_mode: bool = False
+
     name: str = "Custom"
 
     def __post_init__(self) -> None:

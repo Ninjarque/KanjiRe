@@ -11,6 +11,13 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Today's Training** — a big new button on the menu builds your daily
+  session automatically: words due for review (scheduled by a real
+  memory model, FSRS) plus a gentle trickle of new words. Finish it to
+  grow your **daily streak** — with earned streak freezes, so one missed
+  day never wipes your run.
+- **Welcome-back sessions**: after a few days away KanjiRe greets you with
+  a short refresher of your most at-risk words. No review mountain, ever.
 - Boards are now **sneakier**: words that share a kanji (like 食べる and 食事)
   are more likely to appear together, so matching actually tests you.
 - After a game, words that tripped you up are listed **in red** and a new

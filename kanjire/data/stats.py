@@ -57,6 +57,7 @@ def _today() -> str:
 
 #: FSRS-style ratings recorded in ``review_log``.
 RATING_AGAIN = 1
+RATING_HARD = 2
 RATING_GOOD = 3
 
 
@@ -99,11 +100,21 @@ def classify(row: dict | None) -> str:
 # Recorder
 # --------------------------------------------------------------------------- #
 class StatsRecorder:
-    """Owns one writable SQLite connection and a tiny set of upsert verbs."""
+    """Owns one writable SQLite connection and a tiny set of upsert verbs.
+
+    Also feeds the FSRS scheduler (:class:`kanjire.srs.SrsStore`) on the same
+    connection, so a single recorder event updates both the lifetime tallies
+    and the per-word review schedule atomically-enough for a desktop game.
+    """
 
     def __init__(self, con: sqlite3.Connection) -> None:
         self.con = con
         db.init_stats_schema(con)
+        try:
+            from kanjire.srs import SrsStore
+            self.srs = SrsStore(con)
+        except Exception:  # scheduling is an enhancement, never a requirement
+            self.srs = None
 
     # ---- events emitted by the engine ------------------------------- #
     def saw(self, word: Word) -> None:
@@ -121,7 +132,9 @@ class StatsRecorder:
         )
         self.con.commit()
 
-    def matched(self, word: Word) -> None:
+    def matched(self, word: Word, clean: bool = True) -> None:
+        """A group completed. ``clean=False`` means an error touched the group
+        this deal, so the match is weaker evidence (rates Hard, not Good)."""
         ts = _now()
         self.con.execute(
             """
@@ -137,8 +150,11 @@ class StatsRecorder:
             """,
             (word.expression, word.reading, word.meaning, ts, ts),
         )
-        self._log_event(ts, word, "match", None, RATING_GOOD)
+        rating = RATING_GOOD if clean else RATING_HARD
+        self._log_event(ts, word, "match", None, rating)
         self.con.commit()
+        if self.srs is not None:
+            self.srs.update(word.expression, word.reading, rating)
 
     def confused(self, target: Word, offending: Word, face: str) -> None:
         """A mismatch click: ``offending`` was selected while ``target`` was the
@@ -163,6 +179,9 @@ class StatsRecorder:
             self.con.execute(sql, (w.expression, w.reading, w.meaning, ts))
             self._log_event(ts, w, "confuse", face, RATING_AGAIN)
         self.con.commit()
+        if self.srs is not None:
+            for w in (target, offending):
+                self.srs.update(w.expression, w.reading, RATING_AGAIN)
 
     def _log_event(self, ts: str, word: Word, event: str, face: str | None,
                    rating: int) -> None:
@@ -251,11 +270,15 @@ class StatsRecorder:
             (expression, reading),
         )
         self.con.commit()
+        if self.srs is not None:
+            self.srs.reset_word(expression, reading)
 
     def reset_all(self) -> None:
         self.con.execute("DELETE FROM word_stats")
         self.con.execute("DELETE FROM review_log")
         self.con.commit()
+        if self.srs is not None:
+            self.srs.reset_all()
 
     def close(self) -> None:
         try:

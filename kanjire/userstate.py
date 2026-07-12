@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 from kanjire.paths import USER_STATE_PATH
+
+#: Streak mercy: one freeze earned per this many consecutive days...
+STREAK_FREEZE_EVERY = 7
+#: ...banked up to this many. A freeze silently covers one missed day.
+STREAK_FREEZE_BANK = 3
 
 
 class UserState:
@@ -114,6 +120,75 @@ class UserState:
         where the player left off in each mode."""
         self.data.setdefault("last_per_mode", {})[mode] = settings
         self.save()
+
+    # -- daily streak (with mercy) -------------------------------------- #
+    def streak_status(self, today: date | None = None) -> dict:
+        """Current streak as the player should see it: ``count`` (0 if it
+        broke), ``freezes`` banked, ``done_today``. Never mutates state.
+
+        Framing rule (docs/ROADMAP.md): a missed day *silently* consumes a
+        banked freeze; only when no freeze can cover the gap does the count
+        read 0. There is no "you lost your streak" moment - it just shows the
+        honest number.
+        """
+        today = today or date.today()
+        s = self.data.get("settings", {})
+        count = int(s.get("streak_count", 0) or 0)
+        freezes = int(s.get("streak_freezes", 0) or 0)
+        last = s.get("streak_day")
+        if not last or not count:
+            return {"count": 0, "freezes": freezes, "done_today": False}
+        try:
+            last_d = date.fromisoformat(last)
+        except ValueError:
+            return {"count": 0, "freezes": freezes, "done_today": False}
+        gap = (today - last_d).days
+        if gap <= 0:
+            return {"count": count, "freezes": freezes, "done_today": True}
+        if gap == 1:
+            return {"count": count, "freezes": freezes, "done_today": False}
+        missed = gap - 1
+        if missed <= freezes:
+            return {"count": count, "freezes": freezes, "done_today": False}
+        return {"count": 0, "freezes": freezes, "done_today": False}
+
+    def stamp_streak(self, today: date | None = None) -> dict:
+        """Record that today's training happened. Applies freeze mercy for
+        missed days, extends or restarts the count, banks earned freezes.
+        Returns the new status dict (same shape as :meth:`streak_status`)."""
+        today = today or date.today()
+        s = self.data.setdefault("settings", {})
+        count = int(s.get("streak_count", 0) or 0)
+        freezes = int(s.get("streak_freezes", 0) or 0)
+        last = s.get("streak_day")
+        last_d = None
+        if last:
+            try:
+                last_d = date.fromisoformat(last)
+            except ValueError:
+                last_d = None
+        if last_d is None or count == 0:
+            count = 1
+        else:
+            gap = (today - last_d).days
+            if gap == 0:                    # already stamped today: no-op
+                return {"count": count, "freezes": freezes, "done_today": True}
+            elif gap == 1:
+                count += 1
+            else:
+                missed = gap - 1
+                if missed <= freezes:       # mercy: freezes cover the hole
+                    freezes -= missed
+                    count += 1
+                else:
+                    count = 1
+        if count and count % STREAK_FREEZE_EVERY == 0:
+            freezes = min(STREAK_FREEZE_BANK, freezes + 1)
+        s["streak_count"] = count
+        s["streak_freezes"] = freezes
+        s["streak_day"] = today.isoformat()
+        self.save()
+        return {"count": count, "freezes": freezes, "done_today": True}
 
     # -- named presets (user-saved custom modes) ----------------------- #
     @property

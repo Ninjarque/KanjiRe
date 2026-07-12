@@ -73,6 +73,7 @@ class SelectResult:
     round_complete: bool = False    # board cleared (any pass)
     set_complete: bool = False      # *final* pass of a familiarization set
     game_over: bool = False
+    session_complete: bool = False  # session_mode: every pool word cleared
     # ---- gamified lives (lives_mode) ---------------------------------- #
     life_delta: int = 0             # +1 heart bounty, -1 penalised mismatch
     bonus_points: int = 0           # extra score from a coin bounty
@@ -132,6 +133,10 @@ class GameEngine:
         self._seen_ids: set[int] = set()
         self.seen_words: list[Word] = []
 
+        #: session_mode: word keys not yet matched this session. The game is
+        #: *won* (GAME_OVER with session_complete) when this empties.
+        self._session_remaining: set[tuple[str, str]] = set()
+
         #: Per-group Adventure metadata, rebuilt each :meth:`_deal_board`.
         self.is_new: list[bool] = []
         self.bounty_type: list[str | None] = []   # 'heart' | 'coin' | None
@@ -169,6 +174,10 @@ class GameEngine:
         self.seen_words.clear()
         self._recent_rounds.clear()
         self.subround = 0
+        if self.config.session_mode:
+            self._session_remaining = {
+                (w.expression, w.reading) for w in self.pool
+            }
         self.phase = Phase.PLAYING
         self.next_round()
 
@@ -235,10 +244,20 @@ class GameEngine:
 
     def next_round(self) -> None:
         """Pick a *new* set of words and deal a fresh board."""
+        pool = self.pool
+        if self.config.session_mode:
+            # Only words not yet cleared this session; the last board may be
+            # smaller than words_per_round.
+            pool = [w for w in self.pool
+                    if (w.expression, w.reading) in self._session_remaining]
+            if not pool:
+                self.phase = Phase.GAME_OVER
+                return
         penalize = frozenset().union(*self._recent_rounds)
         self.round_words = self.sampler(
-            self.pool,
-            self.config.words_per_round,
+            pool,
+            min(self.config.words_per_round, len(pool)) if pool
+            else self.config.words_per_round,
             bias=self.config.frequency_bias,
             rng=self.rng,
             penalize=penalize,
@@ -279,6 +298,11 @@ class GameEngine:
     @property
     def words_learned(self) -> int:
         return len(self.seen_words)
+
+    @property
+    def session_left(self) -> int:
+        """session_mode: words not yet cleared (0 outside session_mode)."""
+        return len(self._session_remaining)
 
     # ------------------------------------------------------------------ #
     # Input
@@ -339,22 +363,28 @@ class GameEngine:
         if word.id not in self._seen_ids:
             self._seen_ids.add(word.id)
             self.seen_words.append(word)
+        # "Clean" = no error touched this group since the deal. The recorder
+        # hears the difference (a clean match is stronger evidence of knowing
+        # the word than one the player fumbled into).
+        clean = not (group < len(self._group_errored)
+                     and self._group_errored[group])
         if self.recorder is not None:
             try:
-                self.recorder.matched(word)
+                self.recorder.matched(word, clean)
             except Exception:  # noqa: BLE001
                 pass
+        if (self.config.session_mode
+                and self.subround + 1 >= self.config.repetitions):
+            self._session_remaining.discard((word.expression, word.reading))
 
         # Gamified lives: a clean match of a bounty group pays out, and clearing
-        # a 新 group cleanly retires its sticker. "Clean" = no error touched the
-        # group this deal.
+        # a 新 group cleanly retires its sticker.
         life_delta = 0
         bonus_points = 0
         bounty_type = None
         group_was_new = self.config.lives_mode and self.is_new[group]
         sticker_cleared = False
         if self.config.lives_mode:
-            clean = not self._group_errored[group]
             bt = self.bounty_type[group]
             if bt == "heart" and clean and self.lives < self.config.max_lives:
                 self.lives += 1
@@ -395,6 +425,11 @@ class GameEngine:
             if self.subround + 1 >= self.config.repetitions:
                 self.rounds_completed += 1
                 result.set_complete = True
+            # Session won: every word in the pool has been matched.
+            if self.config.session_mode and not self._session_remaining:
+                self.phase = Phase.GAME_OVER
+                result.game_over = True
+                result.session_complete = True
         return result
 
     def _mismatch(self, offending_id: int) -> SelectResult:
@@ -440,13 +475,15 @@ class GameEngine:
 
         result = SelectResult("mismatch", cards=affected)
 
+        # Any group an error touched is no longer "clean" this deal - the
+        # recorder downgrades its eventual match, a bounty on it won't pay
+        # out, and a 新 sticker won't retire. Tracked in every mode.
+        if target_group is not None and target_group < len(self._group_errored):
+            self._group_errored[target_group] = True
+        if offending_group is not None and offending_group < len(self._group_errored):
+            self._group_errored[offending_group] = True
+
         if self.config.lives_mode:
-            # Any group an error touched is no longer "clean" this deal, so its
-            # 新 sticker won't retire and a bounty on it won't pay out.
-            if target_group is not None:
-                self._group_errored[target_group] = True
-            if offending_group is not None:
-                self._group_errored[offending_group] = True
             # Heart-loss rule: you only lose a heart when the word you were
             # *assembling* (the target) is already learned. Fumbling a 新 word
             # is free - you're still learning it.

@@ -404,6 +404,55 @@ def run() -> int:
         frames2(10)
         print("PASS practice-tricky-words rematch")
 
+        # 17) Today's Training end-to-end: seeded due reviews + new words form
+        # the plan, the session completes and stamps the streak.
+        app2.stats.reset_all()
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        con4 = _db3.connect(read_only=True)
+        try:
+            n5b = _db3.load_words(con4, decks=["jlpt"], levels=[5],
+                                  require_kanji=True)
+        finally:
+            con4.close()
+        past = _dt.now(_tz.utc) - _td(days=2)
+        for w in n5b[:3]:
+            app2.stats.srs.update(w.expression, w.reading, 3, past)
+        assert app2.stats.srs.due_count() >= 3, "seeded words not due"
+        app2.go_menu()
+        menu2 = app2.scene
+        plan = menu2._get_today_plan()
+        assert len(plan.reviews) >= 3, f"plan reviews: {len(plan.reviews)}"
+        assert plan.new_words, "plan should offer new words"
+        assert menu2.today_btn.enabled
+        menu2._play_today()
+        gts = app2.scene
+        assert isinstance(gts, GameScene) and gts.config.session_mode
+        assert gts.engine.session_left == len(plan.pool)
+        rounds_guard = 0
+        while isinstance(app2.scene, GameScene) and rounds_guard < 25:
+            g = app2.scene
+            for grp in range(len(g.engine.round_words)):
+                for cid in list(g.engine.group_cards[grp]):
+                    cv = g.cards.get(cid)
+                    if cv is not None and not cv.model.matched:
+                        g.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+            frames2(90)   # round-clear animation + next round / results
+            rounds_guard += 1
+        rs2 = app2.scene
+        assert isinstance(rs2, ResultsScene), f"stuck in {type(rs2).__name__}"
+        assert rs2.session_won, "session did not register as won"
+        st = app2.state.streak_status()
+        assert st["count"] >= 1 and st["done_today"], f"streak not stamped: {st}"
+        app2.go_menu()
+        frames2(4)
+        assert "✓" in app2.scene.today_btn.text, \
+            "menu button did not flip to done/bonus state"
+        # Clean the streak stamp back out of the persisted state.
+        for k in ("streak_count", "streak_freezes", "streak_day"):
+            app2.state.data.get("settings", {}).pop(k, None)
+        app2.state.save()
+        print("PASS today session end-to-end (plan, session, streak)")
+
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()
         app2.audio.shutdown()

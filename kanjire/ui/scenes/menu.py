@@ -140,6 +140,11 @@ class MenuScene(Scene):
         self._user_presets = list(app.state.presets)
         self._user_preset_names = {p["name"] for p in self._user_presets}
 
+        # Today's Training plan (due reviews + new-word trickle). Computed
+        # lazily and invalidated when the deck/level scope changes.
+        self._today_plan = None
+        self._today_dirty = True
+
         self.buttons: list[Button] = []
         self.section_labels: list[Label] = []
         self._build_widgets()
@@ -329,6 +334,14 @@ class MenuScene(Scene):
         )
 
         self.play_btn = self._btn(tr("BTN_PLAY"), self._play, accent=theme.SUCCESS, font_size=20)
+        # Today's Training: the daily-habit entry point (label set in _refresh).
+        self.today_btn = self._btn("", self._play_today, accent=theme.GOLD,
+                                   font_size=14)
+        self.streak_label = Label(
+            "", font_name=JP_FONT, font_size=12,
+            color=theme.with_alpha(theme.GOLD, 255),
+            anchor_x="center", anchor_y="center", batch=self.batch, group=self.g_text,
+        )
         self.avail_label = Label(
             "", font_name=JP_FONT, font_size=12,
             color=theme.with_alpha(theme.DIM, 255),
@@ -389,6 +402,7 @@ class MenuScene(Scene):
 
     def _set_deck(self, n):
         self.deck = n
+        self._today_dirty = True
         self._after_change()
         # Selecting / leaving Kana changes which rows take space.
         self.on_resize(self.width, self.height)
@@ -563,6 +577,7 @@ class MenuScene(Scene):
                 self.levels.discard(lv)
         else:
             self.levels.add(lv)
+        self._today_dirty = True
         self._after_change()
 
     def _refresh(self) -> None:
@@ -670,6 +685,33 @@ class MenuScene(Scene):
             tr("HISCORE", mode=_mode_label(self.mode), score=hs) if hs else ""
         )
 
+        # Today's Training button + streak line.
+        plan = self._get_today_plan()
+        streak = self.app.state.streak_status()
+        if plan.empty:
+            self.today_btn.set_text(tr("TODAY_DONE"))
+            self.today_btn.enabled = False
+        elif plan.comeback:
+            self.today_btn.set_text(tr("TODAY_COMEBACK", n=len(plan.reviews)))
+            self.today_btn.enabled = True
+        elif streak["done_today"]:
+            # Already stamped: extra rounds welcome, framed as a bonus.
+            self.today_btn.set_text(tr("TODAY_MORE", rev=len(plan.reviews),
+                                       new=len(plan.new_words)))
+            self.today_btn.enabled = True
+        else:
+            self.today_btn.set_text(tr("BTN_TODAY", rev=len(plan.reviews),
+                                       new=len(plan.new_words)))
+            self.today_btn.enabled = True
+        self.today_btn._refresh()
+        if streak["count"] > 0:
+            frz = " ❄" * streak["freezes"]
+            check = " ✓" if streak["done_today"] else ""
+            self.streak_label.text = tr("STREAK_FOOTER", n=streak["count"]) \
+                + frz + check
+        else:
+            self.streak_label.text = ""
+
     # ------------------------------------------------------------------ #
     # Build config & launch
     # ------------------------------------------------------------------ #
@@ -719,6 +761,34 @@ class MenuScene(Scene):
         if not self.play_btn.enabled:
             return
         self.app.go_game(self._current_config())
+
+    def _get_today_plan(self):
+        """Lazily (re)build the Today plan; deck/level changes invalidate it."""
+        if self._today_dirty or self._today_plan is None:
+            from kanjire.srs.session import TodayPlan, build_today_plan
+            decks = None if self.deck == kana.KANA_DECK else [self.deck]
+            levels = sorted(self.levels) if self.deck == "jlpt" else None
+            try:
+                self._today_plan = build_today_plan(
+                    self.app.con, self.app.stats, decks=decks, levels=levels)
+            except Exception:
+                self._today_plan = TodayPlan()
+            self._today_dirty = False
+        return self._today_plan
+
+    def _play_today(self) -> None:
+        plan = self._get_today_plan()
+        if plan.empty:
+            return
+        cfg = GameConfig(
+            name="Today",
+            decks=(self.deck if self.deck != kana.KANA_DECK else "jlpt",),
+            levels=(), faces=DEFAULT_FACES,
+            words_per_round=min(6, max(2, len(plan.pool))),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+        )
+        self.app.go_game(cfg, pool=plan.pool)
 
     # ------------------------------------------------------------------ #
     # Input
@@ -830,6 +900,7 @@ class MenuScene(Scene):
         self.subtitle.font_size = max(9, round(15 * s))
         self.avail_label.font_size = max(8, round(12 * s))
         self.hiscore_label.font_size = max(8, round(13 * s))
+        self.streak_label.font_size = max(8, round(12 * s))
 
         # Top nav bar (Play | Stats | Settings)
         self.nav.set_rect(cx - 240 * s, height - 50 * s, 480 * s, 36 * s)
@@ -958,12 +1029,16 @@ class MenuScene(Scene):
             self._set_group_visible(*survival_widgets, False)
 
     def _layout_footer(self, cx, s) -> None:
-        # Persistent footer, bottom-anchored so PLAY sits in the same place on
-        # both sub-tabs.
-        self.save_preset_btn.set_rect(cx - 120 * s, 190 * s, 240 * s, 26 * s)
-        self.play_btn.set_rect(cx - 150 * s, 120 * s, 300 * s, 56 * s)
+        # Persistent footer, bottom-anchored so the buttons sit in the same
+        # place on both sub-tabs. Today's Training and PLAY share one row (the
+        # same vertical envelope as the old lone PLAY button, so the tab
+        # content above never collides); save-preset tucks into the corner.
+        self.today_btn.set_rect(cx - 340 * s, 120 * s, 330 * s, 56 * s)
+        self.play_btn.set_rect(cx + 10 * s, 120 * s, 330 * s, 56 * s)
+        self.save_preset_btn.set_rect(16 * s, 16 * s, 180 * s, 26 * s)
         self.avail_label.x, self.avail_label.y = cx, 90 * s
         self.hiscore_label.x, self.hiscore_label.y = cx, 64 * s
+        self.streak_label.x, self.streak_label.y = cx, 40 * s
 
     # ------------------------------------------------------------------ #
     # Update banner (bottom strip) — appears when a verified update is staged.

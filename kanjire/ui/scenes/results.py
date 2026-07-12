@@ -22,6 +22,12 @@ class ResultsScene(Scene):
         self.config = config
         self.session = session
         self.is_record = app.state.record_score(config.name, engine.score)
+        # Completing the daily Today session stamps the streak (with freeze
+        # mercy applied inside stamp_streak).
+        self.session_won = bool(config.session_mode and engine.session_left == 0)
+        self.streak = None
+        if self.session_won and config.name == "Today":
+            self.streak = app.state.stamp_streak()
 
         self.batch = pyglet.graphics.Batch()
         self.g_bg = OrderedGroup(0)
@@ -44,14 +50,23 @@ class ResultsScene(Scene):
 
     def _build(self) -> None:
         e = self.engine
-        self.title = self._lbl(
-            tr("RESULTS_TIME") if self.config.timed else tr("RESULTS_OVER"),
-            30, theme.TEXT, bold=True,
-        )
+        if self.session_won:
+            title = tr("RESULTS_DONE")
+        elif self.config.timed:
+            title = tr("RESULTS_TIME")
+        else:
+            title = tr("RESULTS_OVER")
+        self.title = self._lbl(title, 30,
+                               theme.SUCCESS if self.session_won else theme.TEXT,
+                               bold=True)
         self.score = self._lbl(f"{e.score:,}", 64, theme.GOLD, bold=True)
+        record_bits = []
+        if self.is_record:
+            record_bits.append(tr("RESULTS_NEW_BEST"))
+        if self.streak is not None:
+            record_bits.append(tr("STREAK_LINE", n=self.streak["count"]))
         self.record = self._lbl(
-            tr("RESULTS_NEW_BEST") if self.is_record else "",
-            18, theme.SUCCESS, bold=True,
+            "   ·   ".join(record_bits), 18, theme.SUCCESS, bold=True,
         )
 
         acc = f"{e.accuracy * 100:.0f}%"
@@ -114,7 +129,10 @@ class ResultsScene(Scene):
             self.buttons.append(self.practice_btn)
 
     def _again(self) -> None:
-        self.app.go_game(self.config)
+        # Session games (Today, practice) replay the exact same word pool;
+        # everything else re-rolls from the deck as usual.
+        pool = list(self.engine.pool) if self.config.session_mode else None
+        self.app.go_game(self.config, pool=pool)
 
     def _practice(self) -> None:
         """Zen-style rematch restricted to this session's tricky words."""
@@ -159,7 +177,7 @@ class ResultsScene(Scene):
         self.title.x, self.title.y = cx, y
         y -= 64 * s
         self.score.x, self.score.y = cx, y
-        y -= 44 * s
+        y -= 58 * s
         self.record.x, self.record.y = cx, y
 
         # stats row (6 across)

@@ -73,9 +73,9 @@ class _SessionTally:
         if self._rec is not None:
             self._rec.saw(word)
 
-    def matched(self, word) -> None:
+    def matched(self, word, clean: bool = True) -> None:
         if self._rec is not None:
-            self._rec.matched(word)
+            self._rec.matched(word, clean)
 
     def confused(self, target, offending, face) -> None:
         for w in (target, offending):
@@ -525,6 +525,10 @@ class GameScene(Scene):
             self.center_label.text = "♥ " * lives + "♡ " * empty
             self.center_label.color = theme.with_alpha(theme.DANGER, 255)
             self.status_label.text = tr("HUD_LIVES")
+        elif self.config.session_mode:
+            self.center_label.text = str(e.session_left)
+            self.center_label.color = theme.with_alpha(theme.GOLD, 255)
+            self.status_label.text = tr("HUD_LEFT")
         elif self.config.timed:
             t = max(0, int(e.time_left))
             self.center_label.text = f"{t // 60}:{t % 60:02d}"

@@ -132,9 +132,12 @@ class _Recorder:
     def __init__(self):
         self.saw_calls = []
         self.matched_calls = []
+        self.clean_flags = []
         self.confused_calls = []
     def saw(self, w):                self.saw_calls.append(w)
-    def matched(self, w):            self.matched_calls.append(w)
+    def matched(self, w, clean=True):
+        self.matched_calls.append(w)
+        self.clean_flags.append(clean)
     def confused(self, t, o, face):  self.confused_calls.append((t, o, face))
 
 
@@ -298,6 +301,77 @@ def test_recent_words_cooldown():
         for j in range(i + 1, min(i + 4, len(hist))):  # next 3 rounds
             assert not (hist[i] & hist[j]), \
                 f"word repeated within cooldown window (rounds {i},{j})"
+
+
+def test_matched_clean_flag_reflects_group_errors():
+    # A group the player errored on still completes, but the recorder is told
+    # the match wasn't clean (so the scheduler rates it Hard, not Good).
+    rec = _Recorder()
+    config = GameConfig(decks=("test",), levels=(), words_per_round=4,
+                        duration=None)
+    e = GameEngine(config, make_pool(30), rng=random.Random(9), recorder=rec)
+    e.start()
+    # Mismatch touching groups 0 (target) and 1 (offending)
+    e.select(e.group_cards[0][0])
+    e.select(e.group_cards[1][0])
+    # Now complete group 0 (errored) and group 2 (untouched)
+    _select_group(e, 0)
+    _select_group(e, 2)
+    assert rec.clean_flags == [False, True], rec.clean_flags
+
+
+def test_session_mode_finishes_when_pool_cleared():
+    pool = make_pool(5)
+    config = GameConfig(decks=("test",), levels=(), words_per_round=3,
+                        duration=None, session_mode=True)
+    e = GameEngine(config, pool, rng=random.Random(5))
+    e.start()
+    assert e.session_left == 5
+    cleared = set()
+    last = None
+    for _ in range(6):  # safety bound
+        # clear the whole current board
+        for g in range(len(e.round_words)):
+            last = _select_group(e, g)
+            cleared.add((e.round_words[g].expression, e.round_words[g].reading))
+        if last.game_over:
+            break
+        assert last.round_complete
+        e.advance()
+    assert last is not None and last.game_over and last.session_complete
+    assert e.session_left == 0
+    assert e.phase is Phase.GAME_OVER
+    assert cleared == {(w.expression, w.reading) for w in pool}
+
+
+def test_session_mode_last_board_is_smaller():
+    pool = make_pool(4)
+    config = GameConfig(decks=("test",), levels=(), words_per_round=3,
+                        duration=None, session_mode=True)
+    e = GameEngine(config, pool, rng=random.Random(2))
+    e.start()
+    assert len(e.round_words) == 3
+    for g in range(3):
+        r = _select_group(e, g)
+    assert r.round_complete and not r.game_over
+    e.advance()
+    assert len(e.round_words) == 1          # only one word left
+    r = _select_group(e, 0)
+    assert r.game_over and r.session_complete
+
+
+def test_session_mode_words_do_not_repeat_after_clear():
+    pool = make_pool(6)
+    config = GameConfig(decks=("test",), levels=(), words_per_round=3,
+                        duration=None, session_mode=True)
+    e = GameEngine(config, pool, rng=random.Random(3))
+    e.start()
+    first = {(w.expression, w.reading) for w in e.round_words}
+    for g in range(len(e.round_words)):
+        _select_group(e, g)
+    e.advance()
+    second = {(w.expression, w.reading) for w in e.round_words}
+    assert not (first & second), "cleared words re-dealt within a session"
 
 
 def _run_all():

@@ -145,6 +145,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "BTN_AGAIN":           "↻  Play again",
         "BTN_PRACTICE":        "Practice tricky words",
         "BTN_MENU":            "Menu",
+        "RESULTS_DONE":        "SESSION COMPLETE!",
+        "STREAK_LINE":         "Day {n} streak",
+
+        # --- today's training / streak -------------------------- #
+        "BTN_TODAY":           "Today  ·  {rev} reviews + {new} new",
+        "TODAY_COMEBACK":      "Welcome back!  ·  {n} words picked to refresh",
+        "TODAY_DONE":          "✓ Training done for today",
+        "TODAY_MORE":          "✓ Done  ·  bonus: {rev} reviews + {new} new",
+        "STREAK_FOOTER":       "Day {n} streak",
+        "HUD_LEFT":            "words left",
 
         # --- stats scene ---------------------------------------- #
         "STATS_TITLE":         "Your knowledge",
@@ -336,6 +346,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "BTN_AGAIN":           "↻  Rejouer",
         "BTN_PRACTICE":        "Revoir les mots difficiles",
         "BTN_MENU":            "Menu",
+        "RESULTS_DONE":        "SESSION TERMINÉE !",
+        "STREAK_LINE":         "Série de {n} jours",
+
+        # --- entraînement du jour / série ------------------------ #
+        "BTN_TODAY":           "Aujourd'hui  ·  {rev} révisions + {new} nouveaux",
+        "TODAY_COMEBACK":      "Bon retour !  ·  {n} mots à rafraîchir",
+        "TODAY_DONE":          "✓ Entraînement du jour terminé",
+        "TODAY_MORE":          "✓ Fait  ·  bonus : {rev} révisions + {new} nouveaux",
+        "STREAK_FOOTER":       "Série de {n} jours",
+        "HUD_LEFT":            "mots restants",
 
         # --- stats --------------------------------------------- #
         "STATS_TITLE":         "Vos connaissances",
