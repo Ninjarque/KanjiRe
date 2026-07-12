@@ -1,4 +1,4 @@
-"""Settings scene: audio toggles, language selector and a theme picker.
+﻿"""Settings scene: audio toggles, language selector and a theme picker.
 
 Lives in the Play | Stats | Settings top nav. Sections are framed in titled
 :class:`Panel` cards. The THEME row switches colour palette live via
@@ -38,6 +38,8 @@ class SettingsScene(Scene):
 
         self.nav = TabBar(
             [(tr("NAV_PLAY"),     lambda: self.app.go_menu()),
+             (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
+             (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
              (tr("NAV_SETTINGS"), lambda: None)],
             self.batch, self.g_bg, self.g_text,
@@ -260,7 +262,7 @@ class SettingsScene(Scene):
             lbl.font_size = max(9, round(14 * s))
         self.hint.font_size = max(8, round(11 * s))
 
-        self.nav.set_rect(cx - 240 * s, height - 50 * s, 480 * s, 36 * s)
+        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
 
         margin = 70 * s
         pw = width - 2 * margin

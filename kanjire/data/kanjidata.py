@@ -143,6 +143,64 @@ def sentences_for(expression: str, reading: str | None = None,
     return [(r["ja"], r["en"]) for r in rows]
 
 
+def words_of(sentence_id: int) -> list[tuple[str, str | None, bool]]:
+    """Every indexed word of one sentence: (headword, reading, checked)."""
+    _, st = _cons()
+    if st is None:
+        return []
+    return [
+        (r["headword"], r["reading"], bool(r["good"]))
+        for r in st.execute(
+            "SELECT headword, reading, good FROM sentence_words "
+            "WHERE sentence_id=?", (sentence_id,))
+    ]
+
+
+def readable_sentences(known_exprs: set[str], *, max_unknown: int = 1,
+                       limit: int = 40,
+                       exclude_ids: set[int] | None = None,
+                       rng=None) -> list[dict]:
+    """Sentences at the player's level: every kanji word known except at
+    most *max_unknown* (the i+1 rule). Returns dicts with
+    ``{id, ja, en, unknown}`` sorted easiest-first with a random tiebreak.
+
+    ``known_exprs`` should be kanji-bearing dictionary forms; the density
+    denominator (``n_kanji_words``) counts exactly those, so kana-only
+    knowledge neither helps nor hurts the ratio.
+    """
+    import random as _random
+    _, st = _cons()
+    if st is None:
+        return []
+    rng = rng or _random.Random()
+    exclude_ids = exclude_ids or set()
+
+    counts: dict[int, int] = {}
+    known_list = list(known_exprs)
+    for i in range(0, len(known_list), 400):
+        chunk = known_list[i:i + 400]
+        marks = ",".join("?" * len(chunk))
+        for r in st.execute(
+            f"SELECT sentence_id, COUNT(DISTINCT headword) AS n "
+            f"FROM sentence_words WHERE headword IN ({marks}) "
+            f"GROUP BY sentence_id", chunk,
+        ):
+            counts[r["sentence_id"]] = counts.get(r["sentence_id"], 0) + r["n"]
+
+    out: list[dict] = []
+    for r in st.execute(
+            "SELECT id, ja, en, n_kanji_words FROM sentences "
+            "WHERE n_kanji_words > 0"):
+        if r["id"] in exclude_ids:
+            continue
+        unknown = r["n_kanji_words"] - counts.get(r["id"], 0)
+        if 0 <= unknown <= max_unknown:
+            out.append({"id": r["id"], "ja": r["ja"], "en": r["en"],
+                        "unknown": unknown})
+    out.sort(key=lambda s: (s["unknown"], rng.random()))
+    return out[:limit]
+
+
 def close() -> None:
     global _kd_con, _st_con, _tried
     for con in (_kd_con, _st_con):

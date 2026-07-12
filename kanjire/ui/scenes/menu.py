@@ -1,4 +1,4 @@
-"""The main menu: pick a mode, a deck, levels, and board options, then play."""
+﻿"""The main menu: pick a mode, a deck, levels, and board options, then play."""
 from __future__ import annotations
 
 import pyglet
@@ -178,6 +178,8 @@ class MenuScene(Scene):
         # Top tab navigation: Play (active) | Stats | Settings.
         self.nav = TabBar(
             [(tr("NAV_PLAY"),     lambda: None),
+             (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
+             (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
@@ -906,7 +908,7 @@ class MenuScene(Scene):
         self.streak_label.font_size = max(8, round(12 * s))
 
         # Top nav bar (Play | Stats | Settings)
-        self.nav.set_rect(cx - 240 * s, height - 50 * s, 480 * s, 36 * s)
+        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
         y = height - 112 * s
         # Place "KanjiRe" and "漢字" side by side, centred as a group.
         gap = 14 * s

@@ -332,6 +332,25 @@ class StatsRecorder:
             self.srs.seed_known(keys)
         return n
 
+    # ---- Reading Room ------------------------------------------------ #
+    def log_read(self, sentence_id: int, chars: int) -> None:
+        self.con.execute(
+            "INSERT INTO read_log (ts, day, sentence_id, chars) "
+            "VALUES (?, ?, ?, ?)",
+            (_now(), _today(), sentence_id, chars),
+        )
+        self.con.commit()
+
+    def read_sentence_ids(self) -> set[int]:
+        return {r["sentence_id"] for r in
+                self.con.execute("SELECT DISTINCT sentence_id FROM read_log")}
+
+    def reading_totals(self) -> dict:
+        row = self.con.execute(
+            "SELECT COUNT(*) AS sentences, COALESCE(SUM(chars),0) AS chars "
+            "FROM read_log").fetchone()
+        return dict(row) if row else {"sentences": 0, "chars": 0}
+
     def day_counts(self) -> dict[str, int]:
         """Review events per player-local day (heatmap fuel): {YYYY-MM-DD: n}."""
         return {
@@ -363,6 +382,7 @@ class StatsRecorder:
     def reset_all(self) -> None:
         self.con.execute("DELETE FROM word_stats")
         self.con.execute("DELETE FROM review_log")
+        self.con.execute("DELETE FROM read_log")
         self.con.commit()
         if self.srs is not None:
             self.srs.reset_all()

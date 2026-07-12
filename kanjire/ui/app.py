@@ -176,6 +176,16 @@ class GameApp:
             self, raw_text=text, display_name=display_name,
         ))
 
+    def go_journey(self) -> None:
+        from kanjire.ui.scenes.journey import JourneyScene
+
+        self.set_scene(JourneyScene(self))
+
+    def go_reading(self) -> None:
+        from kanjire.ui.scenes.reading import ReadingScene
+
+        self.set_scene(ReadingScene(self))
+
     def go_stats(self) -> None:
         from kanjire.ui.scenes.stats import StatsScene
 

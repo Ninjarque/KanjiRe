@@ -31,6 +31,7 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
+from kanjire.jputil import has_kanji
 from kanjire.paths import DATA_DIR
 
 for _stream in (sys.stdout, sys.stderr):
@@ -50,7 +51,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS sentences (
     id INTEGER PRIMARY KEY,
     ja TEXT NOT NULL,
-    en TEXT NOT NULL
+    en TEXT NOT NULL,
+    n_kanji_words INTEGER NOT NULL DEFAULT 0  -- indexed words containing kanji
 );
 CREATE TABLE IF NOT EXISTS sentence_words (
     sentence_id INTEGER NOT NULL,
@@ -158,6 +160,25 @@ def main(argv=None) -> int:
     tmp = OUT_PATH.with_suffix(".building")
     if tmp.exists():
         tmp.unlink()
+    # Second parse pass: kept sentences get their COMPLETE word index (the
+    # Reading Room needs every word of a sentence for its known-density
+    # filter and tap-for-reading chips, not just the example-selection rows).
+    good_marks = {(sid, head) for sid, head, _r, g in keep_rows if g}
+    full_rows: dict[int, list[tuple[str, str | None, int]]] = {}
+    for ja, _en, words in _parse_examples(raw):
+        sid = seen_ja.get(ja)
+        if sid is None or sid not in needed or sid in full_rows:
+            continue
+        rows = []
+        seen_heads = set()
+        for head, reading, good in words:
+            if head in seen_heads:
+                continue
+            seen_heads.add(head)
+            rows.append((head, reading,
+                         int(good or (sid, head) in good_marks)))
+        full_rows[sid] = rows
+
     con = sqlite3.connect(tmp)
     try:
         con.executescript(SCHEMA)
@@ -165,13 +186,18 @@ def main(argv=None) -> int:
         for new_id, sid in enumerate(sorted(needed)):
             remap[sid] = new_id
             ja, en = sentences[sid]
-            con.execute("INSERT INTO sentences (id, ja, en) VALUES (?, ?, ?)",
-                        (new_id, ja, en))
+            n_kanji = sum(1 for head, _r, _g in full_rows.get(sid, ())
+                          if has_kanji(head))
+            con.execute(
+                "INSERT INTO sentences (id, ja, en, n_kanji_words) "
+                "VALUES (?, ?, ?, ?)",
+                (new_id, ja, en, n_kanji))
         con.executemany(
             "INSERT INTO sentence_words (sentence_id, headword, reading, good) "
             "VALUES (?, ?, ?, ?)",
             ((remap[sid], head, reading, good)
-             for sid, head, reading, good in keep_rows),
+             for sid, rows in full_rows.items()
+             for head, reading, good in rows),
         )
         con.execute("INSERT OR REPLACE INTO meta VALUES ('source', "
                     "'Tanaka Corpus via WWWJDIC examples.utf (CC BY 2.0 FR)')")

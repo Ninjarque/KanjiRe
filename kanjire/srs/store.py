@@ -230,6 +230,26 @@ class SrsStore:
             base = round(NEW_TARGET_PER_DAY * (1 - due / DUE_SOFT_CEILING))
         return max(0, base - self.introduced_today())
 
+    def enqueue_new(self, expression: str, reading: str) -> bool:
+        """Add a word to the learning queue (Reading Room "+ learn").
+
+        Creates a Learning-state card due immediately, so the word shows up
+        in the next Today session as a review. No-op if already tracked."""
+        if not self.enabled:
+            return False
+        if (expression, reading) in self.tracked_keys():
+            return False
+        now = datetime.now(timezone.utc)
+        card = Card(
+            card_id=abs(hash((expression, reading))) & 0x7FFFFFFF,
+            state=1, step=0,            # Learning, first step
+            stability=None, difficulty=None,
+            due=now, last_review=None,
+        )
+        self._save_card(expression, reading, card, 0)
+        self.con.commit()
+        return True
+
     def seed_known(self, keys, *, rng=None, spread_days: int = 45) -> int:
         """Bulk-mark words as already known (placement / "I know these").
 

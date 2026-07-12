@@ -11,6 +11,19 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **The Journey** — a new tab: the whole JLPT vocabulary becomes a road of
+  456 stations ordered by real-world frequency. Clear stations by learning
+  their words (however you like — nothing is locked), and face a **boss
+  fight** (鬼) every fifth station: hearts on, your hardest recent words.
+- **The Reading Room** — the other new tab, and the whole point: real
+  Japanese sentences chosen so you know every word (or all but one).
+  Tap any word for its reading, pitch and meaning; tap **+ learn** to queue
+  a new one; T shows the translation. Your sentences-and-characters-read
+  counter is the stat that actually matters.
+- Today's typed-recall round now alternates with **listening prompts**:
+  hear the word, type what you heard (F1 replays).
+- **Wanted posters**: words you keep missing become a leech hunt on the
+  Stats page — a hearts-on session over just your problem words.
 
 ## 0.5.0 — 2026-07-12
 - **Kanji anatomy**: click a word in Stats and see what its kanji are built

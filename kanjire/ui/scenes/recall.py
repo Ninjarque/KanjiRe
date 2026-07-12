@@ -39,6 +39,12 @@ class RecallScene(Scene):
         self.attempts = 0
         self._advancing = False
         self._shake = 0.0             # animated by the Animator on a miss
+        # Every other prompt becomes *dictation* when Japanese TTS exists:
+        # the word is spoken, the kanji hidden - type what you hear.
+        tts_ok = bool(getattr(app.audio.speech, "has_jp", False)
+                      and not app.audio.muted)
+        self.modes = ["listen" if (tts_ok and i % 2 == 1) else "typed"
+                      for i in range(len(self.words))]
 
         self.batch = pyglet.graphics.Batch()
         self.g_bg = OrderedGroup(0)
@@ -78,6 +84,11 @@ class RecallScene(Scene):
     def word(self):
         return self.words[self.idx] if self.idx < len(self.words) else None
 
+    @property
+    def mode(self) -> str:
+        return (self.modes[self.idx]
+                if self.idx < len(self.modes) else "typed")
+
     def _show_word(self) -> None:
         w = self.word
         if w is None:
@@ -85,9 +96,17 @@ class RecallScene(Scene):
             return
         self.attempts = 0
         self._advancing = False
-        self.kanji.text = w.expression
+        if self.mode == "listen":
+            # Dictation: hear it, type it. Kanji revealed on the answer.
+            self.kanji.text = "🔊"
+            self.title.text = tr("RECALL_LISTEN_TITLE")
+            self.meaning.text = tr("RECALL_LISTEN_HINT")
+            self.app.audio.speech.say_jp(w.reading)
+        else:
+            self.kanji.text = w.expression
+            self.title.text = tr("RECALL_TITLE")
+            self.meaning.text = w.get_meaning(self.app.state.locale)
         self.kanji.color = theme.with_alpha(theme.TEXT, 255)
-        self.meaning.text = w.get_meaning(self.app.state.locale)
         self.progress.text = f"{self.idx + 1} / {len(self.words)}"
         self.feedback.text = ""
         self.input.set_text("")
@@ -113,6 +132,8 @@ class RecallScene(Scene):
             self.app.audio.sfx.play("match_hi" if first_try else "match")
             self.feedback.color = theme.with_alpha(theme.SUCCESS, 255)
             self.feedback.text = w.reading + "  ✓"
+            if self.mode == "listen":     # reveal what you transcribed
+                self.kanji.text = w.expression
             self._advance_after(0.7)
         else:
             self.attempts += 1
@@ -126,12 +147,16 @@ class RecallScene(Scene):
                     pass
                 self.feedback.color = theme.with_alpha(theme.DANGER, 255)
                 self.feedback.text = tr("RECALL_ANSWER", reading=w.reading)
+                if self.mode == "listen":
+                    self.kanji.text = w.expression
                 if self.app.state.tts_on_mismatch:
                     self.app.audio.speech.say_jp(w.reading)
                 self._advance_after(1.6)
             else:
                 self.feedback.color = theme.with_alpha(theme.GOLD, 255)
                 self.feedback.text = tr("RECALL_TRY_AGAIN")
+                if self.mode == "listen":
+                    self.app.audio.speech.say_jp(w.reading)   # replay
                 self.input.set_text("")
                 self.preview.text = ""
 
@@ -154,6 +179,8 @@ class RecallScene(Scene):
 
         if symbol in (key.ENTER, key.RETURN):
             self._submit()
+        elif symbol == key.F1 and self.mode == "listen" and self.word:
+            self.app.audio.speech.say_jp(self.word.reading)   # replay
         elif symbol == key.ESCAPE:
             # Bail on the whole epilogue - straight to results, no penalty.
             self._finish()

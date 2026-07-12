@@ -161,6 +161,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_HINT":         "type in romaji (auto-converts) or kana  ·  Enter to check  ·  Esc to finish",
         "RECALL_TRY_AGAIN":    "Not quite — try once more",
         "RECALL_ANSWER":       "Answer:  {reading}",
+        "RECALL_LISTEN_TITLE": "TYPE WHAT YOU HEAR",
+        "RECALL_LISTEN_HINT":  "listen carefully — F1 replays the audio",
+
+        # --- journey ---------------------------------------------- #
+        "NAV_JOURNEY":         "Journey",
+        "JOURNEY_TITLE":       "THE ROAD TO READING",
+        "JOURNEY_PROGRESS":    "{cleared} of {total} stations cleared  ·  {words} words known on the road",
+        "JOURNEY_STATION":     "Station",
+        "JOURNEY_BOSS":        "BOSS",
+        "JOURNEY_NODE":        "{kind} {n}  ·  {known}/{total} words known — click to play",
+
+        # --- reading room ---------------------------------------- #
+        "NAV_READ":            "Read",
+        "READ_TITLE":          "READING ROOM",
+        "READ_TOTALS":         "{sentences} sentences · {chars} characters read",
+        "READ_NEXT":           "Next  →",
+        "READ_TRANSLATE":      "translation (T)",
+        "READ_ALL_KNOWN":      "you know every word in this one",
+        "READ_ONE_NEW":        "{n} new word — tap the gold chip",
+        "READ_LEARN":          "+ learn this word",
+        "READ_EMPTY":          ("Match a few words first — sentences appear "
+                                "here as soon as you know enough to read them."),
 
         # --- stats scene ---------------------------------------- #
         "STATS_TITLE":         "Your knowledge",
@@ -183,6 +205,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "COVERAGE_GENERAL":    "Everyday vocabulary",
         "COVERAGE_MILESTONE":  "next: {n} more words to reach {pct}%",
         "SEC_KNOW":            "I ALREADY KNOW…",
+        "BTN_LEECH_HUNT":      "WANTED · hunt your {n} hardest words",
         "KNOW_CONFIRM_TITLE":  "Mark level as known",
         "KNOW_CONFIRM_MSG":    ("Mark all {n} {level} words as already known?\n\n"
                                 "They'll show up as occasional reviews instead "
@@ -378,6 +401,29 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_HINT":         "en rōmaji (conversion auto) ou en kana  ·  Entrée pour valider  ·  Échap pour finir",
         "RECALL_TRY_AGAIN":    "Presque — encore un essai",
         "RECALL_ANSWER":       "Réponse :  {reading}",
+        "RECALL_LISTEN_TITLE": "TAPEZ CE QUE VOUS ENTENDEZ",
+        "RECALL_LISTEN_HINT":  "écoutez bien — F1 pour réécouter",
+
+        # --- périple ----------------------------------------------- #
+        "NAV_JOURNEY":         "Périple",
+        "JOURNEY_TITLE":       "LA ROUTE VERS LA LECTURE",
+        "JOURNEY_PROGRESS":    "{cleared} étapes sur {total} franchies  ·  {words} mots connus en chemin",
+        "JOURNEY_STATION":     "Étape",
+        "JOURNEY_BOSS":        "BOSS",
+        "JOURNEY_NODE":        "{kind} {n}  ·  {known}/{total} mots connus — cliquez pour jouer",
+
+        # --- salle de lecture ------------------------------------ #
+        "NAV_READ":            "Lire",
+        "READ_TITLE":          "SALLE DE LECTURE",
+        "READ_TOTALS":         "{sentences} phrases · {chars} caractères lus",
+        "READ_NEXT":           "Suivante  →",
+        "READ_TRANSLATE":      "traduction (T)",
+        "READ_ALL_KNOWN":      "vous connaissez tous les mots de celle-ci",
+        "READ_ONE_NEW":        "{n} mot nouveau — touchez la puce dorée",
+        "READ_LEARN":          "+ apprendre ce mot",
+        "READ_EMPTY":          ("Associez d'abord quelques mots — les phrases "
+                                "apparaîtront dès que vous en saurez assez "
+                                "pour les lire."),
 
         # --- stats --------------------------------------------- #
         "STATS_TITLE":         "Vos connaissances",
@@ -400,6 +446,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "COVERAGE_GENERAL":    "Vocabulaire courant",
         "COVERAGE_MILESTONE":  "prochain palier : {n} mots pour atteindre {pct}%",
         "SEC_KNOW":            "JE CONNAIS DÉJÀ…",
+        "BTN_LEECH_HUNT":      "AVIS DE RECHERCHE · {n} mots retors",
         "KNOW_CONFIRM_TITLE":  "Marquer le niveau comme connu",
         "KNOW_CONFIRM_MSG":    ("Marquer les {n} mots {level} comme déjà connus ?\n\n"
                                 "Ils apparaîtront en révisions occasionnelles "

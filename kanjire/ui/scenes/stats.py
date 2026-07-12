@@ -1,4 +1,4 @@
-"""Stats screen: Overview / Words / Kanji tabs, with search + reset.
+﻿"""Stats screen: Overview / Words / Kanji tabs, with search + reset.
 
 The Words and Kanji tabs share a row-list layout (sortable, scrollable, with a
 search box). Right-click a Words row to reset that word's stats. The Kanji tab
@@ -118,6 +118,8 @@ class StatsScene(Scene):
         # Top + inner tabs
         self.nav = TabBar(
             [(tr("NAV_PLAY"),     lambda: self.app.go_menu()),
+             (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
+             (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: None),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
@@ -291,6 +293,17 @@ class StatsScene(Scene):
                        self.batch, self.g_panel, self.g_text,
                        accent=theme.SUCCESS, font_size=11)
             self._ov_buttons.append((lv, b))
+
+        # Leech bounty hunt: chronic offenders become a Survival session.
+        self._leech_words = self._find_leech_words()
+        self.leech_btn = None
+        if len(self._leech_words) >= 4:
+            self.leech_btn = Button(
+                tr("BTN_LEECH_HUNT", n=len(self._leech_words)),
+                self._start_leech_hunt,
+                self.batch, self.g_panel, self.g_text,
+                accent=theme.DANGER, font_size=12)
+            self._ov_buttons.append((0, self.leech_btn))
 
         # Activity heatmap: one cell per day over the trailing weeks, colored
         # by that day's review-event count (review_log).
@@ -699,6 +712,39 @@ class StatsScene(Scene):
         self._apply_sort_and_filter("Words")
         self._apply_sort_and_filter("Kanji")
 
+    def _find_leech_words(self) -> list:
+        """Vocab Words for the player's chronic lapsers (bounty-hunt pool)."""
+        srs = getattr(self.app.stats, "srs", None)
+        if srs is None:
+            return []
+        try:
+            keys = srs.leech_keys(min_lapses=4, limit=16)
+            if not keys:
+                return []
+            keyset = set(keys)
+            words = db.load_words(self.app.con, require_kanji=True)
+            by_key = {(w.expression, w.reading): w for w in words}
+            return [by_key[k] for k in keys if k in by_key]
+        except Exception:
+            return []
+
+    def _start_leech_hunt(self) -> None:
+        """A Survival-flavoured session over just the problem words: hearts,
+        bounties, and it ends when every leech has been matched."""
+        from kanjire.game.config import GameConfig
+        words = self._leech_words
+        if len(words) < 2:
+            return
+        cfg = GameConfig(
+            name="Leech hunt",
+            decks=("jlpt",), levels=(), faces=("kanji", "reading", "meaning"),
+            words_per_round=min(4, len(words)),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+            lives_mode=True, start_lives=3, max_lives=5, heart_chance=0.6,
+        )
+        self.app.go_game(cfg, pool=words)
+
     def _confirm_mark_known(self, level: int) -> None:
         """Placement: seed a whole JLPT level as already-known."""
         try:
@@ -799,7 +845,7 @@ class StatsScene(Scene):
                 if hasattr(lbl, "_base_fs"):
                     lbl.font_size = max(8, round(lbl._base_fs * s))
 
-        self.nav.set_rect(width / 2 - 240 * s, height - 50 * s, 480 * s, 36 * s)
+        self.nav.set_rect(width / 2 - 300 * s, height - 50 * s, 600 * s, 36 * s)
         self.inner.set_rect(width / 2 - 200 * s, height - 100 * s, 400 * s, 32 * s)
         # Frame the content area (below the inner tabs, above the bottom margin).
         self.content_panel.set_rect(32 * s, 28 * s, width - 64 * s, height - 148 * s)
@@ -883,8 +929,12 @@ class StatsScene(Scene):
         ky = grid_bottom - 74 * s
         self._know_title.x, self._know_title.y = right, ky
         bx = right
-        for i, (_lv, b) in enumerate(self._ov_buttons):
+        level_btns = [(lv, b) for lv, b in self._ov_buttons
+                      if b is not self.leech_btn]
+        for i, (_lv, b) in enumerate(level_btns):
             b.set_rect(bx + i * 54 * s, ky - 40 * s, 48 * s, 26 * s)
+        if self.leech_btn is not None:
+            self.leech_btn.set_rect(right, ky - 84 * s, 260 * s, 30 * s)
         if self._empty_hint is not None:
             self._empty_hint.x, self._empty_hint.y = cx, 60 * s
 

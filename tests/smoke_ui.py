@@ -474,6 +474,85 @@ def run() -> int:
         app2.state.save()
         print("PASS today session end-to-end (plan, session, streak)")
 
+        # 18) Reading Room: with a known N5 vocabulary, i+1 sentences appear,
+        # translation toggles, reading is logged, chips open the word popup.
+        from kanjire.data import kanjidata as _kd
+        if _kd.SENTENCES_PATH.exists():
+            app2.stats.reset_all()
+            con5 = _db3.connect(read_only=True)
+            try:
+                n5all = _db3.load_words(con5, decks=["jlpt"], levels=[5, 4],
+                                        require_kanji=True)
+            finally:
+                con5.close()
+            app2.stats.mark_known(n5all)
+            app2.go_reading()
+            rd = app2.scene
+            frames2(8)
+            assert rd.current is not None, "no readable sentence found"
+            assert rd.current["unknown"] <= 2
+            assert rd.chips, "no word chips"
+            rd._toggle_translation()
+            assert rd.translation.text, "translation did not show"
+            before = app2.stats.reading_totals()["sentences"]
+            first_id = rd.current["id"]
+            rd._next()
+            frames2(4)
+            assert app2.stats.reading_totals()["sentences"] == before + 1
+            assert rd.current is None or rd.current["id"] != first_id
+            # chip popup opens and closes
+            rd.chips[0][0].click()
+            assert rd._pop_open
+            frames2(4)
+            rd.on_key_press(pkey.ESCAPE, 0)
+            assert not rd._pop_open
+            print("PASS reading room (i+1 feed, translation, log, popup)")
+        else:
+            print("SKIP reading room (sentences.db not built)")
+
+        # 19) Journey map: stations built from the frequency road, frontier
+        # detected, a station session launches over exactly its words.
+        from kanjire.ui.scenes.journey import JourneyScene
+        app2.go_journey()
+        jn = app2.scene
+        frames2(8)
+        assert isinstance(jn, JourneyScene)
+        assert len(jn.stations) > 100, f"stations: {len(jn.stations)}"
+        # Step 18 marked N5+N4 known, so plenty of road words are known
+        # (stations mix levels, so the frontier itself may still be early).
+        assert sum(jn._known_counts) > 400, sum(jn._known_counts)
+        assert 0 <= jn.frontier < len(jn.stations)
+        assert jn._node_buttons, "no station nodes"
+        target = jn.frontier
+        station_keys = {(w.expression, w.reading)
+                        for w in jn.stations[target]}
+        jn._play_station(target)
+        gj = app2.scene
+        assert isinstance(gj, GameScene) and gj.config.session_mode
+        assert all((w.expression, w.reading) in station_keys
+                   for w in gj.engine.round_words)
+        frames2(6)
+        print("PASS journey map + station session")
+
+        # 20) Leech hunt appears on Stats once words lapse repeatedly.
+        app2.stats.reset_all()
+        for w in n5all[:6]:
+            for _ in range(5):
+                app2.stats.confused(w, w, "reading")
+        app2.go_stats()
+        sc2 = app2.scene
+        frames2(6)
+        assert sc2.leech_btn is not None, "leech hunt button missing"
+        sc2._start_leech_hunt()
+        gl = app2.scene
+        assert isinstance(gl, GameScene)
+        assert gl.config.lives_mode and gl.config.session_mode
+        leech_keys = {(w.expression, w.reading) for w in sc2._leech_words}
+        assert all((w.expression, w.reading) in leech_keys
+                   for w in gl.engine.round_words)
+        frames2(6)
+        print("PASS leech bounty hunt")
+
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()
         app2.audio.shutdown()

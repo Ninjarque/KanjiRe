@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS review_log (
 );
 CREATE INDEX IF NOT EXISTS idx_review_day  ON review_log(day);
 CREATE INDEX IF NOT EXISTS idx_review_word ON review_log(expression, reading);
+
+-- Reading Room log: one row per sentence the player read. Powers the
+-- characters-read / sentences-read stats and keeps sentences from repeating.
+CREATE TABLE IF NOT EXISTS read_log (
+    id          INTEGER PRIMARY KEY,
+    ts          TEXT NOT NULL,
+    day         TEXT NOT NULL,
+    sentence_id INTEGER NOT NULL,
+    chars       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_read_day ON read_log(day);
 """
 
 #: Backward-compatible combined schema (older code, build scripts).
