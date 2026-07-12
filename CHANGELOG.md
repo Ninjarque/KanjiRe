@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.4.0 — 2026-07-12
 - **Type the reading!** Today's Training now ends with a short typed-recall
   round: the kanji appears, you type the reading — romaji converts to kana
   live as you type, no Japanese keyboard needed. Typing a word correctly
