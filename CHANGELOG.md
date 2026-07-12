@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.3.0 — 2026-07-12
 - **Today's Training** — a big new button on the menu builds your daily
   session automatically: words due for review (scheduled by a real
   memory model, FSRS) plus a gentle trickle of new words. Finish it to

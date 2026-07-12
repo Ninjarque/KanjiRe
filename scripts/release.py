@@ -15,6 +15,8 @@ manifest covering both, and publishes everything to GitHub Releases.
     --no-publish   build + sign locally, don't upload (no gh needed)
     --skip-linux   Windows-only this time (e.g. WSL unavailable)
     --dry-run      show the planned bump + notes, change nothing
+    --rebuild      re-release the CURRENT version (no bump/stamp) — use to
+                   resume after a failed build/upload
 """
 from __future__ import annotations
 
@@ -127,34 +129,47 @@ def build_linux_via_wsl(linux_artifact_name: str) -> Path | None:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("level", choices=("patch", "minor", "major"))
+    p.add_argument("level", choices=("patch", "minor", "major"), nargs="?")
     p.add_argument("--no-publish", action="store_true",
                    help="build + sign locally but don't upload")
     p.add_argument("--skip-linux", action="store_true",
                    help="build Windows only this release")
     p.add_argument("--dry-run", action="store_true",
                    help="print the planned bump + notes, change nothing")
+    p.add_argument("--rebuild", action="store_true",
+                   help="re-release the current version without bumping "
+                        "(resume a failed release)")
     args = p.parse_args(argv)
+    if not args.rebuild and args.level is None:
+        p.error("level is required unless --rebuild is given")
 
     cur = _read_version()
-    new_s = ".".join(map(str, _bump(cur, args.level)))
     cur_s = ".".join(map(str, cur))
     today = date.today().isoformat()
-    body = _unreleased_body()
 
-    print(f"Version: {cur_s} → {new_s}  ({args.level})")
-    print(f"Date:    {today}")
-    print("Notes (from [Unreleased]):")
-    print("  " + (body.replace("\n", "\n  ") if body else "(empty!)"))
-    if not body:
-        print("WARNING: [Unreleased] is empty — players will see a generic note.")
-    if args.dry_run:
-        print("\n--dry-run: nothing written.")
-        return 0
+    if args.rebuild:
+        new_s = cur_s
+        print(f"Version: {cur_s}  (rebuild — no bump)")
+        if args.dry_run:
+            print("\n--dry-run: nothing written.")
+            return 0
+    else:
+        new_s = ".".join(map(str, _bump(cur, args.level)))
+        body = _unreleased_body()
 
-    _write_version(new_s)
-    _stamp_changelog(new_s, today)
-    print(f"\n✓ Bumped {INIT_PATH.name} and stamped CHANGELOG.md.")
+        print(f"Version: {cur_s} → {new_s}  ({args.level})")
+        print(f"Date:    {today}")
+        print("Notes (from [Unreleased]):")
+        print("  " + (body.replace("\n", "\n  ") if body else "(empty!)"))
+        if not body:
+            print("WARNING: [Unreleased] is empty — players will see a generic note.")
+        if args.dry_run:
+            print("\n--dry-run: nothing written.")
+            return 0
+
+        _write_version(new_s)
+        _stamp_changelog(new_s, today)
+        print(f"\n✓ Bumped {INIT_PATH.name} and stamped CHANGELOG.md.")
 
     # Reload so build_release sees the new __version__.
     import importlib

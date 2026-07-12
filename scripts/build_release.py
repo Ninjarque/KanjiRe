@@ -153,7 +153,7 @@ def _hidden_imports() -> list[str]:
     """Per-OS modules PyInstaller occasionally misses for pyglet/TTS."""
     # fsrs is imported inside a try/except (soft dependency), which some
     # PyInstaller analyses skip - name it explicitly so the scheduler ships.
-    common = ["pyglet.media.codecs.wave_codec", "fsrs"]
+    common = ["pyglet.media.codecs.wave", "fsrs"]
     if os.name == "nt":
         return common + [
             "pyglet.media.codecs.wmf",
@@ -349,6 +349,11 @@ def build_artifact(force: bool = False) -> Path | None:
     # PyNaCl ships a compiled libsodium extension + cffi backend used by the
     # updater's signature check; --collect-all grabs the binary reliably.
     cmd += ["--collect-all", "nacl", "--hidden-import", "_cffi_backend"]
+    # fsrs's optional optimizer drags in torch (gigabytes) through imports
+    # that only matter for parameter training; the shipped scheduler never
+    # touches it. Excluding keeps the bundle small AND working.
+    for mod in ("fsrs.optimizer", "torch", "pandas", "tqdm"):
+        cmd += ["--exclude-module", mod]
 
     _log(f"Running PyInstaller ({platform_tag()})...")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -364,6 +369,13 @@ def build_artifact(force: bool = False) -> Path | None:
     tag = platform_tag()
     out = _package(src, tag)
     size_mb = out.stat().st_size / 1_048_576
+    # Sanity guard: a healthy bundle is ~30-80 MB. Anything huge means the
+    # dependency graph pulled in something monstrous (torch once made a 5 GB
+    # zip) - fail here, not at the GitHub upload.
+    if size_mb > 300:
+        _log(f"ERROR: {out.name} is {size_mb:.0f} MB - the bundle picked up "
+             "an unwanted heavyweight dependency. Aborting.")
+        return None
     _log(f"✓ {tag} artifact: {out.name}  ({size_mb:.1f} MB)")
     return out
 
