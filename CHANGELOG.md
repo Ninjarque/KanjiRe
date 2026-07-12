@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.9.0 — 2026-07-12
 - **Romaji cards!** The CARDS PER WORD option now has a third choice:
   "+ Romaji (4 cards)" adds a yellow *abc* card with the word's reading in
   romaji, so each group is kanji + kana + romaji + meaning. (This replaces
