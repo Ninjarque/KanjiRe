@@ -31,7 +31,9 @@ import socketserver
 import string
 import threading
 
-PROTOCOL = 1
+#: 2 = lobby settings (create carries settings, start carries the pool),
+#: plus pause / resume / back-to-lobby. Old clients are rejected at hello.
+PROTOCOL = 2
 DEFAULT_PORT = 24857
 
 #: Per-group score, multiplied by the scorer's combo (mirrors solo play).
@@ -47,20 +49,41 @@ def _room_code(rng) -> str:
                    for _ in range(config.CODE_LEN))
 
 
+#: The game settings the host tunes in the lobby. Everyone sees them live,
+#: and they only take effect when the host starts a game (the host's app
+#: re-samples the word pool from them at that moment).
+DEFAULT_SETTINGS = {
+    "deck": "jlpt",
+    "levels": [5],
+    "board_size": 6,
+    "cards": 3,          # cards per word: 2 | 3 | 4 (4 adds the romaji face)
+    "turns_each": 10,
+}
+
+
 class Room:
     """One shared game. All mutation happens under ``self.lock``."""
 
-    def __init__(self, code: str, faces, pool, board_size: int,
-                 turns_each: int, rng=None) -> None:
+    def __init__(self, code: str, settings: dict | None = None,
+                 rng=None) -> None:
         self.code = code
         self.lock = threading.RLock()
         self.rng = rng or random.Random()
-        self.faces = [f for f in faces if f] or ["kanji", "reading", "meaning"]
-        #: Remaining word entries ({face: text}), drawn from as groups clear.
-        self.pool = list(pool)
-        self.rng.shuffle(self.pool)
-        self.board_size = max(2, min(12, int(board_size)))
-        self.turns_each = max(1, min(50, int(turns_each)))
+
+        self.started = False       # set_settings() reads this, so it comes first
+        self.finished = False
+        self.paused = False
+
+        #: Lobby-editable settings, broadcast to everyone as the host tweaks.
+        self.settings = dict(DEFAULT_SETTINGS)
+        if settings:
+            self.set_settings(settings)
+
+        # Configured at start() from the host's freshly-sampled pool.
+        self.faces = ["kanji", "reading", "meaning"]
+        self.pool: list[dict] = []
+        self.board_size = 6
+        self.turns_each = 10
 
         self.clients: list["Handler"] = []
         self.names: list[str] = []
@@ -68,8 +91,6 @@ class Room:
         self.combos: list[int] = []
         self.connected: list[bool] = []
 
-        self.started = False
-        self.finished = False
         self.turn = 0                  # index into players
         self.turns_used = 0
         self.turns_total = 0
@@ -80,6 +101,26 @@ class Room:
         self.current_group: int | None = None
         self._next_card = 0
         self._next_group = 0
+
+    # ---- lobby settings ------------------------------------------------ #
+    def set_settings(self, d: dict) -> None:
+        """Host-only, lobby-only. Unknown keys and bad values are ignored."""
+        with self.lock:
+            if self.started:
+                return
+            s = self.settings
+            if isinstance(d.get("deck"), str):
+                s["deck"] = d["deck"][:40]
+            if isinstance(d.get("levels"), list):
+                lv = [int(x) for x in d["levels"]
+                      if isinstance(x, (int, float)) and 1 <= int(x) <= 5]
+                s["levels"] = sorted(set(lv)) or [5]
+            if d.get("board_size") in (4, 6, 8, 12):
+                s["board_size"] = int(d["board_size"])
+            if d.get("cards") in (2, 3, 4):
+                s["cards"] = int(d["cards"])
+            if d.get("turns_each") in (5, 10, 15):
+                s["turns_each"] = int(d["turns_each"])
 
     # ---- membership -------------------------------------------------- #
     def add_player(self, handler: "Handler", name: str) -> int:
@@ -116,15 +157,55 @@ class Room:
             self.board.append(self._next_card)
             self._next_card += 1
 
-    def start(self) -> None:
+    def start(self, pool, faces=None, board_size=None,
+              turns_each=None) -> None:
+        """Begin a game from a freshly-sampled *pool* (the host builds it from
+        the current lobby settings, so a settings change always takes effect)."""
         with self.lock:
             if self.started:
                 return
+            self.faces = ([f for f in (faces or []) if f]
+                          or ["kanji", "reading", "meaning"])
+            self.pool = list(pool or [])
+            self.rng.shuffle(self.pool)
+            self.board_size = max(2, min(12, int(
+                board_size or self.settings["board_size"])))
+            self.turns_each = max(1, min(50, int(
+                turns_each or self.settings["turns_each"])))
+            if len(self.pool) < 2:
+                return                       # nothing to play with
             self.started = True
+            self.paused = False
             self.turns_total = self.turns_each * len(self.clients)
             for _ in range(min(self.board_size, len(self.pool))):
                 self._deal_group(self.pool.pop())
             self.rng.shuffle(self.board)
+
+    def set_paused(self, paused: bool) -> None:
+        with self.lock:
+            if self.started and not self.finished:
+                self.paused = bool(paused)
+
+    def back_to_lobby(self) -> None:
+        """Abandon the current game and return everyone to the lobby, where
+        the settings live. Players stay; scores start fresh next game."""
+        with self.lock:
+            self.started = False
+            self.finished = False
+            self.paused = False
+            self.cards.clear()
+            self.board.clear()
+            self.selection.clear()
+            self.current_group = None
+            self.pool = []
+            self.turn = 0
+            self.turns_used = 0
+            self.turns_total = 0
+            self._next_card = 0
+            self._next_group = 0
+            for i in range(len(self.scores)):
+                self.scores[i] = 0
+                self.combos[i] = 0
 
     def _advance_turn(self, consume: bool = True) -> None:
         if consume:
@@ -147,7 +228,8 @@ class Room:
     def select(self, player: int, card_id: int) -> dict | None:
         """Apply one click. Returns the event dict (or None for a no-op)."""
         with self.lock:
-            if (not self.started or self.finished or player != self.turn):
+            if (not self.started or self.finished or self.paused
+                    or player != self.turn):
                 return None
             card = self.cards.get(card_id)
             if card is None or card.get("matched"):
@@ -210,6 +292,8 @@ class Room:
                 "scores": list(self.scores),
                 "combos": list(self.combos),
                 "host": 0,
+                "settings": dict(self.settings),
+                "paused": self.paused,
                 "started": self.started,
                 "finished": self.finished,
                 "turn": self.turn,
@@ -237,7 +321,7 @@ class Hub:
         self.rooms: dict[str, Room] = {}
         self.rng = random.Random()
 
-    def create(self, faces, pool, board_size, turns_each) -> Room:
+    def create(self, settings: dict | None = None) -> Room:
         with self.lock:
             self._reap()
             if len(self.rooms) >= _MAX_ROOMS:
@@ -245,7 +329,7 @@ class Hub:
             code = _room_code(self.rng)
             while code in self.rooms:
                 code = _room_code(self.rng)
-            room = Room(code, faces, pool, board_size, turns_each)
+            room = Room(code, settings)
             self.rooms[code] = room
             return room
 
@@ -298,15 +382,11 @@ class Handler(socketserver.StreamRequestHandler):
                 self.name = str(msg.get("name") or "?")[:_MAX_NAME] or "?"
                 self.send({"t": "welcome"})
             elif t == "create":
-                pool = msg.get("pool") or []
-                if self.room is not None or not (4 <= len(pool) <= 500):
+                if self.room is not None:
                     self.send({"t": "error", "msg": "bad create"})
                     continue
                 try:
-                    room = hub.create(msg.get("faces") or [],
-                                      pool,
-                                      msg.get("board_size") or 6,
-                                      msg.get("turns_each") or 10)
+                    room = hub.create(msg.get("settings"))
                 except RuntimeError as exc:
                     self.send({"t": "error", "msg": str(exc)})
                     continue
@@ -328,12 +408,35 @@ class Handler(socketserver.StreamRequestHandler):
                 self.player = room.add_player(self, self.name)
                 self.send({"t": "welcome", "player": self.player})
                 room.broadcast({"type": "join", "player": self.player})
+            elif t == "config":
+                if self.room is None or self.player != 0:
+                    self.send({"t": "error", "msg": "not host"})
+                    continue
+                self.room.set_settings(msg.get("settings") or {})
+                self.room.broadcast({"type": "config"})
             elif t == "start":
                 if self.room is None or self.player != 0:
                     self.send({"t": "error", "msg": "not host"})
                     continue
-                self.room.start()
+                pool = msg.get("pool") or []
+                if not (2 <= len(pool) <= 500):
+                    self.send({"t": "error", "msg": "bad pool"})
+                    continue
+                self.room.start(pool, msg.get("faces"),
+                                msg.get("board_size"), msg.get("turns_each"))
                 self.room.broadcast({"type": "start"})
+            elif t in ("pause", "resume"):
+                if self.room is None or self.player != 0:
+                    self.send({"t": "error", "msg": "not host"})
+                    continue
+                self.room.set_paused(t == "pause")
+                self.room.broadcast({"type": t})
+            elif t == "lobby":
+                if self.room is None or self.player != 0:
+                    self.send({"t": "error", "msg": "not host"})
+                    continue
+                self.room.back_to_lobby()
+                self.room.broadcast({"type": "lobby"})
             elif t == "select":
                 if self.room is None:
                     continue

@@ -11,6 +11,15 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Multiplayer rooms now have full game settings** — deck, JLPT levels,
+  words per round, cards per word (including the romaji card) and turns
+  each. The host sets them in the lobby and **everyone watches the choices
+  update live**, so you all know what you're about to play.
+- **Host can pause** mid-game (nobody can click while paused) and drop back
+  to the **room settings** to reconfigure and start a fresh game — same
+  players, same code, scores reset.
+- Everyone stays on the same page: the update system was audited so every
+  version ever released still updates cleanly to the newest build.
 
 ## 0.11.1 — 2026-07-12
 - **Fixed: the Linux build crashed on startup** on many distros with

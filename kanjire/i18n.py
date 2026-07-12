@@ -184,6 +184,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_HOST_HINT":        ("Share this code — that's all your friends need. "
                                 "They open Multiplayer, type it in, and hit Join."),
         "MP_PLAY_HINT":        "Esc leaves the game",
+        "MP_GUEST_HINT":       "the host is setting up the game — you'll play these settings",
+        "MP_PAUSE":            "❙❙  Pause",
+        "MP_RESUME":           "▶  Resume",
+        "MP_PAUSED":           "PAUSED BY THE HOST",
+        "MP_TO_LOBBY":         "◀  Lobby",
         "MP_YOU":              "  (you)",
         "MP_GONE":             "(left)",
         "MP_YOUR_TURN":        "YOUR TURN — match a group!",
@@ -461,6 +466,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "MP_HOST_HINT":        ("Partagez ce code — c'est tout ce qu'il faut à vos amis. "
                                 "Ils ouvrent Multijoueur, le saisissent et rejoignent."),
         "MP_PLAY_HINT":        "Échap pour quitter la partie",
+        "MP_GUEST_HINT":       "l'hôte règle la partie — vous jouerez avec ces réglages",
+        "MP_PAUSE":            "❙❙  Pause",
+        "MP_RESUME":           "▶  Reprendre",
+        "MP_PAUSED":           "PARTIE EN PAUSE",
+        "MP_TO_LOBBY":         "◀  Salon",
         "MP_YOU":              "  (vous)",
         "MP_GONE":             "(parti)",
         "MP_YOUR_TURN":        "À VOUS — associez un groupe !",

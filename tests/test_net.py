@@ -1,4 +1,4 @@
-"""Headless tests for the multiplayer room server (raw-socket clients)."""
+﻿"""Headless tests for the multiplayer room server (raw-socket clients)."""
 from __future__ import annotations
 
 import json
@@ -71,9 +71,8 @@ def test_full_two_player_game_flow():
         a = _Client(port, "alice")
         b = _Client(port, "bob")
 
-        a.send({"t": "create", "pool": _pool(20),
-                "faces": ["kanji", "reading", "meaning"],
-                "board_size": 4, "turns_each": 2})
+        a.send({"t": "create",
+                "settings": {"board_size": 4, "turns_each": 2}})
         w = a.recv()
         assert w["t"] == "welcome" and w["player"] == 0
         st = a.recv_state()
@@ -91,7 +90,9 @@ def test_full_two_player_game_flow():
         b.send({"t": "start"})
         err = b.recv()
         assert err["t"] == "error"
-        a.send({"t": "start"})
+        a.send({"t": "start", "pool": _pool(20),
+                "faces": ["kanji", "reading", "meaning"],
+                "board_size": 4, "turns_each": 2})
         st = a.recv_state()
         s = st["state"]
         b.recv_state()
@@ -166,14 +167,16 @@ def test_disconnect_advances_turn_and_reaps_room():
     try:
         a = _Client(port, "alice")
         b = _Client(port, "bob")
-        a.send({"t": "create", "pool": _pool(12), "faces": ["kanji", "meaning"],
-                "board_size": 3, "turns_each": 5})
+        a.send({"t": "create",
+                "settings": {"board_size": 4, "cards": 2, "turns_each": 5}})
         a.recv()
         st = a.recv_state()
         room = st["room"]
         b.send({"t": "join", "room": room})
         b.recv(); b.recv_state(); a.recv_state()
-        a.send({"t": "start"})
+        a.send({"t": "start", "pool": _pool(12),
+                "faces": ["kanji", "meaning"],
+                "board_size": 3, "turns_each": 5})
         st = a.recv_state(); b.recv_state()
         assert st["state"]["turn"] == 0
 
@@ -203,8 +206,7 @@ def test_disconnect_advances_turn_and_reaps_room():
         # Room reaps once everyone is gone (checked via a new create).
         time.sleep(0.3)
         c = _Client(port, "carol")
-        c.send({"t": "create", "pool": _pool(8), "faces": ["kanji", "meaning"],
-                "board_size": 2, "turns_each": 1})
+        c.send({"t": "create", "settings": {"board_size": 4}})
         c.recv(); c.recv_state()
         assert room not in srv.hub.rooms or not srv.hub.rooms[room].alive()
         c.close()

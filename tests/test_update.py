@@ -36,6 +36,13 @@ def test_parse_version():
     ("0.1.0", "0.1.0", False),
     ("0.1.0", "0.2.0", False),
     ("1.0.0", "0.9.9", True),
+    # Double-digit components: a *string* comparison would say "0.10.0" is
+    # older than "0.9.0" and strand everyone on 0.9.x forever.
+    ("0.10.0", "0.9.0", True),
+    ("0.9.0", "0.10.0", False),
+    ("0.11.1", "0.11.0", True),
+    ("0.12.0", "0.11.1", True),
+    ("1.0.0", "0.12.0", True),
 ])
 def test_is_newer(remote, local, expect):
     assert checker.is_newer(remote, local) is expect

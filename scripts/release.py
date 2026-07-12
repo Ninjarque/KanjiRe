@@ -207,10 +207,22 @@ def main(argv=None) -> int:
         print(f"\n✓ Built + signed v{new_s} ({', '.join(artifacts)}) — NOT published.")
         return 0
     rc = build_release.publish_assets(list(artifacts.values()), mpath, notes)
-    if rc == 0:
-        plats = ", ".join(artifacts)
-        print(f"\n✓ Released v{new_s} for {plats}. Friends get it on next launch.")
-    return rc
+    if rc != 0:
+        return rc
+    plats = ", ".join(artifacts)
+    print(f"\n✓ Released v{new_s} for {plats}. Friends get it on next launch.")
+
+    # 5) Prove the LIVE channel works: signature, both platforms, the legacy
+    #    fields old clients need, and that every released version is actually
+    #    offered this build. A published release nobody can reach is worse
+    #    than no release.
+    print("\nAuditing the live update channel…")
+    import audit_update
+    importlib.reload(audit_update)
+    if audit_update.main([]) != 0:
+        print("\n!! The release is published but the update channel is BROKEN.")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -744,9 +744,23 @@ def run() -> int:
         frames2(6)
         assert mp2.state["players"] == ["hosty", "friend"]
 
+        # Lobby settings: the host tunes the game and the friend sees it live.
+        mp2._set_setting("cards", 4)
+        mp2._set_setting("board_size", 4)
+        frames2(4)
+        fset = [m["state"] for m in friend.poll()
+                if m.get("t") == "state"][-1]["settings"]
+        assert fset["cards"] == 4 and fset["board_size"] == 4, fset
+        assert mp2._settings()["cards"] == 4
+        # ...and the settings buttons everyone sees reflect it.
+        assert next(b for n, b in mp2.cards_btns if n == 4).selected
+        assert not next(b for n, b in mp2.cards_btns if n == 3).selected
+
         mp2._start()
         frames2(6)
-        assert mp2.phase == "play" and len(mp2.cards) == 18
+        # 4 words x 4 faces (romaji card included) = 16 cards for everyone.
+        assert mp2.phase == "play" and len(mp2.cards) == 16, len(mp2.cards)
+        assert any(c.face == "romaji" for c in mp2.cards.values())
         fstates = [m["state"] for m in friend.poll() if m.get("t") == "state"]
         assert fstates and fstates[-1]["started"]
         assert [c["id"] for c in fstates[-1]["board"]] == \
@@ -761,7 +775,7 @@ def run() -> int:
         assert mp2.state["scores"][0] == 100 and mp2.state["turn"] == 1
         fs2 = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
         assert fs2["scores"] == [100, 0] and fs2["turn"] == 1
-        assert len(fs2["board"]) == 18, "board did not refill for everyone"
+        assert len(fs2["board"]) == 16, "board did not refill for everyone"
 
         # Friend's turn: their match lands on the host's board too.
         gf = fs2["board"][0]["group"]
@@ -772,11 +786,41 @@ def run() -> int:
         assert mp2.state["scores"][1] == 100, mp2.state["scores"]
         assert mp2.state["turn"] == 0
 
+        # Host pauses: clicks are dead for everyone, and the friend is told.
+        mp2._pause()
+        frames2(4)
+        assert mp2.state["paused"] is True
+        fs3 = [m["state"] for m in friend.poll() if m.get("t") == "state"][-1]
+        assert fs3["paused"] is True
+        score_before = mp2.state["scores"][0]
+        turn_owner = mp2.state["turn"]
+        if turn_owner == 0:
+            cv = next(iter(mp2.cards.values()))
+            mp2.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+            frames2(4)
+            assert not any(c.model.selected for c in mp2.cards.values()), \
+                "a paused board accepted a click"
+        assert mp2.state["scores"][0] == score_before
+
+        # Back to the room settings: lobby again, scores cleared, players kept.
+        mp2._to_lobby()
+        frames2(6)
+        assert mp2.phase == "lobby", mp2.phase
+        assert mp2.state["scores"] == [0, 0]
+        assert mp2.state["players"] == ["hosty", "friend"]
+        # Settings are editable again and a new game uses them.
+        mp2._set_setting("cards", 2)
+        frames2(4)
+        mp2._start()
+        frames2(6)
+        assert mp2.phase == "play"
+        assert all(c.face in ("kanji", "meaning") for c in mp2.cards.values())
+
         friend.close()
         mp2._make_client = orig_make
         mp2._leave()
         frames2(4)
-        print("PASS multiplayer code-only (relay, no address)")
+        print("PASS multiplayer code-only + live lobby settings + pause")
 
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()

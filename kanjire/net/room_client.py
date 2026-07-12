@@ -109,20 +109,31 @@ class RoomClient:
                 self._create(msg)
             elif t == "join":
                 self._join(msg)
+            elif not self.is_host or self.room is None:
+                if t == "select":
+                    self._select(int(msg.get("card", -1)))
+                return
+            # ---- host-only room controls ---- #
+            elif t == "config":
+                self.room.set_settings(msg.get("settings") or {})
+                self._publish_state({"type": "config"})
             elif t == "start":
-                if self.is_host and self.room is not None:
-                    self.room.start()
-                    self._publish_state({"type": "start"})
+                self.room.start(msg.get("pool") or [], msg.get("faces"),
+                                msg.get("board_size"), msg.get("turns_each"))
+                self._publish_state({"type": "start"})
+            elif t in ("pause", "resume"):
+                self.room.set_paused(t == "pause")
+                self._publish_state({"type": t})
+            elif t == "lobby":
+                self.room.back_to_lobby()
+                self._publish_state({"type": "lobby"})
             elif t == "select":
                 self._select(int(msg.get("card", -1)))
 
     def _create(self, msg: dict) -> None:
         self.code = _code(self.rng)
         self.is_host = True
-        self.room = Room(self.code, msg.get("faces") or [],
-                         msg.get("pool") or [],
-                         msg.get("board_size") or 6,
-                         msg.get("turns_each") or 10)
+        self.room = Room(self.code, msg.get("settings"))
         self.me = self.room.add_player(None, self.name)
         self.uids = [self.uid]
         for leaf in ("join", "act", "bye"):

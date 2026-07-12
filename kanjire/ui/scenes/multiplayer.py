@@ -24,6 +24,7 @@ from pyglet.text import Label
 
 from kanjire.data import db
 from kanjire.i18n import tr
+from kanjire.ui.scenes.menu import _deck_label
 from kanjire.model.sampling import weighted_sample_words
 from kanjire.net.client import NetClient
 from kanjire.net.room_client import RoomClient
@@ -40,8 +41,17 @@ from kanjire.ui.widgets.card import CardView
 from kanjire.ui.widgets.textinput import TextInput
 
 HUD_H = 110
-POOL_SIZE = 120
+POOL_SIZE = 140
 TURNS_CHOICES = (5, 10, 15)
+BOARD_CHOICES = (4, 6, 8)
+CARDS_CHOICES = (2, 3, 4)
+LEVEL_CHOICES = (5, 4, 3, 2, 1)
+#: cards-per-word -> the faces each word is split into (4 adds romaji).
+FACES_FOR = {
+    2: ("kanji", "meaning"),
+    3: ("kanji", "reading", "meaning"),
+    4: ("kanji", "reading", "romaji", "meaning"),
+}
 
 
 class _MPCard:
@@ -137,8 +147,75 @@ class MultiplayerScene(Scene):
                        font_size=12))
             for n in TURNS_CHOICES
         ]
-        self.buttons = [self.host_btn, self.join_btn, self.start_btn,
-                        self.back_btn] + [b for _n, b in self.turns_btns]
+
+        # ---- lobby settings: the host edits, everyone watches live ---- #
+        def srow(label_key):
+            lb = lbl(11, theme.MUTED, bold=True, anchor_x="right")
+            lb.text = tr(label_key)
+            self.labels.append(lb)
+            return lb
+
+        self.lbl_s_deck = srow("SEC_DECK")
+        self.lbl_s_level = srow("SEC_LEVEL")
+        self.lbl_s_words = srow("SEC_WORDS")
+        self.lbl_s_cards = srow("SEC_CARDS")
+        self.lbl_s_turns = srow("MP_TURNS")
+        self.settings_labels = [self.lbl_s_deck, self.lbl_s_level,
+                                self.lbl_s_words, self.lbl_s_cards,
+                                self.lbl_s_turns]
+
+        decks = []
+        try:
+            for r in db.list_decks(app.con):
+                if r["name"] == "jlpt" or r["name"].startswith("corpus:"):
+                    decks.append(r["name"])
+        except Exception:
+            decks = ["jlpt"]
+        self.deck_btns = [
+            (d, Button(_deck_label(d), lambda d=d: self._set_setting("deck", d),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.ACCENT, font_size=11))
+            for d in (decks or ["jlpt"])[:4]
+        ]
+        self.level_btns = [
+            (lv, Button(f"N{lv}", lambda lv=lv: self._toggle_level(lv),
+                        self.batch, self.g_bg, self.g_text,
+                        accent=theme.GOLD, font_size=11))
+            for lv in LEVEL_CHOICES
+        ]
+        self.words_btns = [
+            (n, Button(str(n), lambda n=n: self._set_setting("board_size", n),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.SUCCESS, font_size=11))
+            for n in BOARD_CHOICES
+        ]
+        self.cards_btns = [
+            (n, Button(str(n), lambda n=n: self._set_setting("cards", n),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.FACE_COLORS["meaning"], font_size=11))
+            for n in CARDS_CHOICES
+        ]
+        self.lturns_btns = [
+            (n, Button(str(n), lambda n=n: self._set_setting("turns_each", n),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.GOLD, font_size=11))
+            for n in TURNS_CHOICES
+        ]
+        self.setting_btns = (self.deck_btns + self.level_btns
+                             + self.words_btns + self.cards_btns
+                             + self.lturns_btns)
+
+        # ---- in-game host controls ---- #
+        self.pause_btn = Button("", self._pause, self.batch, self.g_bg,
+                                self.g_text, accent=theme.GOLD, font_size=12)
+        self.lobby_btn = Button(tr("MP_TO_LOBBY"), self._to_lobby, self.batch,
+                                self.g_bg, self.g_text, accent=theme.DANGER,
+                                font_size=12)
+
+        self.buttons = ([self.host_btn, self.join_btn, self.start_btn,
+                         self.back_btn, self.pause_btn, self.lobby_btn]
+                        + [b for _n, b in self.turns_btns]
+                        + [b for _v, b in self.setting_btns])
         self._apply_phase()
 
     # ------------------------------------------------------------------ #
@@ -158,11 +235,17 @@ class MultiplayerScene(Scene):
             else:
                 w.unfocus()
                 w.set_rect(-4000, -4000, 1, 1)
+        paused = bool((self.state or {}).get("paused"))
         vis = {
             self.host_btn: ph == "connect",
             self.join_btn: ph == "connect",
             self.start_btn: ph == "lobby" and self.me == 0,
             self.back_btn: True,
+            # Host controls during play: pause/resume, and bail to the lobby
+            # (where the settings are) - offered while paused.
+            self.pause_btn: ph == "play" and self.me == 0,
+            self.lobby_btn: (self.me == 0
+                             and (ph == "done" or (ph == "play" and paused))),
         }
         for b, v in vis.items():
             b.set_visible(v)
@@ -173,19 +256,56 @@ class MultiplayerScene(Scene):
             b.set_visible(show)
             if not show:
                 b.set_rect(-4000, -4000, 1, 1)
+        # Settings rows: visible to EVERYONE in the lobby (so players can see
+        # what they're about to play), but only the host can click them.
+        for _v, b in self.setting_btns:
+            b.set_visible(ph == "lobby")
+            b.enabled = (ph == "lobby" and self.me == 0)
+            if ph != "lobby":
+                b.set_rect(-4000, -4000, 1, 1)
+        for lb in self.settings_labels:
+            lb.opacity = 255 if ph == "lobby" else 0
+            if ph != "lobby":
+                lb.x = lb.y = -4000
         self.lbl_name.text = tr("MP_NAME") if ph == "connect" else ""
         self.lbl_addr.text = tr("MP_ADDR") if ph == "connect" else ""
         self.lbl_code.text = tr("MP_CODE") if ph == "connect" else ""
         self.lbl_turns.text = tr("MP_TURNS") if ph == "connect" else ""
         self.big_code.text = self.room if ph == "lobby" else ""
-        self.hint.text = tr("MP_HOST_HINT") if ph == "lobby" else (
-            tr("MP_PLAY_HINT") if ph == "play" else "")
+        if ph == "lobby":
+            self.hint.text = (tr("MP_HOST_HINT") if self.me == 0
+                              else tr("MP_GUEST_HINT"))
+        elif ph == "play":
+            self.hint.text = tr("MP_PLAY_HINT")
+        else:
+            self.hint.text = ""
+        self.pause_btn.set_text(tr("MP_RESUME") if paused else tr("MP_PAUSE"))
+        self._refresh_settings()
         if ph != "play":
             self._clear_cards()
         if ph != "lobby":
             for lbl in self.player_lbls:
                 lbl.text = ""
         self.on_resize(self.width, self.height)
+
+    def _refresh_settings(self) -> None:
+        """Mirror the room's live settings onto the buttons - this is what
+        makes the host's changes visible to every player as they happen."""
+        s = self._settings()
+        is_jlpt = (s.get("deck") or "jlpt") == "jlpt"
+        for d, b in self.deck_btns:
+            b.set_selected(d == s.get("deck"))
+        for lv, b in self.level_btns:
+            b.set_selected(is_jlpt and lv in (s.get("levels") or []))
+            b.enabled = (self.phase == "lobby" and self.me == 0 and is_jlpt)
+        for n, b in self.words_btns:
+            b.set_selected(n == s.get("board_size"))
+        for n, b in self.cards_btns:
+            b.set_selected(n == s.get("cards"))
+        for n, b in self.lturns_btns:
+            b.set_selected(n == s.get("turns_each"))
+        self.lbl_s_level.opacity = (255 if (self.phase == "lobby" and is_jlpt)
+                                    else 0)
 
     def _set_phase(self, ph: str) -> None:
         if ph != self.phase:
@@ -200,19 +320,38 @@ class MultiplayerScene(Scene):
         self.app.state.set_setting("mp_name", name)
         return name
 
-    def _sample_pool(self) -> list[dict]:
-        """The host contributes the room's words (server stays data-free)."""
+    def _settings(self) -> dict:
+        """The room's live settings (server-authoritative once created)."""
+        from kanjire.net.server import DEFAULT_SETTINGS
+        if self.state and self.state.get("settings"):
+            return self.state["settings"]
+        return dict(DEFAULT_SETTINGS)
+
+    def _sample_pool(self, settings: dict) -> list[dict]:
+        """The host contributes the room's words, drawn from the settings it
+        just chose (the server itself stays data-free)."""
+        from kanjire.kana import hira_to_romaji
         rng = random.Random()
+        deck = settings.get("deck") or "jlpt"
+        levels = settings.get("levels") or [5]
         try:
-            words = db.load_words(self.app.con, decks=["jlpt"],
-                                  levels=[5, 4], require_kanji=True)
+            words = db.load_words(self.app.con, decks=[deck],
+                                  levels=levels if deck == "jlpt" else None,
+                                  require_kanji=True)
         except Exception:
             words = []
         picked = weighted_sample_words(words, POOL_SIZE, bias=0.4, rng=rng,
                                        confusable=False)
         loc = self.app.state.locale
-        return [{"kanji": w.expression, "reading": w.reading,
-                 "meaning": w.get_meaning(loc)} for w in picked]
+        out = []
+        for w in picked:
+            out.append({
+                "kanji": w.expression,
+                "reading": w.reading,
+                "romaji": hira_to_romaji(w.reading),
+                "meaning": w.get_meaning(loc),
+            })
+        return out
 
     def _make_client(self, addr: str):
         """Room-code-only by default (relay, no setup); a direct server
@@ -232,10 +371,6 @@ class MultiplayerScene(Scene):
         return client
 
     def _host(self) -> None:
-        pool = self._sample_pool()
-        if len(pool) < 4:
-            self.status = tr("MP_ERR_POOL")
-            return
         addr = self.in_addr.text.strip()
         if addr:
             # Advanced: also run a server here so friends can connect direct.
@@ -247,9 +382,10 @@ class MultiplayerScene(Scene):
         client = self._make_client(addr)
         if client is None:
             return
-        client.send({"t": "create", "pool": pool,
-                     "faces": ["kanji", "reading", "meaning"],
-                     "board_size": 6, "turns_each": self.turns_each})
+        # Settings are tuned in the lobby (where everyone can watch); the
+        # word pool is sampled from them at Start.
+        client.send({"t": "create",
+                     "settings": {"turns_each": self.turns_each}})
 
     def _join(self) -> None:
         code = self.in_code.text.strip().upper()
@@ -268,8 +404,44 @@ class MultiplayerScene(Scene):
             b.set_selected(v == n)
 
     def _start(self) -> None:
-        if self.client is not None:
-            self.client.send({"t": "start"})
+        """Host: sample a fresh pool from the CURRENT settings and go."""
+        if self.client is None or self.me != 0:
+            return
+        s = self._settings()
+        pool = self._sample_pool(s)
+        if len(pool) < 2:
+            self.status = tr("MP_ERR_POOL")
+            return
+        self.client.send({
+            "t": "start", "pool": pool,
+            "faces": list(FACES_FOR.get(int(s.get("cards", 3)), FACES_FOR[3])),
+            "board_size": int(s.get("board_size", 6)),
+            "turns_each": int(s.get("turns_each", 10)),
+        })
+
+    def _set_setting(self, key: str, value) -> None:
+        """Host-only: push one setting change; everyone sees it immediately."""
+        if self.client is None or self.me != 0:
+            return
+        self.client.send({"t": "config", "settings": {key: value}})
+
+    def _toggle_level(self, lv: int) -> None:
+        levels = list(self._settings().get("levels") or [5])
+        if lv in levels:
+            if len(levels) > 1:
+                levels.remove(lv)
+        else:
+            levels.append(lv)
+        self._set_setting("levels", sorted(set(levels)))
+
+    def _pause(self) -> None:
+        if self.client is not None and self.me == 0:
+            paused = bool((self.state or {}).get("paused"))
+            self.client.send({"t": "resume" if paused else "pause"})
+
+    def _to_lobby(self) -> None:
+        if self.client is not None and self.me == 0:
+            self.client.send({"t": "lobby"})
 
     def _leave(self) -> None:
         if self.client is not None:
@@ -312,6 +484,9 @@ class MultiplayerScene(Scene):
             self._on_event(event)
         if self.phase == "play":
             self._sync_board(state)
+        # Settings / pause state can change without a phase change (the host
+        # tweaking the lobby, or pausing mid-game), so always re-apply.
+        self._apply_phase()
         self._refresh_hud()
 
     def _on_event(self, event: dict) -> None:
@@ -384,9 +559,9 @@ class MultiplayerScene(Scene):
             return
         s = self._s
         hud = HUD_H * s
-        area_x, area_y = 40, 30
+        area_x, area_y = 40, 46          # clear of the bottom hint line
         area_w = self.width - 80
-        area_h = self.height - hud - 60
+        area_h = self.height - hud - 76
         cols, rows, cw, ch = choose_grid(n, area_w, area_h, 16)
         cw = min(cw, 320)
         ch = min(ch, 280)
@@ -431,9 +606,14 @@ class MultiplayerScene(Scene):
                     lbl.color = theme.with_alpha(theme.TEXT, 255)
         if self.phase == "play":
             mine = (turn == self.me)
-            self.turn_lbl.text = (tr("MP_YOUR_TURN") if mine else
-                                  tr("MP_THEIR_TURN",
-                                     name=players[turn] if 0 <= turn < len(players) else "?"))
+            if st.get("paused"):
+                self.turn_lbl.text = tr("MP_PAUSED")
+                self.turn_lbl.color = theme.with_alpha(theme.DANGER, 255)
+            else:
+                self.turn_lbl.color = theme.with_alpha(theme.GOLD, 255)
+                self.turn_lbl.text = (tr("MP_YOUR_TURN") if mine else
+                                      tr("MP_THEIR_TURN",
+                                         name=players[turn] if 0 <= turn < len(players) else "?"))
             left = max(0, (st.get("turns_total") or 0)
                        - (st.get("turns_used") or 0))
             self.turns_left_lbl.text = tr("MP_TURNS_LEFT", n=left)
@@ -457,6 +637,7 @@ class MultiplayerScene(Scene):
                 b.click()
                 return
         if (self.phase == "play" and self.state
+                and not self.state.get("paused")
                 and self.state.get("turn") == self.me
                 and self.client is not None):
             for cv in self.cards.values():
@@ -535,11 +716,35 @@ class MultiplayerScene(Scene):
             self.lbl_addr.x, self.lbl_addr.y = in_x - 14 * s, y3 + in_h / 2
             self.in_addr.set_rect(in_x, y3, in_w, in_h)
         elif self.phase == "lobby":
-            self.big_code.x, self.big_code.y = cx, height - 150 * s
+            self.big_code.x, self.big_code.y = cx, height - 128 * s
+            n_players = max(1, len((self.state or {}).get("players") or [1]))
             for i, lbl in enumerate(self.player_lbls):
-                lbl.x, lbl.y = cx, height - 230 * s - i * 30 * s
-            self.start_btn.set_rect(cx - 130 * s, 120 * s, 260 * s, 50 * s)
-            self.hint.x, self.hint.y = cx, 60 * s
+                lbl.anchor_x = "center"
+                lbl.x, lbl.y = cx, height - 178 * s - i * 26 * s
+
+            # Settings block, under the player list. Label on the left of each
+            # row, its choices to the right - same for host and guests, so
+            # everyone reads the same thing while the host tweaks.
+            rows = [
+                (self.lbl_s_deck, self.deck_btns, 108 * s),
+                (self.lbl_s_level, self.level_btns, 46 * s),
+                (self.lbl_s_words, self.words_btns, 46 * s),
+                (self.lbl_s_cards, self.cards_btns, 46 * s),
+                (self.lbl_s_turns, self.lturns_btns, 46 * s),
+            ]
+            ry = height - 200 * s - n_players * 26 * s
+            gap = 8 * s
+            for lb, btns, bw in rows:
+                total = len(btns) * bw + (len(btns) - 1) * gap
+                x0 = cx - total / 2 + 60 * s
+                lb.x, lb.y = x0 - 16 * s, ry
+                for i, (_v, b) in enumerate(btns):
+                    b.set_rect(x0 + i * (bw + gap), ry - 13 * s, bw, 26 * s)
+                ry -= 40 * s
+
+            self.start_btn.set_rect(cx - 130 * s, max(96 * s, ry - 46 * s),
+                                    260 * s, 46 * s)
+            self.hint.x, self.hint.y = cx, 52 * s
         elif self.phase in ("play", "done"):
             if self.phase == "play":
                 n = max(1, len((self.state or {}).get("players") or []))
@@ -551,14 +756,22 @@ class MultiplayerScene(Scene):
                         lbl.x = span_l + (span_r - span_l) * min(i, n - 1) / (n - 1)
                     lbl.anchor_x = "left"
                     lbl.y = height - 36 * s
-                self.turn_lbl.x, self.turn_lbl.y = cx, height - 80 * s
-                self.turns_left_lbl.x = width - 100 * s
+                self.turn_lbl.x, self.turn_lbl.y = cx, height - 78 * s
+                self.turns_left_lbl.anchor_x = "right"
+                self.turns_left_lbl.x = width - 24 * s
                 self.turns_left_lbl.y = height - 36 * s
+                # Host controls live INSIDE the HUD strip, never over the
+                # board (they used to sit on top of the bottom card row).
+                self.pause_btn.set_rect(width - 310 * s, height - 92 * s,
+                                        140 * s, 28 * s)
+                self.lobby_btn.set_rect(width - 160 * s, height - 92 * s,
+                                        140 * s, 28 * s)
                 self._layout_cards()
             else:
                 for i, lbl in enumerate(self.player_lbls):
                     lbl.anchor_x = "center"
                     lbl.x, lbl.y = cx, height - 180 * s - i * 40 * s
+                self.lobby_btn.set_rect(cx - 100 * s, 90 * s, 200 * s, 40 * s)
             self.hint.x, self.hint.y = cx, 16 * s
 
     def draw(self) -> None:
