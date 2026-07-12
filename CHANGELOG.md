@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.15.0 — 2026-07-12
 - **Multiplayer: a completed group now stays up for two seconds.** It used to be
   scored and swept off the board the instant the last card was clicked, so the
   other players never got to see which cards went together — the whole point of
