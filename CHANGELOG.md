@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.6.0 — 2026-07-12
 - **The Journey** — a new tab: the whole JLPT vocabulary becomes a road of
   456 stations ordered by real-world frequency. Clear stations by learning
   their words (however you like — nothing is locked), and face a **boss
