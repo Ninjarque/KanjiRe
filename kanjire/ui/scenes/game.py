@@ -14,7 +14,7 @@ from kanjire.data.stats import knowledge_score
 from kanjire.game.config import GameConfig
 from kanjire.game.engine import GameEngine, Phase
 from kanjire.i18n import tr
-from kanjire.model.sampling import learn_sample_words
+from kanjire.model.sampling import learn_sample_words, weighted_sample_words
 from kanjire.ui import theme
 from kanjire.ui.anim import (
     Animator,
@@ -95,9 +95,13 @@ class _SessionTally:
 
 
 class GameScene(Scene):
-    def __init__(self, app, config: GameConfig, pool=None) -> None:
+    def __init__(self, app, config: GameConfig, pool=None,
+                 recall_words=None) -> None:
         super().__init__(app)
         self.config = config
+        #: Words for the typed-recall epilogue after a completed session
+        #: (Today's Training passes its hardest review words).
+        self.recall_words = list(recall_words) if recall_words else []
 
         # Kana mode is synthetic: words are invented on the fly per round, so
         # we don't touch the SQLite vocab DB at all and the pool is irrelevant
@@ -124,6 +128,12 @@ class GameScene(Scene):
         rng = random.Random()
         sampler = None
         meta_provider = None
+        # Historically-confused pairs: the sampler deliberately re-pairs them
+        # so old confusions get re-tested (and hopefully retired).
+        try:
+            pairs = app.stats.confusion_partners()
+        except Exception:
+            pairs = {}
         if self.is_kana:
             sampler = lambda pool, n, *, bias, rng, penalize=None: kana.sample(
                 n, length=config.kana_length, script=config.kana_script, rng=rng,
@@ -137,7 +147,13 @@ class GameScene(Scene):
             }
             sampler = lambda pool, n, *, bias, rng, penalize=None: learn_sample_words(
                 pool, n, buckets=buckets, weights=weights, bias=bias, rng=rng,
-                penalize=penalize,
+                penalize=penalize, pair_boost=pairs,
+            )
+        else:
+            sampler = (
+                lambda pool, n, *, bias, rng, penalize=None:
+                    weighted_sample_words(pool, n, bias=bias, rng=rng,
+                                          penalize=penalize, pair_boost=pairs)
             )
 
         # Survival (lives_mode): per-deal new/bounty metadata from the player's
@@ -497,8 +513,18 @@ class GameScene(Scene):
         if self._ending:
             return
         self._ending = True
-        self.anim.after(0.6, lambda: self.app.go_results(
-            self.engine, self.config, session=self.tally))
+
+        def _next_scene():
+            # A *won* session with review words queued gets the typed-recall
+            # epilogue first; everything else goes straight to results.
+            if (self.recall_words and self.config.session_mode
+                    and self.engine.session_left == 0):
+                self.app.go_recall(self.recall_words, self.engine,
+                                   self.config, session=self.tally)
+            else:
+                self.app.go_results(self.engine, self.config,
+                                    session=self.tally)
+        self.anim.after(0.6, _next_scene)
 
     # ------------------------------------------------------------------ #
     # Per-frame

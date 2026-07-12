@@ -88,6 +88,96 @@ KANA_SOUNDS: tuple[tuple[str, str, str], ...] = (
 #: Stable identifier the rest of the app uses to recognise the synthetic deck.
 KANA_DECK = "kana"
 
+# --------------------------------------------------------------------------- #
+# Romaji -> hiragana conversion (typed-recall input, no IME needed)
+# --------------------------------------------------------------------------- #
+#: Full conversion table: the game table above plus IME-style aliases and the
+#: rarer kana the synthetic deck doesn't drill (ぢ づ, loan-word combos).
+_R2H: dict[str, str] = {r: h for r, h, _k in KANA_SOUNDS}
+_R2H.update({
+    # kunrei / IME aliases
+    "si": "し", "ti": "ち", "tu": "つ", "hu": "ふ", "zi": "じ",
+    "sya": "しゃ", "syu": "しゅ", "syo": "しょ",
+    "tya": "ちゃ", "tyu": "ちゅ", "tyo": "ちょ",
+    "zya": "じゃ", "zyu": "じゅ", "zyo": "じょ",
+    "jya": "じゃ", "jyu": "じゅ", "jyo": "じょ",
+    "cya": "ちゃ", "cyu": "ちゅ", "cyo": "ちょ",
+    # rare-but-real kana
+    "di": "ぢ", "du": "づ", "dzu": "づ", "dja": "ぢゃ", "dju": "ぢゅ",
+    "vu": "ゔ",
+    # loan-word combinations (readings of katakana words, stored as hiragana)
+    "fa": "ふぁ", "fi": "ふぃ", "fe": "ふぇ", "fo": "ふぉ",
+    "va": "ゔぁ", "vi": "ゔぃ", "ve": "ゔぇ", "vo": "ゔぉ",
+    "wi": "うぃ", "we": "うぇ", "who": "うぉ",
+    "she": "しぇ", "che": "ちぇ", "je": "じぇ",
+    "thi": "てぃ", "dhi": "でぃ", "thu": "てゅ", "dhu": "でゅ",
+    "twu": "とぅ", "dwu": "どぅ",
+    # small kana (IME x/l prefixes)
+    "xa": "ぁ", "xi": "ぃ", "xu": "ぅ", "xe": "ぇ", "xo": "ぉ",
+    "la": "ぁ", "li": "ぃ", "lu": "ぅ", "le": "ぇ", "lo": "ぉ",
+    "xya": "ゃ", "xyu": "ゅ", "xyo": "ょ", "xtsu": "っ", "ltsu": "っ",
+})
+_VOWELS = "aeiou"
+
+
+def romaji_to_hira(text: str) -> str:
+    """IME-style romaji -> hiragana ("kyou" -> きょう, "gakkou" -> がっこう).
+
+    Standard conventions: doubled consonants make っ, ``nn``/``n'`` make ん
+    (a lone *n* before a non-vowel also resolves to ん), ``-`` makes ー.
+    Kana characters pass straight through (katakana folded to hiragana), so
+    a player typing with a real IME is fine too. Unknown characters survive
+    unchanged, which keeps the comparison honest (a wrong answer stays wrong).
+    """
+    from kanjire.jputil import is_kana, kata_to_hira
+
+    s = text.strip().lower()
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if is_kana(ch) or ch in "ーっ":
+            out.append(kata_to_hira(ch))
+            i += 1
+            continue
+        if ch == "-":
+            out.append("ー")
+            i += 1
+            continue
+        # ん: "nn" always, "n'" explicitly, lone n before non-vowel/non-y/end.
+        if ch == "n":
+            nxt = s[i + 1] if i + 1 < len(s) else ""
+            if nxt == "n":
+                out.append("ん")
+                i += 2
+                continue
+            if nxt == "'":
+                out.append("ん")
+                i += 2
+                continue
+            if nxt == "" or (nxt not in _VOWELS and nxt != "y"
+                             and not is_kana(nxt)):
+                out.append("ん")
+                i += 1
+                continue
+        # っ: doubled consonant (kk, tt, ss, pp...) plus the "tch" cluster.
+        if (ch.isalpha() and ch not in _VOWELS and ch != "n"
+                and i + 1 < len(s)
+                and (s[i + 1] == ch or (ch == "t" and s[i + 1] == "c"))):
+            out.append("っ")
+            i += 1
+            continue
+        for ln in (4, 3, 2, 1):
+            frag = s[i:i + ln]
+            if frag in _R2H:
+                out.append(_R2H[frag])
+                i += ln
+                break
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
 SCRIPTS = ("hira", "kata", "both")
 LENGTHS = (1, 2, 3)
 

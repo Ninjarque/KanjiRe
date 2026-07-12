@@ -436,11 +436,32 @@ def run() -> int:
                     cv = g.cards.get(cid)
                     if cv is not None and not cv.model.matched:
                         g.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
-            frames2(90)   # round-clear animation + next round / results
+            frames2(90)   # round-clear animation + next round / recall
             rounds_guard += 1
+        # A won session with reviews flows into the typed-recall epilogue.
+        from kanjire.ui.scenes.recall import RecallScene
+        rc = app2.scene
+        assert isinstance(rc, RecallScene), f"expected recall: {type(rc).__name__}"
+        w0 = rc.word
+        rc.input.set_text(w0.reading)      # kana input passes straight through
+        rc._submit()
+        frames2(55)                        # 0.7s auto-advance
+        w1 = rc.word
+        assert w1 is not None and w1.expression != w0.expression
+        rc.input.set_text("zzz")
+        rc._submit()                       # wrong once -> retry offered
+        assert rc.attempts == 1 and isinstance(app2.scene, RecallScene)
+        rc.input.set_text("zzz")
+        rc._submit()                       # wrong twice -> answer shown
+        frames2(110)                       # 1.6s auto-advance
+        rc.on_key_press(pkey.ESCAPE, 0)    # finish the epilogue early
         rs2 = app2.scene
         assert isinstance(rs2, ResultsScene), f"stuck in {type(rs2).__name__}"
         assert rs2.session_won, "session did not register as won"
+        recall_rows = [dict(r) for r in app2.stats.con.execute(
+            "SELECT rating FROM review_log WHERE event='recall'")]
+        assert any(r["rating"] == 4 for r in recall_rows), \
+            f"typed recall not graded Easy: {recall_rows}"
         st = app2.state.streak_status()
         assert st["count"] >= 1 and st["done_today"], f"streak not stamped: {st}"
         app2.go_menu()

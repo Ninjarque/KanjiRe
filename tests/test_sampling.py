@@ -102,6 +102,45 @@ def test_penalized_words_sink():
     assert hits <= 6, hits  # ~0.01 weight vs 19 words at weight 1
 
 
+def test_pair_boost_reunites_confused_words():
+    """Words the player historically confused should co-occur far more often
+    once one of them is picked."""
+    pool = _family_pool()
+    rng = random.Random(11)
+    # Pretend 山 and 川 were confused before (no kanji share, same freq).
+    pairs = {("山", "やま"): {("川", "かわ")},
+             ("川", "かわ"): {("山", "やま")}}
+    with_boost = 0
+    without = 0
+    for _ in range(300):
+        got = {w.expression for w in weighted_sample_words(
+            pool, 4, bias=0.0, rng=rng, pair_boost=pairs)}
+        if "山" in got or "川" in got:
+            with_boost += ("山" in got and "川" in got)
+        got = {w.expression for w in weighted_sample_words(
+            pool, 4, bias=0.0, rng=rng)}
+        if "山" in got or "川" in got:
+            without += ("山" in got and "川" in got)
+    assert with_boost > without * 2 + 10, (with_boost, without)
+
+
+def test_confusion_partners_query():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    rec = StatsRecorder(con)
+    a = _w(1, "山", "やま", "Mountain")
+    b = _w(2, "川", "かわ", "River")
+    rec.confused(a, b, "meaning")
+    partners = rec.confusion_partners()
+    assert partners[("山", "やま")] == {("川", "かわ")}
+    assert partners[("川", "かわ")] == {("山", "やま")}
+    # self-confusions (typed recall failures) are excluded
+    rec.confused(a, a, "reading")
+    partners = rec.confusion_partners()
+    assert ("山", "やま") not in partners[("山", "やま")] \
+        if ("山", "やま") in partners else True
+
+
 def test_review_log_records_and_resets():
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row

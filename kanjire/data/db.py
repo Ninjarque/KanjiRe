@@ -96,9 +96,11 @@ CREATE TABLE IF NOT EXISTS review_log (
     day        TEXT NOT NULL,           -- player-local YYYY-MM-DD (heatmap key)
     expression TEXT NOT NULL,
     reading    TEXT NOT NULL,
-    event      TEXT NOT NULL,           -- 'match' | 'confuse'
+    event      TEXT NOT NULL,           -- 'match' | 'confuse' | 'recall'
     face       TEXT,                    -- mistake face for 'confuse' events
-    rating     INTEGER NOT NULL         -- FSRS-style: 1=again .. 4=easy
+    rating     INTEGER NOT NULL,        -- FSRS-style: 1=again .. 4=easy
+    partner_expression TEXT,            -- confuse: the other word involved
+    partner_reading    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_review_day  ON review_log(day);
 CREATE INDEX IF NOT EXISTS idx_review_word ON review_log(expression, reading);

@@ -59,6 +59,7 @@ def _today() -> str:
 RATING_AGAIN = 1
 RATING_HARD = 2
 RATING_GOOD = 3
+RATING_EASY = 4
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +111,12 @@ class StatsRecorder:
     def __init__(self, con: sqlite3.Connection) -> None:
         self.con = con
         db.init_stats_schema(con)
+        for col in ("partner_expression", "partner_reading"):
+            try:  # additive migration for logs created before partner tracking
+                con.execute(f"ALTER TABLE review_log ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
+        con.commit()
         try:
             from kanjire.srs import SrsStore
             self.srs = SrsStore(con)
@@ -174,23 +181,27 @@ class StatsRecorder:
           current_streak   = 0
         """
         # Both words involved get pinged on the same face dimension - that's the
-        # whole point of the "only the wrong" semantics.
-        for w in (target, offending):
+        # whole point of the "only the wrong" semantics. Each log row remembers
+        # the *partner* so future boards can re-pair known confusions.
+        for w, other in ((target, offending), (offending, target)):
             self.con.execute(sql, (w.expression, w.reading, w.meaning, ts))
-            self._log_event(ts, w, "confuse", face, RATING_AGAIN)
+            self._log_event(ts, w, "confuse", face, RATING_AGAIN, partner=other)
         self.con.commit()
         if self.srs is not None:
             for w in (target, offending):
                 self.srs.update(w.expression, w.reading, RATING_AGAIN)
 
     def _log_event(self, ts: str, word: Word, event: str, face: str | None,
-                   rating: int) -> None:
+                   rating: int, partner: Word | None = None) -> None:
         self.con.execute(
             """
-            INSERT INTO review_log (ts, day, expression, reading, event, face, rating)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO review_log (ts, day, expression, reading, event, face,
+                                    rating, partner_expression, partner_reading)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ts, _today(), word.expression, word.reading, event, face, rating),
+            (ts, _today(), word.expression, word.reading, event, face, rating,
+             partner.expression if partner else None,
+             partner.reading if partner else None),
         )
 
     # ---- queries used by the stats / learn scenes ------------------- #
@@ -243,6 +254,51 @@ class StatsRecorder:
         for w in words:
             row = self.get_for(w.expression, w.reading)
             out[classify(row)].append(w)
+        return out
+
+    def recalled(self, word: Word, first_try: bool = True) -> None:
+        """A *typed* recall of the reading — stronger evidence than a board
+        match (rates Easy when clean, Hard when it took retries)."""
+        ts = _now()
+        self.con.execute(
+            """
+            INSERT INTO word_stats (expression, reading, meaning, matches,
+                                    last_correct_at, last_seen_at, current_streak)
+            VALUES (?, ?, ?, 1, ?, ?, 1)
+            ON CONFLICT(expression, reading) DO UPDATE SET
+              matches         = matches + 1,
+              meaning         = COALESCE(excluded.meaning, meaning),
+              last_correct_at = excluded.last_correct_at,
+              last_seen_at    = COALESCE(excluded.last_seen_at, last_seen_at),
+              current_streak  = current_streak + 1
+            """,
+            (word.expression, word.reading, word.meaning, ts, ts),
+        )
+        rating = RATING_EASY if first_try else RATING_HARD
+        self._log_event(ts, word, "recall", "reading", rating)
+        self.con.commit()
+        if self.srs is not None:
+            self.srs.update(word.expression, word.reading, rating)
+
+    def confusion_partners(self, limit: int = 400) -> dict[tuple[str, str],
+                                                           set[tuple[str, str]]]:
+        """Historically-confused pairs: key -> set of partner keys. Fuel for
+        the sampler's pair boost (re-testing old confusions on purpose)."""
+        out: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        rows = self.con.execute(
+            """
+            SELECT expression, reading, partner_expression, partner_reading
+            FROM review_log
+            WHERE event='confuse' AND partner_expression IS NOT NULL
+                  AND partner_expression != expression
+            ORDER BY id DESC LIMIT ?
+            """,
+            (limit,),
+        )
+        for r in rows:
+            key = (r["expression"], r["reading"])
+            partner = (r["partner_expression"], r["partner_reading"])
+            out.setdefault(key, set()).add(partner)
         return out
 
     def day_counts(self) -> dict[str, int]:

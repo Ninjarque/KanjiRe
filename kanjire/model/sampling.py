@@ -42,6 +42,10 @@ _KANJI_SHARE_BOOST = 8.0
 #: Mild multiplier for candidates at the same JLPT level as a chosen word,
 #: keeping boards roughly level-coherent without forcing it.
 _LEVEL_MATCH_BOOST = 1.5
+#: Strong multiplier for a candidate the player has *historically confused*
+#: with an already-chosen word — deliberately re-testing old confusions is
+#: the highest-value distractor there is.
+_PAIR_BOOST = 30.0
 
 
 def _weight(word: Word, bias: float) -> float:
@@ -73,6 +77,7 @@ def learn_sample_words(
     bias: float = 0.4,
     rng: random.Random | None = None,
     penalize: frozenset[tuple[str, str]] | None = None,
+    pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
 ) -> list[Word]:
     """Pick *n* words honouring a per-bucket mix.
 
@@ -93,7 +98,8 @@ def learn_sample_words(
     total = sum(weights.values())
     if total <= 0:
         return list(weighted_sample_words(pool, n, bias=bias, rng=rng,
-                                          penalize=penalize))
+                                          penalize=penalize,
+                                          pair_boost=pair_boost))
 
     # Initial target counts proportional to weights, with rounding fixed up.
     targets: dict[str, int] = {b: int(round(n * w / total)) for b, w in weights.items()}
@@ -123,7 +129,7 @@ def learn_sample_words(
         # Review buckets sample uniformly; only fresh words honour frequency.
         b_bias = 0.0 if b in REVIEW_BUCKETS else bias
         chosen = weighted_sample_words(avail, take, bias=b_bias, rng=rng,
-                                       penalize=penalize)
+                                       penalize=penalize, pair_boost=pair_boost)
         for w in chosen:
             used_keys.add((w.expression, w.reading))
         selected.extend(chosen)
@@ -138,7 +144,7 @@ def learn_sample_words(
         remainder = [w for w in pool
                      if (w.expression, w.reading) not in used_keys]
         more = weighted_sample_words(remainder, shortfall, bias=bias, rng=rng,
-                                     penalize=penalize)
+                                     penalize=penalize, pair_boost=pair_boost)
         selected.extend(_dedupe_by_face([*selected, *more])[len(selected):])
 
     rng.shuffle(selected)
@@ -153,18 +159,21 @@ def weighted_sample_words(
     rng: random.Random | None = None,
     penalize: frozenset[tuple[str, str]] | None = None,
     confusable: bool = True,
+    pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
 ) -> list[Word]:
     """Pick up to *n* distinct, mutually-unambiguous words from *pool*.
 
     Sequential weighted sampling without replacement: each pick draws from
     the remaining candidates proportionally to their frequency weight, then
     later picks are *boosted* toward words confusable with what's already on
-    the board (shared kanji, same JLPT level) — see module docstring.
+    the board (shared kanji, same JLPT level, and — strongest — words the
+    player has historically confused, via ``pair_boost``: a key -> partner
+    keys map from the stats layer).
 
     ``penalize`` is a set of ``(expression, reading)`` keys to strongly
     down-weight (recently-shown words), so they rarely reappear back-to-back
     but can still be chosen if the pool would otherwise run dry.
-    ``confusable=False`` disables the affinity boost (pure frequency draw).
+    ``confusable=False`` disables every affinity boost (pure frequency draw).
     """
     rng = rng or random
     if n <= 0 or not pool:
@@ -186,6 +195,7 @@ def weighted_sample_words(
     seen_meaning: set[str] = set()
     picked_kanji: set[str] = set()
     picked_levels: set[int] = set()
+    picked_partners: set[tuple[str, str]] = set()
 
     alive = list(range(len(pool)))
     for _ in range(n):
@@ -202,6 +212,8 @@ def weighted_sample_words(
                 continue
             wt = base[i]
             if confusable and chosen:
+                if (w.expression, w.reading) in picked_partners:
+                    wt *= _PAIR_BOOST
                 if picked_kanji and any(ch in picked_kanji for ch in w.expression):
                     wt *= _KANJI_SHARE_BOOST
                 if w.jlpt is not None and w.jlpt in picked_levels:
@@ -220,5 +232,7 @@ def weighted_sample_words(
         picked_kanji.update(kanji_chars(w.expression))
         if w.jlpt is not None:
             picked_levels.add(w.jlpt)
+        if pair_boost:
+            picked_partners |= pair_boost.get((w.expression, w.reading), set())
 
     return chosen

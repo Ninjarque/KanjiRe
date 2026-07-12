@@ -11,6 +11,12 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Type the reading!** Today's Training now ends with a short typed-recall
+  round: the kanji appears, you type the reading — romaji converts to kana
+  live as you type, no Japanese keyboard needed. Typing a word correctly
+  counts much more strongly toward mastering it than matching cards.
+- Boards now deliberately **re-pair words you've confused before** so old
+  mix-ups get re-tested and finally retired.
 
 ## 0.3.0 — 2026-07-12
 - **Today's Training** — a big new button on the menu builds your daily

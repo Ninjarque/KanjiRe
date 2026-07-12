@@ -156,6 +156,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "STREAK_FOOTER":       "Day {n} streak",
         "HUD_LEFT":            "words left",
 
+        # --- typed recall ---------------------------------------- #
+        "RECALL_TITLE":        "TYPE THE READING",
+        "RECALL_HINT":         "type in romaji (auto-converts) or kana  ·  Enter to check  ·  Esc to finish",
+        "RECALL_TRY_AGAIN":    "Not quite — try once more",
+        "RECALL_ANSWER":       "Answer:  {reading}",
+
         # --- stats scene ---------------------------------------- #
         "STATS_TITLE":         "Your knowledge",
         "STATS_SUB":           "cross-deck profile from every round you've played",
@@ -356,6 +362,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "TODAY_MORE":          "✓ Fait  ·  bonus : {rev} révisions + {new} nouveaux",
         "STREAK_FOOTER":       "Série de {n} jours",
         "HUD_LEFT":            "mots restants",
+
+        # --- rappel écrit ---------------------------------------- #
+        "RECALL_TITLE":        "TAPEZ LA LECTURE",
+        "RECALL_HINT":         "en rōmaji (conversion auto) ou en kana  ·  Entrée pour valider  ·  Échap pour finir",
+        "RECALL_TRY_AGAIN":    "Presque — encore un essai",
+        "RECALL_ANSWER":       "Réponse :  {reading}",
 
         # --- stats --------------------------------------------- #
         "STATS_TITLE":         "Vos connaissances",

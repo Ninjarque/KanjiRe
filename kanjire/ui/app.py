@@ -145,10 +145,17 @@ class GameApp:
 
         self.set_scene(MenuScene(self))
 
-    def go_game(self, config, pool=None) -> None:
+    def go_game(self, config, pool=None, recall_words=None) -> None:
         from kanjire.ui.scenes.game import GameScene
 
-        self.set_scene(GameScene(self, config, pool=pool))
+        self.set_scene(GameScene(self, config, pool=pool,
+                                 recall_words=recall_words))
+
+    def go_recall(self, words, engine, config, session=None) -> None:
+        from kanjire.ui.scenes.recall import RecallScene
+
+        self.set_scene(RecallScene(self, words, engine, config,
+                                   session=session))
 
     def go_results(self, engine, config, session=None) -> None:
         from kanjire.ui.scenes.results import ResultsScene
