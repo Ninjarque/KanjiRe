@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.7.0 — 2026-07-12
 - **Read your own texts!** The Reading Room now has a source picker: pick
   any text you've imported and read it sentence by sentence at your level,
   with the same tap-for-reading chips. New imports capture their sentences
