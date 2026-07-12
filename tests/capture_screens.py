@@ -229,6 +229,43 @@ def main() -> int:
     shot("game_survival_stickers.png")
     app.stats.reset_all()
 
+    # --- Today's Training + streak footer + typed-recall epilogue ------- #
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    app.stats.reset_all()
+    _past = _dt.now(_tz.utc) - _td(days=2)
+    for w in seed_pool[:8]:
+        app.stats.srs.update(w.expression, w.reading, 3, _past)
+    _set = app.state.data.setdefault("settings", {})
+    _streak_backup = {k: _set.get(k) for k in
+                      ("streak_count", "streak_freezes", "streak_day")}
+    _set["streak_count"] = 11
+    _set["streak_freezes"] = 1
+    _set["streak_day"] = (_dt.now().astimezone().date()
+                          - _td(days=1)).isoformat()
+    app.go_menu()
+    render(10)
+    shot("menu_today.png")
+    app.scene._play_today()
+    render(80)
+    shot("game_today_session.png")
+    # Typed-recall scene directly (deterministic, no full session needed).
+    from kanjire.game.config import GameConfig as _GC
+    app.go_recall(seed_pool[:4], app.scene.engine,
+                  _GC(name="Today", session_mode=True, duration=None))
+    rc = app.scene
+    for ch in "tabe":
+        rc.on_text(ch)
+    render(6)
+    shot("recall_typing.png")
+    # restore streak state + stats
+    for k, v in _streak_backup.items():
+        if v is None:
+            _set.pop(k, None)
+        else:
+            _set[k] = v
+    app.state.save()
+    app.stats.reset_all()
+
     # French locale: refresh scenes to pick up the translated strings AND the
     # French meanings on the cards.
     from kanjire import i18n

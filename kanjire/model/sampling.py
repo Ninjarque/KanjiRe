@@ -46,6 +46,10 @@ _LEVEL_MATCH_BOOST = 1.5
 #: with an already-chosen word — deliberately re-testing old confusions is
 #: the highest-value distractor there is.
 _PAIR_BOOST = 30.0
+#: Multiplier for candidates whose kanji share a *phonetic series* (keisei)
+#: with a chosen word's kanji (晴 on the board pulls in 清/精 — same 青=せい
+#: sound family). Teaches the series by juxtaposition.
+_SERIES_BOOST = 5.0
 
 
 def _weight(word: Word, bias: float) -> float:
@@ -78,6 +82,7 @@ def learn_sample_words(
     rng: random.Random | None = None,
     penalize: frozenset[tuple[str, str]] | None = None,
     pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
+    series_map: dict[str, set[str]] | None = None,
 ) -> list[Word]:
     """Pick *n* words honouring a per-bucket mix.
 
@@ -99,7 +104,8 @@ def learn_sample_words(
     if total <= 0:
         return list(weighted_sample_words(pool, n, bias=bias, rng=rng,
                                           penalize=penalize,
-                                          pair_boost=pair_boost))
+                                          pair_boost=pair_boost,
+                                          series_map=series_map))
 
     # Initial target counts proportional to weights, with rounding fixed up.
     targets: dict[str, int] = {b: int(round(n * w / total)) for b, w in weights.items()}
@@ -129,7 +135,8 @@ def learn_sample_words(
         # Review buckets sample uniformly; only fresh words honour frequency.
         b_bias = 0.0 if b in REVIEW_BUCKETS else bias
         chosen = weighted_sample_words(avail, take, bias=b_bias, rng=rng,
-                                       penalize=penalize, pair_boost=pair_boost)
+                                       penalize=penalize, pair_boost=pair_boost,
+                                       series_map=series_map)
         for w in chosen:
             used_keys.add((w.expression, w.reading))
         selected.extend(chosen)
@@ -144,7 +151,8 @@ def learn_sample_words(
         remainder = [w for w in pool
                      if (w.expression, w.reading) not in used_keys]
         more = weighted_sample_words(remainder, shortfall, bias=bias, rng=rng,
-                                     penalize=penalize, pair_boost=pair_boost)
+                                     penalize=penalize, pair_boost=pair_boost,
+                                     series_map=series_map)
         selected.extend(_dedupe_by_face([*selected, *more])[len(selected):])
 
     rng.shuffle(selected)
@@ -160,6 +168,7 @@ def weighted_sample_words(
     penalize: frozenset[tuple[str, str]] | None = None,
     confusable: bool = True,
     pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
+    series_map: dict[str, set[str]] | None = None,
 ) -> list[Word]:
     """Pick up to *n* distinct, mutually-unambiguous words from *pool*.
 
@@ -196,6 +205,7 @@ def weighted_sample_words(
     picked_kanji: set[str] = set()
     picked_levels: set[int] = set()
     picked_partners: set[tuple[str, str]] = set()
+    picked_series: set[str] = set()
 
     alive = list(range(len(pool)))
     for _ in range(n):
@@ -216,6 +226,9 @@ def weighted_sample_words(
                     wt *= _PAIR_BOOST
                 if picked_kanji and any(ch in picked_kanji for ch in w.expression):
                     wt *= _KANJI_SHARE_BOOST
+                elif picked_series and any(ch in picked_series
+                                           for ch in w.expression):
+                    wt *= _SERIES_BOOST
                 if w.jlpt is not None and w.jlpt in picked_levels:
                     wt *= _LEVEL_MATCH_BOOST
             weights.append(wt)
@@ -234,5 +247,8 @@ def weighted_sample_words(
             picked_levels.add(w.jlpt)
         if pair_boost:
             picked_partners |= pair_boost.get((w.expression, w.reading), set())
+        if series_map:
+            for ch in kanji_chars(w.expression):
+                picked_series |= series_map.get(ch, set())
 
     return chosen

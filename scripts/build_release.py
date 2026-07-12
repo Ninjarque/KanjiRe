@@ -81,9 +81,10 @@ def _add_data_args() -> list[str]:
     args: list[str] = []
     db = DATA_DIR / "kanjire.db"
     args += ["--add-data", f"{db}{sep}kanjire/data"]
-    glosses = DATA_DIR / "glosses.db"
-    if glosses.exists():
-        args += ["--add-data", f"{glosses}{sep}kanjire/data"]
+    for sidecar in ("glosses.db", "kanjidata.db", "sentences.db"):
+        path = DATA_DIR / sidecar
+        if path.exists():
+            args += ["--add-data", f"{path}{sep}kanjire/data"]
     fonts_dir = PACKAGE_DIR / "fonts"
     for f in sorted(fonts_dir.iterdir()):
         if f.is_file():

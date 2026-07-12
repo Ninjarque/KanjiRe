@@ -9,7 +9,7 @@ from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 
 from kanjire import kana
-from kanjire.data import db
+from kanjire.data import db, kanjidata
 from kanjire.data.stats import knowledge_score
 from kanjire.game.config import GameConfig
 from kanjire.game.engine import GameEngine, Phase
@@ -128,12 +128,17 @@ class GameScene(Scene):
         rng = random.Random()
         sampler = None
         meta_provider = None
-        # Historically-confused pairs: the sampler deliberately re-pairs them
-        # so old confusions get re-tested (and hopefully retired).
+        # Confusability fuel for the sampler: historically-confused pairs get
+        # re-paired on purpose, and kanji from the same phonetic series (keisei)
+        # get juxtaposed so the sound families become visible.
         try:
             pairs = app.stats.confusion_partners()
         except Exception:
             pairs = {}
+        try:
+            series = kanjidata.series_map()
+        except Exception:
+            series = {}
         if self.is_kana:
             sampler = lambda pool, n, *, bias, rng, penalize=None: kana.sample(
                 n, length=config.kana_length, script=config.kana_script, rng=rng,
@@ -147,13 +152,14 @@ class GameScene(Scene):
             }
             sampler = lambda pool, n, *, bias, rng, penalize=None: learn_sample_words(
                 pool, n, buckets=buckets, weights=weights, bias=bias, rng=rng,
-                penalize=penalize, pair_boost=pairs,
+                penalize=penalize, pair_boost=pairs, series_map=series,
             )
         else:
             sampler = (
                 lambda pool, n, *, bias, rng, penalize=None:
                     weighted_sample_words(pool, n, bias=bias, rng=rng,
-                                          penalize=penalize, pair_boost=pairs)
+                                          penalize=penalize, pair_boost=pairs,
+                                          series_map=series)
             )
 
         # Survival (lives_mode): per-deal new/bounty metadata from the player's
@@ -234,9 +240,16 @@ class GameScene(Scene):
         self.round_label.color = theme.with_alpha(theme.MUTED, 255)
         self.hint_label = mk(11, anchor_x="right", anchor_y="center")
         self.hint_label.color = theme.with_alpha(theme.DIM, 255)
+        # Ambient context: after a match, an example sentence for the matched
+        # word floats at the bottom of the screen for a few seconds.
+        self.sentence_ja = mk(14, anchor_x="center", anchor_y="center")
+        self.sentence_en = mk(10, anchor_x="center", anchor_y="center")
+        self.sentence_en.color = theme.with_alpha(theme.MUTED, 255)
+        self._sentence_timer = 0.0
         self._hud_labels = [
             self.score_label, self.combo_label, self.center_label,
             self.status_label, self.round_label, self.hint_label,
+            self.sentence_ja, self.sentence_en,
         ]
 
         # timer bar shapes
@@ -313,9 +326,9 @@ class GameScene(Scene):
         if not n:
             return
         area_x = 40
-        area_y = 30
+        area_y = 56          # keeps clear of the bottom sentence toast
         area_w = self.width - 80
-        area_h = self.height - self._hud_h - 60
+        area_h = self.height - self._hud_h - 86
         cols, rows, cw, ch = choose_grid(n, area_w, area_h, GAP)
         # Generous caps so a maximised or fullscreen window actually uses the
         # space, but still bounded so 1-2 cards don't look comically large.
@@ -396,6 +409,8 @@ class GameScene(Scene):
                 audio.sfx.play("match")
             if state.tts_on_match and result.word is not None:
                 audio.speech.say_jp(result.word.reading)
+            if result.word is not None and not self.is_kana:
+                self._show_sentence(result.word)
             self._animate_match(result)
         elif kind == "mismatch":
             audio.sfx.play("mismatch")
@@ -505,6 +520,20 @@ class GameScene(Scene):
             self.anim.to(c, "scale", 1.0, 0.2)
             self.anim.to(c, "glow", 0.0, 0.3)
 
+    def _show_sentence(self, word) -> None:
+        """Flash an example sentence for the just-matched word (context reps
+        for free; disappears on its own or when the next match replaces it)."""
+        try:
+            got = kanjidata.sentences_for(word.expression, word.reading, 1)
+        except Exception:
+            got = []
+        if not got:
+            return
+        ja, en = got[0]
+        self.sentence_ja.text = ja
+        self.sentence_en.text = en if len(en) <= 90 else en[:89] + "…"
+        self._sentence_timer = 5.0
+
     def _next_round(self) -> None:
         self.engine.advance()
         self._build_round()
@@ -538,6 +567,14 @@ class GameScene(Scene):
         self.popups = [p for p in self.popups if not p.update(dt)]
         for c in self.cards.values():
             c.apply()
+        if self._sentence_timer > 0.0:
+            self._sentence_timer -= dt
+            fade = max(0.0, min(1.0, self._sentence_timer / 0.8))
+            self.sentence_ja.color = theme.with_alpha(theme.TEXT, fade)
+            self.sentence_en.color = theme.with_alpha(theme.MUTED, fade)
+            if self._sentence_timer <= 0.0:
+                self.sentence_ja.text = ""
+                self.sentence_en.text = ""
         self._update_hud()
 
     def _update_hud(self) -> None:
@@ -632,6 +669,9 @@ class GameScene(Scene):
         self.status_label.x, self.status_label.y = width / 2, cy - 22 * s
         self.round_label.x, self.round_label.y = width - 28 * s, cy + 12 * s
         self.hint_label.x, self.hint_label.y = width - 28 * s, cy - 18 * s
+
+        self.sentence_ja.x, self.sentence_ja.y = width / 2, 38 * s
+        self.sentence_en.x, self.sentence_en.y = width / 2, 16 * s
 
         bar_w = 220 * s
         self.timer_bg.x = width / 2 - bar_w / 2

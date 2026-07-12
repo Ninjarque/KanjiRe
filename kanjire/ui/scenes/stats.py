@@ -16,7 +16,7 @@ from pyglet.text import Label
 from pyglet.window import key, mouse
 
 from kanjire.data import coverage as coverage_mod
-from kanjire.data import db
+from kanjire.data import db, kanjidata
 from kanjire.data.stats import classify, knowledge_score
 from kanjire.i18n import tr
 from kanjire.jputil import capitalize_first, kanji_chars
@@ -419,7 +419,7 @@ class StatsScene(Scene):
     def _open_detail(self, row: dict) -> None:
         self._close_detail()
         s = self._s
-        w, h = min(560 * s, self.width - 60 * s), 380 * s
+        w, h = min(600 * s, self.width - 60 * s), 480 * s
         px, py = (self.width - w) / 2, (self.height - h) / 2
         widgets = self._detail_widgets
 
@@ -447,9 +447,17 @@ class StatsScene(Scene):
             return out
 
         info = self._vocab_info(row["expression"], row["reading"])
+        expr, reading = row["expression"], row["reading"]
         top = py + h - 52 * s
-        lbl(row["expression"], 38, theme.TEXT, px + 28 * s, top, bold=True)
-        lbl(row["reading"], 17, theme.ACCENT, px + 28 * s, top - 44 * s)
+        lbl(expr, 38, theme.TEXT, px + 28 * s, top, bold=True)
+        # Pitch accent rides along with the reading (notation: downstep number)
+        accent = None
+        try:
+            accent = kanjidata.pitch_of(expr, reading)
+        except Exception:
+            pass
+        reading_text = reading + (f"  [{accent}]" if accent else "")
+        lbl(reading_text, 17, theme.ACCENT, px + 28 * s, top - 44 * s)
         meaning = capitalize_first(row.get("meaning")) or row.get("meaning") or ""
         lbl(meaning[:60], 13, theme.TEXT, px + 28 * s, top - 74 * s)
         if info and info.get("meaning_fr"):
@@ -462,8 +470,37 @@ class StatsScene(Scene):
                 origin += f" · {jlpt_label(info['jlpt'])}"
         lbl(origin, 11, theme.DIM, px + w - 28 * s, top, anchor_x="right")
 
+        # Kanji anatomy: components + phonetic family (first kanji that has
+        # each). This is where 晴 tells you it borrows 青's せい.
+        ky = top - 124 * s
+        chars = kanji_chars(expr)
+        comp_bits = []
+        for ch in chars[:2]:
+            try:
+                comps = kanjidata.components_of(ch)
+            except Exception:
+                comps = []
+            if comps:
+                comp_bits.append(f"{ch} = {' + '.join(comps[:6])}")
+        if comp_bits:
+            lbl("・".join(comp_bits)[:56], 12, theme.MUTED,
+                px + 28 * s, ky)
+            ky -= 24 * s
+        for ch in chars:
+            try:
+                ki = kanjidata.keisei_info(ch)
+            except Exception:
+                ki = None
+            if ki and ki.get("type") == "comp_phonetic" and ki.get("series"):
+                fam = " ".join(ki["series"][:8])
+                sound = "・".join(ki.get("series_readings", [])[:2])
+                lbl(tr("DETAIL_FAMILY", phon=ki["phonetic"], sound=sound)
+                    + f":  {fam}", 12, theme.GOLD, px + 28 * s, ky)
+                ky -= 24 * s
+                break
+
         # Numbers row
-        ny = py + h - 176 * s
+        ny = py + h - 246 * s
         stats_row = (
             (tr("COL_SEEN"), str(row.get("seen") or 0), theme.TEXT),
             (tr("COL_MATCH"), str(row.get("matches") or 0), theme.SUCCESS),
@@ -479,7 +516,7 @@ class StatsScene(Scene):
             lbl(name, 10, theme.MUTED, x, ny - 26 * s, anchor_x="center")
 
         # Per-face mistake bars
-        by = py + h - 252 * s
+        by = py + h - 322 * s
         maxm = max(row.get("mistakes_kanji") or 0, row.get("mistakes_reading") or 0,
                    row.get("mistakes_meaning") or 0, 1)
         for i, (face, name_key) in enumerate((("kanji", "WHERE_KANJI"),
@@ -498,6 +535,16 @@ class StatsScene(Scene):
             widgets.append(bar)
             lbl(str(n), 11, theme.FACE_COLORS[face], px + w - 28 * s, yy,
                 anchor_x="right", bold=True)
+
+        # One example sentence in context, when the corpus has one.
+        try:
+            sents = kanjidata.sentences_for(expr, reading, 1)
+        except Exception:
+            sents = []
+        if sents:
+            ja, en = sents[0]
+            lbl(ja[:44], 13, theme.TEXT, px + 28 * s, py + 76 * s)
+            lbl(en[:70], 10, theme.MUTED, px + 28 * s, py + 52 * s)
 
         lbl(tr("DETAIL_CLOSE_HINT"), 10, theme.DIM,
             px + w / 2, py + 22 * s, anchor_x="center")

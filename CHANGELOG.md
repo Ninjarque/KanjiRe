@@ -11,6 +11,21 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Kanji anatomy**: click a word in Stats and see what its kanji are built
+  from, its **pitch accent**, and its **sound family** — 晴 borrows 青's
+  せい, just like 清・精・請. Learn one component, unlock a whole family.
+- **Example sentences everywhere**: matching a word now flashes a real
+  sentence using it (with translation), and the word detail card shows one
+  too. 62,000 sentences ride along, fully offline.
+- **Coverage meter**: Stats now shows the honest number — how much everyday
+  vocabulary you can recognize, weighted by how often words actually occur,
+  with your next milestone ("34 words to 15%"). Imported texts get their
+  own exact meter.
+- **"I already know this"**: new N5-N1 buttons in Stats seed whole levels
+  as known, so experienced learners skip the beginner grind. Seeded words
+  drift back as occasional reviews instead of flooding your queue.
+- Boards now also pair kanji from the **same sound family**, so the pattern
+  jumps out at you while you play.
 
 ## 0.4.0 — 2026-07-12
 - **Type the reading!** Today's Training now ends with a short typed-recall
