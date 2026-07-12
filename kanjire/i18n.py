@@ -181,6 +181,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "READ_ALL_KNOWN":      "you know every word in this one",
         "READ_ONE_NEW":        "{n} new word — tap the gold chip",
         "READ_LEARN":          "+ learn this word",
+        "READ_SRC_GENERAL":    "General",
         "READ_EMPTY":          ("Match a few words first — sentences appear "
                                 "here as soon as you know enough to read them."),
 
@@ -421,6 +422,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "READ_ALL_KNOWN":      "vous connaissez tous les mots de celle-ci",
         "READ_ONE_NEW":        "{n} mot nouveau — touchez la puce dorée",
         "READ_LEARN":          "+ apprendre ce mot",
+        "READ_SRC_GENERAL":    "Général",
         "READ_EMPTY":          ("Associez d'abord quelques mots — les phrases "
                                 "apparaîtront dès que vous en saurez assez "
                                 "pour les lire."),

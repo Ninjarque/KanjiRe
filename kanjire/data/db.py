@@ -64,6 +64,25 @@ CREATE TABLE IF NOT EXISTS kanji (
 CREATE INDEX IF NOT EXISTS idx_kanji_deck ON kanji(deck);
 """
 
+#: Sentences captured from imported corpora so the Reading Room can serve
+#: the player's own material. Lives in the vocab DB beside the deck.
+CORPUS_SENTENCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS corpus_sentences (
+    id            INTEGER PRIMARY KEY,
+    deck          TEXT NOT NULL,
+    ja            TEXT NOT NULL,
+    n_kanji_words INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_csent_deck ON corpus_sentences(deck);
+CREATE TABLE IF NOT EXISTS corpus_sentence_words (
+    sentence_id INTEGER NOT NULL,
+    headword    TEXT NOT NULL,
+    reading     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_csw_sent ON corpus_sentence_words(sentence_id);
+CREATE INDEX IF NOT EXISTS idx_csw_head ON corpus_sentence_words(headword);
+"""
+
 #: Per-user knowledge tracking. Stored in its own SQLite file so updating the
 #: bundled vocab DB never wipes player progress.
 STATS_SCHEMA = """
@@ -112,13 +131,14 @@ CREATE TABLE IF NOT EXISTS read_log (
     ts          TEXT NOT NULL,
     day         TEXT NOT NULL,
     sentence_id INTEGER NOT NULL,
-    chars       INTEGER NOT NULL DEFAULT 0
+    chars       INTEGER NOT NULL DEFAULT 0,
+    source      TEXT                        -- 'tanaka' | corpus deck name
 );
 CREATE INDEX IF NOT EXISTS idx_read_day ON read_log(day);
 """
 
 #: Backward-compatible combined schema (older code, build scripts).
-SCHEMA = VOCAB_SCHEMA + STATS_SCHEMA
+SCHEMA = VOCAB_SCHEMA + CORPUS_SENTENCE_SCHEMA + STATS_SCHEMA
 
 
 # --------------------------------------------------------------------------- #

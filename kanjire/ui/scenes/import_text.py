@@ -235,9 +235,14 @@ class ImportTextScene(Scene):
                     jam.close()
                 except Exception:
                     pass
+            try:
+                sentences = ingest.index_sentences(text, words)
+            except Exception:
+                sentences = []
             result = ingest.CorpusResult(
                 words=words, kanji=kanji, total_tokens=total,
                 candidate_words=len(word_counts), resolved_words=len(words),
+                sentences=sentences,
             )
 
             if not words:

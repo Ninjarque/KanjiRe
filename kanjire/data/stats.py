@@ -116,6 +116,10 @@ class StatsRecorder:
                 con.execute(f"ALTER TABLE review_log ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
                 pass
+        try:   # additive migration: which corpus a read sentence came from
+            con.execute("ALTER TABLE read_log ADD COLUMN source TEXT")
+        except sqlite3.OperationalError:
+            pass
         con.commit()
         try:
             from kanjire.srs import SrsStore
@@ -333,17 +337,19 @@ class StatsRecorder:
         return n
 
     # ---- Reading Room ------------------------------------------------ #
-    def log_read(self, sentence_id: int, chars: int) -> None:
+    def log_read(self, sentence_id: int, chars: int,
+                 source: str = "tanaka") -> None:
         self.con.execute(
-            "INSERT INTO read_log (ts, day, sentence_id, chars) "
-            "VALUES (?, ?, ?, ?)",
-            (_now(), _today(), sentence_id, chars),
+            "INSERT INTO read_log (ts, day, sentence_id, chars, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (_now(), _today(), sentence_id, chars, source),
         )
         self.con.commit()
 
-    def read_sentence_ids(self) -> set[int]:
-        return {r["sentence_id"] for r in
-                self.con.execute("SELECT DISTINCT sentence_id FROM read_log")}
+    def read_sentence_ids(self, source: str = "tanaka") -> set[int]:
+        return {r["sentence_id"] for r in self.con.execute(
+            "SELECT DISTINCT sentence_id FROM read_log "
+            "WHERE COALESCE(source, 'tanaka') = ?", (source,))}
 
     def reading_totals(self) -> dict:
         row = self.con.execute(

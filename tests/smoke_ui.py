@@ -113,7 +113,12 @@ def run() -> int:
         new_decks = {n for n, _ in app.scene.deck_btns}
         assert any(d.startswith("corpus:smoke-tiny") for d in new_decks), \
             f"new deck missing; have {new_decks}"
-        print("PASS file import flow completes (deck added)")
+        # v0.7: imports also capture sentences for the Reading Room.
+        n_sent = app.con.execute(
+            "SELECT COUNT(*) FROM corpus_sentences WHERE deck LIKE "
+            "'corpus:smoke-tiny%'").fetchone()[0]
+        assert n_sent >= 1, "import captured no Reading Room sentences"
+        print("PASS file import flow completes (deck + sentences added)")
 
         # 8) Same thing but via the pasted-text code path
         app.go_import_pasted(
@@ -506,7 +511,17 @@ def run() -> int:
             frames2(4)
             rd.on_key_press(pkey.ESCAPE, 0)
             assert not rd._pop_open
-            print("PASS reading room (i+1 feed, translation, log, popup)")
+            # Corpus source: the smoke-tiny import (all-N5 words, known by
+            # the mark_known above) should serve its own sentences.
+            corpus_src = next((k for k, _n in rd.sources
+                               if k.startswith("corpus:smoke-tiny")), None)
+            assert corpus_src, f"import source missing: {rd.sources}"
+            rd._set_source(corpus_src)
+            frames2(4)
+            assert rd.current is not None, "no readable corpus sentence"
+            assert not rd.trans_btn.enabled, "own text has no translation"
+            rd._set_source("tanaka")
+            print("PASS reading room (i+1 feed, translation, log, popup, corpus)")
         else:
             print("SKIP reading room (sentences.db not built)")
 
@@ -572,6 +587,11 @@ def run() -> int:
                 con.execute(f"DELETE FROM words WHERE deck LIKE '{pat}'")
                 con.execute(f"DELETE FROM kanji WHERE deck LIKE '{pat}'")
                 con.execute(f"DELETE FROM decks WHERE name LIKE '{pat}'")
+                con.execute(
+                    "DELETE FROM corpus_sentence_words WHERE sentence_id IN "
+                    f"(SELECT id FROM corpus_sentences WHERE deck LIKE '{pat}')")
+                con.execute(
+                    f"DELETE FROM corpus_sentences WHERE deck LIKE '{pat}'")
             con.commit()
         finally:
             con.close()

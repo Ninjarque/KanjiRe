@@ -11,6 +11,11 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Read your own texts!** The Reading Room now has a source picker: pick
+  any text you've imported and read it sentence by sentence at your level,
+  with the same tap-for-reading chips. New imports capture their sentences
+  automatically, and the built-in Wikipedia deck comes pre-loaded with
+  2,000+ of them.
 
 ## 0.6.0 — 2026-07-12
 - **The Journey** — a new tab: the whole JLPT vocabulary becomes a road of

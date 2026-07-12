@@ -24,6 +24,12 @@ from datetime import date
 from kanjire.data import db, ingest
 from kanjire.paths import CORPORA_DIR, DB_PATH
 
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 API = "https://ja.wikipedia.org/w/api.php"
 DEFAULT_TITLES = ["日本", "東京", "寿司", "富士山", "漫画", "音楽", "鉄道", "祭り"]
 

@@ -56,7 +56,20 @@ class ReadingScene(Scene):
             expr for expr, _r in coverage_mod.known_keys(app.stats)
             if has_kanji(expr)
         }
-        self._read_ids = app.stats.read_sentence_ids()
+        # Sources: the built-in Tanaka corpus plus any imported deck that
+        # captured sentences (imports made before v0.7 have none).
+        self.sources: list[tuple[str, str]] = [("tanaka", tr("READ_SRC_GENERAL"))]
+        try:
+            for r in app.con.execute(
+                    "SELECT deck, COUNT(*) AS n FROM corpus_sentences "
+                    "GROUP BY deck HAVING n > 0"):
+                name = r["deck"][len("corpus:"):].replace("-", " ").title() \
+                    if r["deck"].startswith("corpus:") else r["deck"]
+                self.sources.append((r["deck"], name))
+        except Exception:
+            pass
+        self.source = "tanaka"
+        self._read_ids = app.stats.read_sentence_ids(self.source)
         self._queue: list[dict] = []
         self.current: dict | None = None
         self._translation_shown = False
@@ -89,6 +102,16 @@ class ReadingScene(Scene):
                                 self.batch, self.g_bg, self.g_text,
                                 accent=theme.ACCENT, font_size=12)
         self.buttons = [self.next_btn, self.trans_btn]
+        # Source selector (shown only when imported corpora exist).
+        self.source_btns: list[tuple[str, Button]] = []
+        if len(self.sources) > 1:
+            for key, name in self.sources:
+                b = Button(name, lambda k=key: self._set_source(k),
+                           self.batch, self.g_bg, self.g_text,
+                           accent=theme.GOLD, font_size=11)
+                b.set_selected(key == self.source)
+                self.buttons.append(b)
+                self.source_btns.append((key, b))
 
         # Word chips for the current sentence (rebuilt per sentence).
         self.chips: list[tuple[Button, dict]] = []
@@ -102,14 +125,61 @@ class ReadingScene(Scene):
     # ------------------------------------------------------------------ #
     # Queue / flow
     # ------------------------------------------------------------------ #
+    def _set_source(self, key: str) -> None:
+        if key == self.source:
+            return
+        self.source = key
+        for k, b in self.source_btns:
+            b.set_selected(k == key)
+        self._read_ids = self.app.stats.read_sentence_ids(key)
+        self._queue.clear()
+        self.current = None
+        self._advance(log=False)
+
+    def _corpus_sentences(self, max_unknown: int,
+                          exclude: set[int]) -> list[dict]:
+        """i+1 filter over an imported deck's captured sentences.
+
+        Corpus decks are small (hundreds of sentences), so the density check
+        just walks each sentence's word rows. No translation exists for the
+        player's own text — ``en`` stays empty and the button disables.
+        """
+        out: list[dict] = []
+        try:
+            rows = self.app.con.execute(
+                "SELECT id, ja FROM corpus_sentences "
+                "WHERE deck=? AND n_kanji_words > 0", (self.source,)
+            ).fetchall()
+            for r in rows:
+                if r["id"] in exclude:
+                    continue
+                words = self.app.con.execute(
+                    "SELECT headword FROM corpus_sentence_words "
+                    "WHERE sentence_id=?", (r["id"],)).fetchall()
+                kanji_words = [w["headword"] for w in words
+                               if has_kanji(w["headword"])]
+                if not kanji_words:
+                    continue
+                unknown = sum(1 for h in kanji_words if h not in self._known)
+                if unknown <= max_unknown:
+                    out.append({"id": r["id"], "ja": r["ja"], "en": "",
+                                "unknown": unknown})
+        except Exception:
+            return []
+        out.sort(key=lambda s: (s["unknown"], self.rng.random()))
+        return out[:40]
+
     def _refill(self) -> None:
         exclude = self._read_ids | {s["id"] for s in self._queue}
         if self.current:
             exclude.add(self.current["id"])
         for max_unknown in (1, 2):
-            got = kanjidata.readable_sentences(
-                self._known, max_unknown=max_unknown, limit=40,
-                exclude_ids=exclude, rng=self.rng)
+            if self.source == "tanaka":
+                got = kanjidata.readable_sentences(
+                    self._known, max_unknown=max_unknown, limit=40,
+                    exclude_ids=exclude, rng=self.rng)
+            else:
+                got = self._corpus_sentences(max_unknown, exclude)
             if got:
                 self._queue.extend(got)
                 return
@@ -118,7 +188,8 @@ class ReadingScene(Scene):
         if log and self.current is not None:
             try:
                 self.app.stats.log_read(self.current["id"],
-                                        len(self.current["ja"]))
+                                        len(self.current["ja"]),
+                                        source=self.source)
             except Exception:
                 pass
             self._read_ids.add(self.current["id"])
@@ -146,14 +217,15 @@ class ReadingScene(Scene):
             return
         self.empty_hint.text = ""
         self.next_btn.enabled = True
-        self.trans_btn.enabled = True
+        self.trans_btn.enabled = bool(self.current.get("en"))
+        self.trans_btn._refresh()
         self.sentence.text = self.current["ja"]
         self.translation.text = ""
         self.level_note.text = (
             tr("READ_ALL_KNOWN") if self.current["unknown"] == 0
             else tr("READ_ONE_NEW", n=self.current["unknown"]))
         # chips: kanji-bearing words only, known ones green, unknown gold
-        for head, reading, _good in kanjidata.words_of(self.current["id"]):
+        for head, reading, _good in self._current_words():
             if not has_kanji(head):
                 continue
             known = head in self._known
@@ -166,6 +238,21 @@ class ReadingScene(Scene):
             self.chips.append((b, {"head": head, "reading": reading,
                                    "known": known}))
         self.on_resize(self.width, self.height)
+
+    def _current_words(self) -> list[tuple[str, str | None, bool]]:
+        if self.current is None:
+            return []
+        if self.source == "tanaka":
+            return kanjidata.words_of(self.current["id"])
+        try:
+            return [
+                (r["headword"], r["reading"], False)
+                for r in self.app.con.execute(
+                    "SELECT headword, reading FROM corpus_sentence_words "
+                    "WHERE sentence_id=?", (self.current["id"],))
+            ]
+        except Exception:
+            return []
 
     def _toggle_translation(self) -> None:
         if self.current is None:
@@ -319,6 +406,12 @@ class ReadingScene(Scene):
         self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
         self.title.x, self.title.y = cx, height - 92 * s
         self.totals.x, self.totals.y = width - 40 * s, height - 92 * s
+        if self.source_btns:
+            n = len(self.source_btns)
+            bw, gap = 130 * s, 10 * s
+            x0 = cx - (n * bw + (n - 1) * gap) / 2
+            for i, (_k, b) in enumerate(self.source_btns):
+                b.set_rect(x0 + i * (bw + gap), height - 132 * s, bw, 26 * s)
         self.sentence.width = min(860 * s, width - 120 * s)
         self.sentence.x, self.sentence.y = cx, height - 190 * s
         self.level_note.x, self.level_note.y = cx, height - 250 * s

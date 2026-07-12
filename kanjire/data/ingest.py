@@ -58,6 +58,8 @@ class CorpusResult:
     total_tokens: int = 0
     candidate_words: int = 0       # unique kanji content words found
     resolved_words: int = 0        # of those, found in the dictionary
+    #: (sentence, [(headword, reading)]) pairs captured for the Reading Room.
+    sentences: list = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -269,6 +271,53 @@ def resolve_kanji(kanji_counts: Counter, jam=None) -> list[KanjiRecord]:
     return records
 
 
+_SENTENCE_ENDS = "。．！？!?\n"
+_SENT_MIN, _SENT_MAX = 8, 70
+
+
+def split_sentences(text: str) -> list[str]:
+    """Reading-Room-sized sentences from raw corpus text."""
+    out: list[str] = []
+    buf: list[str] = []
+    for ch in text:
+        if ch in _SENTENCE_ENDS:
+            if ch not in "\n":
+                buf.append(ch)
+            s = "".join(buf).strip()
+            if _SENT_MIN <= len(s) <= _SENT_MAX and has_kanji(s):
+                out.append(s)
+            buf = []
+        else:
+            buf.append(ch)
+    s = "".join(buf).strip()
+    if _SENT_MIN <= len(s) <= _SENT_MAX and has_kanji(s):
+        out.append(s)
+    # dedupe, keep order
+    seen: set[str] = set()
+    return [s for s in out if not (s in seen or seen.add(s))]
+
+
+def index_sentences(text: str, resolved: Sequence[WordRecord],
+                    tagger=None) -> list:
+    """(sentence, [(headword, reading)]) for every kept sentence, indexing
+    only words the corpus actually resolved into its deck."""
+    tagger = tagger or get_tagger()
+    by_head = {w.expression: w for w in resolved}
+    out = []
+    for sent in split_sentences(text):
+        found: list[tuple[str, str | None]] = []
+        seen: set[str] = set()
+        for token in tagger(sent):
+            base = _base_form(token)
+            if not base or base in seen or base not in by_head:
+                continue
+            seen.add(base)
+            found.append((base, by_head[base].reading))
+        if found:
+            out.append((sent, found))
+    return out
+
+
 def analyze(text: str, *, progress: ProgressCb | None = None) -> CorpusResult:
     """Full analysis of *text* into word and kanji records (no DB writes).
 
@@ -290,12 +339,17 @@ def analyze(text: str, *, progress: ProgressCb | None = None) -> CorpusResult:
             jam.close()
         except Exception:
             pass
+    try:
+        sentences = index_sentences(text, words)
+    except Exception:
+        sentences = []
     return CorpusResult(
         words=words,
         kanji=kanji,
         total_tokens=total,
         candidate_words=len(word_counts),
         resolved_words=len(words),
+        sentences=sentences,
     )
 
 
@@ -329,5 +383,23 @@ def write_deck(
             con, deck=deck_name, char=k.char, count=k.count, freq=k.freq,
             grade=k.grade, jlpt=k.jlpt, meanings=k.meanings,
         )
+    # Reading Room material: replace this deck's captured sentences.
+    old = [r[0] for r in con.execute(
+        "SELECT id FROM corpus_sentences WHERE deck=?", (deck_name,))]
+    if old:
+        marks = ",".join("?" * len(old))
+        con.execute(f"DELETE FROM corpus_sentence_words "
+                    f"WHERE sentence_id IN ({marks})", old)
+        con.execute("DELETE FROM corpus_sentences WHERE deck=?", (deck_name,))
+    for ja, found in result.sentences:
+        n_kanji = sum(1 for head, _r in found if has_kanji(head))
+        cur = con.execute(
+            "INSERT INTO corpus_sentences (deck, ja, n_kanji_words) "
+            "VALUES (?, ?, ?)", (deck_name, ja, n_kanji))
+        sid = cur.lastrowid
+        con.executemany(
+            "INSERT INTO corpus_sentence_words (sentence_id, headword, reading) "
+            "VALUES (?, ?, ?)",
+            ((sid, head, reading) for head, reading in found))
     db.refresh_deck_counts(con)
     con.commit()
