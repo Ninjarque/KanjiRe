@@ -7,6 +7,8 @@ schema for it.
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pyglet
 from pyglet import shapes
 from pyglet.graphics import OrderedGroup
@@ -16,6 +18,7 @@ from pyglet.window import key, mouse
 from kanjire.data.stats import classify, knowledge_score
 from kanjire.i18n import tr
 from kanjire.jputil import capitalize_first, kanji_chars
+from kanjire.model.vocab import jlpt_label
 from kanjire.ui import theme
 from kanjire.ui.fonts import JP_FONT
 from kanjire.ui.gfx import fill_quad
@@ -26,6 +29,8 @@ from kanjire.ui.widgets.tabs import TabBar
 from kanjire.ui.widgets.textinput import TextInput
 
 ROW_H = 28
+#: Activity heatmap: GitHub-style daily grid, this many trailing weeks.
+HEAT_WEEKS = 20
 
 # Column tuples: (data key, translation key for header label, alignment)
 WORD_COLUMNS = (
@@ -101,7 +106,11 @@ class StatsScene(Scene):
         self.g_bg = OrderedGroup(0)
         self.g_panel = OrderedGroup(1)
         self.g_text = OrderedGroup(2)
+        # Overlay strata: shapes within one group render in undefined order,
+        # so the dim veil, the panel+bars, and the text each get their own.
         self.g_overlay = OrderedGroup(3)
+        self.g_overlay_mid = OrderedGroup(4)
+        self.g_overlay_top = OrderedGroup(5)
 
         # Top + inner tabs
         self.nav = TabBar(
@@ -154,6 +163,10 @@ class StatsScene(Scene):
         # A framing card behind the tab content (purely decorative; sits in the
         # bg group so stripes/text/search render on top of it).
         self.content_panel = Panel(self.batch, self.g_bg, self.g_text)
+
+        # Word-detail overlay (click a Words row): rebuilt per open.
+        self._detail_widgets: list = []
+        self._detail_open = False
 
         # Resolution scale (refreshed in on_resize); drives fonts + row height.
         self._s = 1.0
@@ -239,6 +252,35 @@ class StatsScene(Scene):
             14, theme.DIM,
         )) if (ov.get("total_words") or 0) == 0 else None
 
+        # Activity heatmap: one cell per day over the trailing weeks, colored
+        # by that day's review-event count (review_log).
+        day_counts = self.app.stats.day_counts()
+        self._heat_title = reg(self._label(tr("SEC_ACTIVITY"), 16, theme.TEXT,
+                                            bold=True, anchor_x="left"))
+        self._heat_cells: list[tuple[shapes.Rectangle, int, int]] = []
+        today = date.today()
+        start = today - timedelta(days=(HEAT_WEEKS - 1) * 7 + today.weekday())
+        d = start
+        while d <= today:
+            n = day_counts.get(d.isoformat(), 0)
+            if n <= 0:
+                color = theme.lerp(theme.BG, theme.PANEL, 0.8)
+            elif n < 10:
+                color = theme.lerp(theme.PANEL, theme.SUCCESS, 0.35)
+            elif n < 30:
+                color = theme.lerp(theme.PANEL, theme.SUCCESS, 0.65)
+            else:
+                color = theme.SUCCESS
+            cell = shapes.Rectangle(0, 0, 1, 1, color=color,
+                                    batch=self.batch, group=self.g_panel)
+            self._ov_widgets.append(cell)
+            week = (d - start).days // 7
+            self._heat_cells.append((cell, week, d.weekday()))
+            d += timedelta(days=1)
+        self._heat_today = reg(self._label(
+            tr("ACTIVITY_TODAY", n=self.app.stats.reviews_today()),
+            12, theme.MUTED, anchor_x="left"))
+
     # ------------------------------------------------------------------ #
     # List tabs (Words, Kanji)
     # ------------------------------------------------------------------ #
@@ -319,11 +361,124 @@ class StatsScene(Scene):
                                                      anchor_x="left"))
 
     # ------------------------------------------------------------------ #
+    # Word-detail overlay
+    # ------------------------------------------------------------------ #
+    def _vocab_info(self, expression: str, reading: str) -> dict | None:
+        """Best vocab-DB row for a stats entry (prefers the JLPT deck)."""
+        try:
+            rows = self.app.con.execute(
+                "SELECT deck, jlpt, meaning, meaning_fr, freq FROM words "
+                "WHERE expression=? AND reading=? "
+                "ORDER BY CASE WHEN deck='jlpt' THEN 0 ELSE 1 END",
+                (expression, reading),
+            ).fetchall()
+        except Exception:
+            return None
+        return dict(rows[0]) if rows else None
+
+    def _open_detail(self, row: dict) -> None:
+        self._close_detail()
+        s = self._s
+        w, h = min(560 * s, self.width - 60 * s), 380 * s
+        px, py = (self.width - w) / 2, (self.height - h) / 2
+        widgets = self._detail_widgets
+
+        dim = shapes.Rectangle(0, 0, self.width, self.height,
+                               color=theme.BG, batch=self.batch,
+                               group=self.g_overlay)
+        dim.opacity = 215
+        widgets.append(dim)
+        panel = shapes.BorderedRectangle(
+            px, py, w, h, border=2,
+            color=theme.lerp(theme.BG, theme.PANEL, 0.85),
+            border_color=theme.ACCENT,
+            batch=self.batch, group=self.g_overlay_mid,
+        )
+        widgets.append(panel)
+
+        def lbl(text, size, color, x, y, *, bold=False, anchor_x="left"):
+            out = Label(
+                text, font_name=JP_FONT, font_size=max(8, round(size * s)),
+                bold=bold, color=theme.with_alpha(color, 255),
+                anchor_x=anchor_x, anchor_y="center", x=x, y=y,
+                batch=self.batch, group=self.g_overlay_top,
+            )
+            widgets.append(out)
+            return out
+
+        info = self._vocab_info(row["expression"], row["reading"])
+        top = py + h - 52 * s
+        lbl(row["expression"], 38, theme.TEXT, px + 28 * s, top, bold=True)
+        lbl(row["reading"], 17, theme.ACCENT, px + 28 * s, top - 44 * s)
+        meaning = capitalize_first(row.get("meaning")) or row.get("meaning") or ""
+        lbl(meaning[:60], 13, theme.TEXT, px + 28 * s, top - 74 * s)
+        if info and info.get("meaning_fr"):
+            lbl(f"FR · {info['meaning_fr'][:56]}", 12, theme.MUTED,
+                px + 28 * s, top - 98 * s)
+        origin = ""
+        if info:
+            origin = info["deck"]
+            if info.get("jlpt"):
+                origin += f" · {jlpt_label(info['jlpt'])}"
+        lbl(origin, 11, theme.DIM, px + w - 28 * s, top, anchor_x="right")
+
+        # Numbers row
+        ny = py + h - 176 * s
+        stats_row = (
+            (tr("COL_SEEN"), str(row.get("seen") or 0), theme.TEXT),
+            (tr("COL_MATCH"), str(row.get("matches") or 0), theme.SUCCESS),
+            (tr("COL_SCORE"), f"{(row.get('score') or 0) * 100:.0f}", theme.GOLD),
+            (tr("COL_BUCKET"),
+             tr(BUCKET_KEYS.get(row.get("bucket"), "BUCKET_UNKNOWN")),
+             theme.ACCENT),
+        )
+        col_w = (w - 56 * s) / len(stats_row)
+        for i, (name, value, color) in enumerate(stats_row):
+            x = px + 28 * s + i * col_w + col_w / 2
+            lbl(value, 22, color, x, ny, bold=True, anchor_x="center")
+            lbl(name, 10, theme.MUTED, x, ny - 26 * s, anchor_x="center")
+
+        # Per-face mistake bars
+        by = py + h - 252 * s
+        maxm = max(row.get("mistakes_kanji") or 0, row.get("mistakes_reading") or 0,
+                   row.get("mistakes_meaning") or 0, 1)
+        for i, (face, name_key) in enumerate((("kanji", "WHERE_KANJI"),
+                                              ("reading", "WHERE_READING"),
+                                              ("meaning", "WHERE_MEANING"))):
+            yy = by - i * 26 * s
+            n = row.get(f"mistakes_{face}") or 0
+            lbl(tr(name_key), 11, theme.TEXT, px + 28 * s, yy)
+            bar = shapes.Rectangle(
+                px + 160 * s, yy - 4 * s,
+                max(2, (w - 240 * s) * n / maxm) if n else 2,
+                max(4, round(7 * s)),
+                color=theme.FACE_COLORS[face],
+                batch=self.batch, group=self.g_overlay_top,
+            )
+            widgets.append(bar)
+            lbl(str(n), 11, theme.FACE_COLORS[face], px + w - 28 * s, yy,
+                anchor_x="right", bold=True)
+
+        lbl(tr("DETAIL_CLOSE_HINT"), 10, theme.DIM,
+            px + w / 2, py + 22 * s, anchor_x="center")
+        self._detail_open = True
+
+    def _close_detail(self) -> None:
+        for w in self._detail_widgets:
+            try:
+                w.delete()
+            except Exception:
+                pass
+        self._detail_widgets.clear()
+        self._detail_open = False
+
+    # ------------------------------------------------------------------ #
     # Tab visibility
     # ------------------------------------------------------------------ #
     def _set_tab(self, name: str) -> None:
         if name == self.active_tab:
             return
+        self._close_detail()
         # Unfocus old search box when leaving its tab.
         for s in self._search.values():
             s.unfocus()
@@ -369,6 +524,9 @@ class StatsScene(Scene):
     # Input
     # ------------------------------------------------------------------ #
     def on_mouse_press(self, x, y, button, modifiers) -> None:
+        if self._detail_open:
+            self._close_detail()
+            return
         if self.nav.on_mouse_press(x, y):
             return
         if self.inner.on_mouse_press(x, y):
@@ -393,12 +551,16 @@ class StatsScene(Scene):
                         ) else "desc"
                     self._apply_sort_and_filter(tab)
                     return
-            # Right-click row -> reset word (Words tab only)
-            if button == mouse.RIGHT and tab == "Words":
+            # Right-click row -> reset word; left-click -> detail overlay
+            # (Words tab only).
+            if tab == "Words":
                 row_idx = self._row_at_y(y)
                 if row_idx is not None:
                     row = self._filtered["Words"][row_idx]
-                    self._confirm_reset_word(row["expression"], row["reading"])
+                    if button == mouse.RIGHT:
+                        self._confirm_reset_word(row["expression"], row["reading"])
+                    else:
+                        self._open_detail(row)
                     return
 
     def _row_at_y(self, y: float) -> int | None:
@@ -478,6 +640,9 @@ class StatsScene(Scene):
 
     def on_key_press(self, symbol, modifiers) -> None:
         if symbol == key.ESCAPE:
+            if self._detail_open:
+                self._close_detail()
+                return
             tab = self.active_tab
             if tab in ("Words", "Kanji") and self._search[tab].focused:
                 self._search[tab].unfocus()
@@ -486,6 +651,7 @@ class StatsScene(Scene):
 
     # ------------------------------------------------------------------ #
     def on_resize(self, width, height) -> None:
+        self._close_detail()  # simplest: reopen after a resize if needed
         s = scale_for(width, height)
         self._s = s
         self._row_h = max(16, round(ROW_H * s))
@@ -549,6 +715,20 @@ class StatsScene(Scene):
         self._accuracy.x, self._accuracy.y = cx, y
         if self._empty_hint is not None:
             self._empty_hint.x, self._empty_hint.y = cx, y - 30 * s
+
+        # Heatmap block: title, then the week×weekday grid, newest at right.
+        y -= 44 * s
+        self._heat_title.x, self._heat_title.y = left, y
+        cell = max(6, min(round(15 * s),
+                          int((self.width - 2 * left) / HEAT_WEEKS) - 3))
+        gap = max(2, round(cell * 0.22))
+        grid_top = y - 24 * s
+        for rect, week, weekday in self._heat_cells:
+            rect.width = rect.height = cell
+            rect.x = left + week * (cell + gap)
+            rect.y = grid_top - weekday * (cell + gap) - cell
+        grid_bottom = grid_top - 7 * (cell + gap)
+        self._heat_today.x, self._heat_today.y = left, grid_bottom - 10 * s
 
     def _col_geometry(self, cols) -> list:
         """(x, width, align) per column, scaled — shared by layout + hit-test."""
@@ -624,6 +804,7 @@ class StatsScene(Scene):
         self.batch.draw()
 
     def on_exit(self) -> None:
+        self._close_detail()
         self.nav.delete()
         self.inner.delete()
         self.content_panel.delete()

@@ -156,7 +156,6 @@ def _hidden_imports() -> list[str]:
         return common + [
             "pyglet.media.codecs.wmf",
             "pyglet.media.drivers.directsound",
-            "pyttsx3.drivers.sapi5",
             "comtypes.gen",
         ]
     # Linux/macOS: pulse/openal audio drivers; no SAPI/comtypes/WMF (Windows).

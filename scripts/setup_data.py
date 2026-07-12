@@ -1,9 +1,11 @@
-"""One-shot data setup: dictionary + JLPT deck + sample corpus.
+"""One-shot data setup: dictionary, fonts, French glosses, JLPT deck, corpus.
 
-Runs the three preparation steps in order so a fresh checkout is ready to play::
+Runs the five preparation steps in order so a fresh checkout is ready to play::
 
     python scripts/setup_data.py
 
+Steps: jamdict dictionary DB -> bundled fonts -> French gloss sidecar ->
+JLPT deck (the only fatal step) -> Wikipedia sample corpus.
 Pass ``--no-corpus`` to skip the (slower) Wikipedia sample ingestion.
 """
 from __future__ import annotations

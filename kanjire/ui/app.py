@@ -145,15 +145,15 @@ class GameApp:
 
         self.set_scene(MenuScene(self))
 
-    def go_game(self, config) -> None:
+    def go_game(self, config, pool=None) -> None:
         from kanjire.ui.scenes.game import GameScene
 
-        self.set_scene(GameScene(self, config))
+        self.set_scene(GameScene(self, config, pool=pool))
 
-    def go_results(self, engine, config) -> None:
+    def go_results(self, engine, config, session=None) -> None:
         from kanjire.ui.scenes.results import ResultsScene
 
-        self.set_scene(ResultsScene(self, engine, config))
+        self.set_scene(ResultsScene(self, engine, config, session=session))
 
     def go_import(self, path, display_name: str) -> None:
         from kanjire.ui.scenes.import_text import ImportTextScene

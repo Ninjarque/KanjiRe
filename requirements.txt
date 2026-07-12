@@ -2,6 +2,7 @@
 # The game only needs pyglet + the Python standard library (sqlite3).
 pyglet>=1.5,<2.0
 pynacl>=1.5         # Ed25519 signature check for the self-updater
+comtypes>=1.2; sys_platform == "win32"   # direct SAPI text-to-speech
 
 # ---- Dataset build & corpus ingestion (offline tooling) ----
 # Needed only to (re)generate kanjire/data/kanjire.db or import your own text.

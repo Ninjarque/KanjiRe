@@ -11,6 +11,15 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- Boards are now **sneakier**: words that share a kanji (like 食べる and 食事)
+  are more likely to appear together, so matching actually tests you.
+- After a game, words that tripped you up are listed **in red** and a new
+  **"Practice tricky words"** button replays just those in a chill rematch.
+- Stats got an **activity heatmap** (your daily play, GitHub-style) and you
+  can now **click any word row** for a detailed card: meanings, level,
+  score, and exactly which face trips you.
+- Better sounds: a brighter chime on hot combos and a little arpeggio when
+  you clear the whole board.
 
 ## 0.2.0 — 2026-06-02
 - KanjiRe now runs on **Linux** too — same game, same one-click auto-updates as

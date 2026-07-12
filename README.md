@@ -10,8 +10,8 @@ lives.
 Inspired by the "Saeki's Kanji" matching mini-game in
 [Wagotabi](https://www.wagotabi.com/), pulled out into a standalone study tool.
 
-![menu](tests/_shots/menu.png)
-![gameplay](tests/_shots/game.png)
+![menu](docs/img/menu.png)
+![gameplay](docs/img/game.png)
 
 ## Features
 

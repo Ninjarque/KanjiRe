@@ -50,6 +50,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _today() -> str:
+    """Player-local calendar date — the heatmap/streak day key."""
+    return datetime.now().astimezone().date().isoformat()
+
+
+#: FSRS-style ratings recorded in ``review_log``.
+RATING_AGAIN = 1
+RATING_GOOD = 3
+
+
 # --------------------------------------------------------------------------- #
 # Bucket / score helpers (pure functions, no DB)
 # --------------------------------------------------------------------------- #
@@ -127,6 +137,7 @@ class StatsRecorder:
             """,
             (word.expression, word.reading, word.meaning, ts, ts),
         )
+        self._log_event(ts, word, "match", None, RATING_GOOD)
         self.con.commit()
 
     def confused(self, target: Word, offending: Word, face: str) -> None:
@@ -150,7 +161,18 @@ class StatsRecorder:
         # whole point of the "only the wrong" semantics.
         for w in (target, offending):
             self.con.execute(sql, (w.expression, w.reading, w.meaning, ts))
+            self._log_event(ts, w, "confuse", face, RATING_AGAIN)
         self.con.commit()
+
+    def _log_event(self, ts: str, word: Word, event: str, face: str | None,
+                   rating: int) -> None:
+        self.con.execute(
+            """
+            INSERT INTO review_log (ts, day, expression, reading, event, face, rating)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (ts, _today(), word.expression, word.reading, event, face, rating),
+        )
 
     # ---- queries used by the stats / learn scenes ------------------- #
     def get_for(self, expression: str, reading: str) -> dict | None:
@@ -204,15 +226,35 @@ class StatsRecorder:
             out[classify(row)].append(w)
         return out
 
+    def day_counts(self) -> dict[str, int]:
+        """Review events per player-local day (heatmap fuel): {YYYY-MM-DD: n}."""
+        return {
+            r["day"]: r["n"]
+            for r in self.con.execute(
+                "SELECT day, COUNT(*) AS n FROM review_log GROUP BY day"
+            )
+        }
+
+    def reviews_today(self) -> int:
+        row = self.con.execute(
+            "SELECT COUNT(*) AS n FROM review_log WHERE day=?", (_today(),)
+        ).fetchone()
+        return row["n"] if row else 0
+
     def reset_word(self, expression: str, reading: str) -> None:
         self.con.execute(
             "DELETE FROM word_stats WHERE expression=? AND reading=?",
+            (expression, reading),
+        )
+        self.con.execute(
+            "DELETE FROM review_log WHERE expression=? AND reading=?",
             (expression, reading),
         )
         self.con.commit()
 
     def reset_all(self) -> None:
         self.con.execute("DELETE FROM word_stats")
+        self.con.execute("DELETE FROM review_log")
         self.con.commit()
 
     def close(self) -> None:

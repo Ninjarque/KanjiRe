@@ -12,12 +12,19 @@ Two concerns are handled here:
    the player could not tell which reading/meaning belongs to which kanji. We
    therefore reject any candidate that collides with an already-chosen word on
    its expression, reading or meaning.
+
+3. **Confusability** - a board of mutually-unrelated words is a weak
+   recognition test (any half-remembered cue solves it). Once a word is
+   chosen, candidates that *share a kanji* with it (and, mildly, same-JLPT
+   words) are boosted, so boards trend toward genuinely confusable sets -
+   recognition hardened toward recall.
 """
 from __future__ import annotations
 
 import random
 from collections.abc import Sequence
 
+from kanjire.jputil import kanji_chars
 from kanjire.model.vocab import Word
 
 #: Buckets that are *review* (already-seen) rather than fresh learning. These
@@ -29,6 +36,12 @@ REVIEW_BUCKETS = ("known", "less_known")
 #: sits below any normal word (weight >= 1), so penalised words are only ever
 #: chosen when nothing else is left — graceful, never an empty board.
 _RECENT_PENALTY = 0.01
+#: Multiplier for candidates sharing a kanji character with an already-chosen
+#: word (the confusability axis: 食べる on the board pulls in 食事).
+_KANJI_SHARE_BOOST = 8.0
+#: Mild multiplier for candidates at the same JLPT level as a chosen word,
+#: keeping boards roughly level-coherent without forcing it.
+_LEVEL_MATCH_BOOST = 1.5
 
 
 def _weight(word: Word, bias: float) -> float:
@@ -139,49 +152,73 @@ def weighted_sample_words(
     bias: float = 0.4,
     rng: random.Random | None = None,
     penalize: frozenset[tuple[str, str]] | None = None,
+    confusable: bool = True,
 ) -> list[Word]:
     """Pick up to *n* distinct, mutually-unambiguous words from *pool*.
 
-    Uses the Efraimidis-Spirakis algorithm to produce a weighted random
-    permutation, then greedily accepts words whose faces do not collide.
+    Sequential weighted sampling without replacement: each pick draws from
+    the remaining candidates proportionally to their frequency weight, then
+    later picks are *boosted* toward words confusable with what's already on
+    the board (shared kanji, same JLPT level) — see module docstring.
 
     ``penalize`` is a set of ``(expression, reading)`` keys to strongly
     down-weight (recently-shown words), so they rarely reappear back-to-back
     but can still be chosen if the pool would otherwise run dry.
+    ``confusable=False`` disables the affinity boost (pure frequency draw).
     """
     rng = rng or random
     if n <= 0 or not pool:
         return []
     penalize = penalize or frozenset()
 
-    # Weighted random permutation: key = U ** (1/weight), take largest keys.
-    keyed = []
+    base: list[float] = []
+    norm_meanings: list[str] = []
     for w in pool:
         if (w.expression, w.reading) in penalize:
-            weight = _RECENT_PENALTY        # absolute floor — sink to the bottom
+            base.append(_RECENT_PENALTY)    # absolute floor — sink to the bottom
         else:
-            weight = _weight(w, bias)
-        keyed.append((rng.random() ** (1.0 / max(weight, 1e-9)), w))
-    keyed.sort(key=lambda kw: kw[0], reverse=True)
+            base.append(_weight(w, bias))
+        norm_meanings.append(w.meaning.strip().lower())
 
     chosen: list[Word] = []
     seen_expr: set[str] = set()
     seen_reading: set[str] = set()
     seen_meaning: set[str] = set()
+    picked_kanji: set[str] = set()
+    picked_levels: set[int] = set()
 
-    for _, w in keyed:
-        if len(chosen) >= n:
+    alive = list(range(len(pool)))
+    for _ in range(n):
+        weights: list[float] = []
+        total = 0.0
+        for i in alive:
+            w = pool[i]
+            if (
+                w.expression in seen_expr
+                or w.reading in seen_reading
+                or norm_meanings[i] in seen_meaning
+            ):
+                weights.append(0.0)
+                continue
+            wt = base[i]
+            if confusable and chosen:
+                if picked_kanji and any(ch in picked_kanji for ch in w.expression):
+                    wt *= _KANJI_SHARE_BOOST
+                if w.jlpt is not None and w.jlpt in picked_levels:
+                    wt *= _LEVEL_MATCH_BOOST
+            weights.append(wt)
+            total += wt
+        if total <= 0.0:
             break
-        norm_meaning = w.meaning.strip().lower()
-        if (
-            w.expression in seen_expr
-            or w.reading in seen_reading
-            or norm_meaning in seen_meaning
-        ):
-            continue
+        pick = rng.choices(range(len(alive)), weights=weights)[0]
+        idx = alive.pop(pick)
+        w = pool[idx]
         chosen.append(w)
         seen_expr.add(w.expression)
         seen_reading.add(w.reading)
-        seen_meaning.add(norm_meaning)
+        seen_meaning.add(w.meaning.strip().lower())
+        picked_kanji.update(kanji_chars(w.expression))
+        if w.jlpt is not None:
+            picked_levels.add(w.jlpt)
 
     return chosen

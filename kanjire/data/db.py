@@ -86,6 +86,22 @@ CREATE TABLE IF NOT EXISTS word_stats (
 );
 CREATE INDEX IF NOT EXISTS idx_stats_seen    ON word_stats(seen);
 CREATE INDEX IF NOT EXISTS idx_stats_matches ON word_stats(matches);
+
+-- Append-only log of graded recall events, one row per match/confusion.
+-- This is the raw history behind the activity heatmap and (later) the
+-- FSRS scheduler: never mutated, only inserted and (on word reset) deleted.
+CREATE TABLE IF NOT EXISTS review_log (
+    id         INTEGER PRIMARY KEY,
+    ts         TEXT NOT NULL,           -- UTC ISO-8601
+    day        TEXT NOT NULL,           -- player-local YYYY-MM-DD (heatmap key)
+    expression TEXT NOT NULL,
+    reading    TEXT NOT NULL,
+    event      TEXT NOT NULL,           -- 'match' | 'confuse'
+    face       TEXT,                    -- mistake face for 'confuse' events
+    rating     INTEGER NOT NULL         -- FSRS-style: 1=again .. 4=easy
+);
+CREATE INDEX IF NOT EXISTS idx_review_day  ON review_log(day);
+CREATE INDEX IF NOT EXISTS idx_review_word ON review_log(expression, reading);
 """
 
 #: Backward-compatible combined schema (older code, build scripts).

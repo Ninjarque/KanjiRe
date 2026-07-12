@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def run() -> int:
     import random
     import pyglet
-    from pyglet.window import mouse
+    from pyglet.window import key as pkey, mouse
 
     from kanjire.game.config import PRESETS
     from kanjire.game.engine import Phase
@@ -277,6 +277,22 @@ def run() -> int:
         frames2(4)
         print("PASS stats scene Overview + Words render")
 
+        # 13b) Activity heatmap has cells and today registers step 12's events
+        # (1 match + 2 confuse rows); the word-detail overlay opens and closes.
+        sc = app2.scene
+        assert len(sc._heat_cells) >= 7, "heatmap cells missing"
+        assert app2.stats.reviews_today() >= 3, \
+            f"review_log did not record gameplay: {app2.stats.reviews_today()}"
+        sc._set_tab("Words")
+        frames2(4)
+        sc._open_detail(sc._filtered["Words"][0])
+        assert sc._detail_open and len(sc._detail_widgets) > 5
+        frames2(6)
+        sc.on_key_press(pkey.ESCAPE, 0)
+        assert not sc._detail_open, "ESC did not close detail overlay"
+        frames2(2)
+        print("PASS heatmap + word detail overlay")
+
         # 14) Learn mode picks from the right buckets when we have stats data.
         # Seed: 6 different words seen + matched but also flubbed (=> genuinely
         # "less_known": a clean single match now classifies as "known", so we
@@ -351,6 +367,42 @@ def run() -> int:
             gs2.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
         assert gs2.engine.matches >= 1
         print("PASS kana mode sampling + matching")
+
+        # 16) Results "practice tricky words": mismatches during a game surface
+        # as struggled words, and the practice button replays exactly them.
+        app2.stats.reset_all()
+        cfg3 = PRESETS["Time Attack"]().with_(decks=("jlpt",), levels=(5,),
+                                              words_per_round=4)
+        app2.go_game(cfg3)
+        gp = app2.scene
+        assert isinstance(gp, GameScene)
+
+        def _mismatch(ga: int, gb: int) -> None:
+            ca = next(c for c in gp.cards.values()
+                      if not c.model.matched and c.model.group == ga)
+            cb = next(c for c in gp.cards.values()
+                      if not c.model.matched and c.model.group == gb)
+            gp.on_mouse_press(ca.cx, ca.cy, mouse.LEFT, 0)
+            gp.on_mouse_press(cb.cx, cb.cy, mouse.LEFT, 0)
+
+        _mismatch(0, 1)
+        _mismatch(2, 3)
+        assert len(gp.tally.struggled()) >= 4, gp.tally.struggled()
+        gp.engine.time_left = 0.01
+        frames2(90)
+        rs = app2.scene
+        assert isinstance(rs, ResultsScene), f"no results: {type(rs).__name__}"
+        assert rs.practice_btn is not None, "practice button missing"
+        struggled_keys = {(w.expression, w.reading) for w in rs.struggled}
+        rs._practice()
+        gpr = app2.scene
+        assert isinstance(gpr, GameScene), "practice did not start a game"
+        assert gpr.engine.round_words, "practice round empty"
+        assert all((w.expression, w.reading) in struggled_keys
+                   for w in gpr.engine.round_words), \
+            "practice round contains non-struggled words"
+        frames2(10)
+        print("PASS practice-tricky-words rematch")
 
         # Don't leave the test's stats behind in the shipped DB.
         app2.stats.reset_all()

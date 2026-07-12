@@ -60,8 +60,42 @@ class _Popup:
         return False
 
 
+class _SessionTally:
+    """Session-local record of what the player struggled with this game,
+    forwarding every event to the app-wide recorder unchanged."""
+
+    def __init__(self, recorder) -> None:
+        self._rec = recorder
+        self._confused: dict[tuple[str, str], int] = {}
+        self._words: dict[tuple[str, str], object] = {}
+
+    def saw(self, word) -> None:
+        if self._rec is not None:
+            self._rec.saw(word)
+
+    def matched(self, word) -> None:
+        if self._rec is not None:
+            self._rec.matched(word)
+
+    def confused(self, target, offending, face) -> None:
+        for w in (target, offending):
+            key = (w.expression, w.reading)
+            self._confused[key] = self._confused.get(key, 0) + 1
+            self._words[key] = w
+        if self._rec is not None:
+            self._rec.confused(target, offending, face)
+
+    def struggled(self, limit: int = 12) -> list:
+        """Words involved in confusions this session, most-confused first."""
+        keys = sorted(self._confused, key=lambda k: -self._confused[k])
+        return [self._words[k] for k in keys[:limit]]
+
+    def struggled_keys(self) -> set[tuple[str, str]]:
+        return set(self._confused)
+
+
 class GameScene(Scene):
-    def __init__(self, app, config: GameConfig) -> None:
+    def __init__(self, app, config: GameConfig, pool=None) -> None:
         super().__init__(app)
         self.config = config
 
@@ -69,7 +103,11 @@ class GameScene(Scene):
         # we don't touch the SQLite vocab DB at all and the pool is irrelevant
         # (the sampler ignores it).
         self.is_kana = kana.KANA_DECK in config.decks
-        if self.is_kana:
+        if pool is not None:
+            # Explicit word list (e.g. a "practice the tricky ones" rematch).
+            self.pool = list(pool)
+            self.error = None if self.pool else tr("NO_WORDS")
+        elif self.is_kana:
             self.pool = []
             self.error = None
         else:
@@ -129,7 +167,10 @@ class GameScene(Scene):
 
         # Every gameplay event flows through the app-wide recorder, including
         # rounds the player abandons; see kanjire.data.stats.StatsRecorder.
-        self.engine = GameEngine(config, self.pool, rng=rng, recorder=app.stats,
+        # The tally keeps a session-local copy of confusions for the results
+        # screen's "practice the tricky ones" rematch.
+        self.tally = _SessionTally(app.stats)
+        self.engine = GameEngine(config, self.pool, rng=rng, recorder=self.tally,
                                  sampler=sampler, meta_provider=meta_provider)
         if not self.error:
             self.engine.start()
@@ -329,7 +370,14 @@ class GameScene(Scene):
                 self.anim.to(c, "scale", 1.0, 0.18)
                 self.anim.to(c, "glow", 0.0, 0.18)
         elif kind == "group_complete":
-            audio.sfx.play("match")
+            # Escalating feedback: clearing the whole board gets a two-note
+            # arpeggio, a hot combo gets the brighter chime.
+            if result.round_complete:
+                audio.sfx.chord(["match", "round_clear"], spread=0.10)
+            elif result.combo >= 4:
+                audio.sfx.play("match_hi")
+            else:
+                audio.sfx.play("match")
             if state.tts_on_match and result.word is not None:
                 audio.speech.say_jp(result.word.reading)
             self._animate_match(result)
@@ -449,7 +497,8 @@ class GameScene(Scene):
         if self._ending:
             return
         self._ending = True
-        self.anim.after(0.6, lambda: self.app.go_results(self.engine, self.config))
+        self.anim.after(0.6, lambda: self.app.go_results(
+            self.engine, self.config, session=self.tally))
 
     # ------------------------------------------------------------------ #
     # Per-frame

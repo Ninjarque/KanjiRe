@@ -16,10 +16,11 @@ MAX_REVIEW = 18
 
 
 class ResultsScene(Scene):
-    def __init__(self, app, engine, config) -> None:
+    def __init__(self, app, engine, config, session=None) -> None:
         super().__init__(app)
         self.engine = engine
         self.config = config
+        self.session = session
         self.is_record = app.state.record_score(config.name, engine.score)
 
         self.batch = pyglet.graphics.Batch()
@@ -67,12 +68,24 @@ class ResultsScene(Scene):
             for k, v in self.stats
         ]
 
+        # Review list: struggled words lead (in red) so the player sees at a
+        # glance what tripped them up, then the rest of what they matched.
+        self.struggled = list(self.session.struggled()) if self.session else []
+        struggled_keys = {(w.expression, w.reading) for w in self.struggled}
+        review = list(self.struggled)
+        for w in e.seen_words:
+            if (w.expression, w.reading) not in struggled_keys:
+                review.append(w)
+        review = review[:MAX_REVIEW]
+
         self.review_title = self._lbl(tr("RESULTS_REVIEW"), 13, theme.MUTED, bold=True)
         self.review_labels = []
-        for w in e.seen_words[:MAX_REVIEW]:
+        for w in review:
+            tricky = (w.expression, w.reading) in struggled_keys
             meaning = w.meaning if len(w.meaning) <= 26 else w.meaning[:25] + "…"
             self.review_labels.append(
-                self._lbl(f"{w.expression}  ·  {w.reading}", 15, theme.ACCENT,
+                self._lbl(f"{w.expression}  ·  {w.reading}", 15,
+                          theme.DANGER if tricky else theme.ACCENT,
                           anchor_x="left")
             )
             self.review_labels.append(
@@ -91,8 +104,29 @@ class ResultsScene(Scene):
                                self.g_bg, self.g_text, accent=theme.ACCENT, font_size=17)
         self.buttons += [self.again_btn, self.menu_btn]
 
+        # A focused rematch on just the words that caused confusions. Not
+        # offered for kana rounds (those words are synthetic throwaways).
+        self.practice_btn = None
+        if len(self.struggled) >= 2 and "kana" not in self.config.decks:
+            self.practice_btn = Button(tr("BTN_PRACTICE"), self._practice,
+                                       self.batch, self.g_bg, self.g_text,
+                                       accent=theme.GOLD, font_size=17)
+            self.buttons.append(self.practice_btn)
+
     def _again(self) -> None:
         self.app.go_game(self.config)
+
+    def _practice(self) -> None:
+        """Zen-style rematch restricted to this session's tricky words."""
+        cfg = self.config.with_(
+            name="Practice",
+            duration=None, max_mistakes=None, lives_mode=False,
+            mismatch_penalty=0, repetitions=1,
+            learn_known=0, learn_less_known=0, learn_unknown=0,
+            words_per_round=max(2, min(len(self.struggled),
+                                       self.config.words_per_round)),
+        )
+        self.app.go_game(cfg, pool=self.struggled)
 
     # ------------------------------------------------------------------ #
     def on_mouse_press(self, x, y, button, modifiers) -> None:
@@ -161,8 +195,13 @@ class ResultsScene(Scene):
 
         # buttons
         by = 56 * s
-        self.again_btn.set_rect(cx - 230 * s, by, 220 * s, 50 * s)
-        self.menu_btn.set_rect(cx + 20 * s, by, 150 * s, 50 * s)
+        if self.practice_btn is not None:
+            self.practice_btn.set_rect(cx - 380 * s, by, 260 * s, 50 * s)
+            self.again_btn.set_rect(cx - 100 * s, by, 200 * s, 50 * s)
+            self.menu_btn.set_rect(cx + 120 * s, by, 150 * s, 50 * s)
+        else:
+            self.again_btn.set_rect(cx - 230 * s, by, 220 * s, 50 * s)
+            self.menu_btn.set_rect(cx + 20 * s, by, 150 * s, 50 * s)
 
     # ------------------------------------------------------------------ #
     def draw(self) -> None:

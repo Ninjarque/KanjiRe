@@ -143,6 +143,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "RESULTS_REVIEW":      "WORDS YOU MATCHED",
         "RESULTS_MORE":        "+ {n} more",
         "BTN_AGAIN":           "↻  Play again",
+        "BTN_PRACTICE":        "Practice tricky words",
         "BTN_MENU":            "Menu",
 
         # --- stats scene ---------------------------------------- #
@@ -158,6 +159,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "WHERE_MEANING":       "Meaning",
         "ACCURACY_LINE":       "Accuracy {acc}%   ·   {match} matches   ·   {miss} mistakes   ·   {seen} cards seen",
         "STATS_EMPTY":         "Play a round - your stats will fill in here automatically.",
+        "SEC_ACTIVITY":        "ACTIVITY",
+        "ACTIVITY_TODAY":      "{n} reviews today",
+        "DETAIL_CLOSE_HINT":   "Click anywhere or press Esc to close",
         "INNER_OVERVIEW":      "Overview",
         "INNER_WORDS":         "Words",
         "INNER_KANJI":         "Kanji",
@@ -330,6 +334,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "RESULTS_REVIEW":      "MOTS ASSOCIÉS",
         "RESULTS_MORE":        "+ {n} de plus",
         "BTN_AGAIN":           "↻  Rejouer",
+        "BTN_PRACTICE":        "Revoir les mots difficiles",
         "BTN_MENU":            "Menu",
 
         # --- stats --------------------------------------------- #
@@ -345,6 +350,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "WHERE_MEANING":       "Sens",
         "ACCURACY_LINE":       "Précision {acc}%   ·   {match} associations   ·   {miss} erreurs   ·   {seen} cartes vues",
         "STATS_EMPTY":         "Jouez une manche - vos statistiques apparaîtront ici automatiquement.",
+        "SEC_ACTIVITY":        "ACTIVITÉ",
+        "ACTIVITY_TODAY":      "{n} révisions aujourd'hui",
+        "DETAIL_CLOSE_HINT":   "Cliquez n'importe où ou Échap pour fermer",
         "INNER_OVERVIEW":      "Vue d'ensemble",
         "INNER_WORDS":         "Mots",
         "INNER_KANJI":         "Kanji",
