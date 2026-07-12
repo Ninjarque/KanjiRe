@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.11.1 — 2026-07-12
 - **Fixed: the Linux build crashed on startup** on many distros with
   `undefined symbol: g_sort_array` / a GStreamer error. The bundle was
   accidentally shipping the build machine's GLib, which clashed with the
