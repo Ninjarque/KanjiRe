@@ -28,6 +28,21 @@ class ResultsScene(Scene):
         self.streak = None
         if self.session_won and config.name == "Today":
             self.streak = app.state.stamp_streak()
+        # Record the game in the history (Stats -> History) so it can be
+        # reviewed and replayed later. Kana games are synthetic throwaways.
+        if (engine.matches or engine.mistakes) and "kana" not in config.decks:
+            keys, seen = [], set()
+            for w in list(engine.seen_words) + (
+                    session.struggled() if session else []):
+                k = (w.expression, w.reading)
+                if k not in seen:
+                    seen.add(k)
+                    keys.append(k)
+            try:
+                app.stats.log_game(config.name, engine.score, engine.matches,
+                                   engine.mistakes, keys[:80])
+            except Exception:
+                pass
 
         self.batch = pyglet.graphics.Batch()
         self.g_bg = OrderedGroup(0)

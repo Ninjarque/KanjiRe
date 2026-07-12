@@ -10,14 +10,18 @@ exactly ``1.0`` there and the look at the default window is unchanged.
 """
 from __future__ import annotations
 
-#: The size the UI was originally laid out at; scale is 1.0 here.
-REF_W, REF_H = 1180, 1020
+#: The reference layout size. Height is deliberately *below* the historical
+#: design height (1020): dividing by 880 makes a 1080p window scale to ~1.23
+#: instead of ~1.06, so the UI reads comfortably large on common screens
+#: (it used to feel small at 1080p+). Layouts must therefore tolerate ~1.25x
+#: their design height at 1080 - verified by the multi-size capture sweep.
+REF_W, REF_H = 1180, 880
 #: Clamp so text never collapses to unreadable nor balloons absurdly.
 #: The floor tracks the minimum window (760x600 -> ~0.59): flooring higher
 #: (it used to be 0.80) made tall layouts like the Learn Advanced tab stop
 #: shrinking and overlap the footer on short windows. Font sizes have their
 #: own per-label minimums, so small scales stay legible.
-MIN_SCALE, MAX_SCALE = 0.58, 1.50
+MIN_SCALE, MAX_SCALE = 0.58, 1.70
 
 
 def scale_for(width: float, height: float) -> float:

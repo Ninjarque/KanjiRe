@@ -360,27 +360,39 @@ def run() -> int:
         cfg = PRESETS["Zen"]().with_(
             decks=("kana",), levels=(), faces=("kanji", "reading", "meaning"),
             words_per_round=6, kana_length=2, kana_script="both",
-            show_romaji=True,
         )
         app2.go_game(cfg)
         gs2 = app2.scene
         assert isinstance(gs2, GameScene)
         assert len(gs2.engine.round_words) == 6
         assert all(w.deck == kana.KANA_DECK for w in gs2.engine.round_words)
-        # ROMAJI toggle: kana cards carry a pronunciation hint that matches
-        # the converter; meaning (romaji) cards don't get a redundant one.
-        kana_cards = [c for c in gs2.cards.values() if c.face != "meaning"]
-        assert kana_cards and all(c._romaji is not None for c in kana_cards)
-        sample = kana_cards[0]
-        assert sample._romaji.text == kana.hira_to_romaji(sample.model.text)
-        assert all(c._romaji is None for c in gs2.cards.values()
-                   if c.face == "meaning")
         # Solve the first group to confirm engine + matching work on synthetic words.
         for cid in list(gs2.engine.group_cards[0]):
             cv = gs2.cards[cid]
             gs2.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
         assert gs2.engine.matches >= 1
         print("PASS kana mode sampling + matching")
+
+        # 15b) Four-face boards: the yellow romaji card joins each group and
+        # carries the converter's output; a 4-card group still matches.
+        cfg4 = PRESETS["Zen"]().with_(
+            decks=("jlpt",), levels=(5,),
+            faces=("kanji", "reading", "romaji", "meaning"),
+            words_per_round=4,
+        )
+        app2.go_game(cfg4)
+        g4 = app2.scene
+        assert isinstance(g4, GameScene)
+        assert len(g4.engine.board_cards) == 16, len(g4.engine.board_cards)
+        rc4 = [c for c in g4.engine.board_cards if c.face == "romaji"]
+        assert len(rc4) == 4
+        w0 = g4.engine.round_words[rc4[0].group]
+        assert rc4[0].text == kana.hira_to_romaji(w0.reading), rc4[0].text
+        for cid in list(g4.engine.group_cards[0]):
+            cv = g4.cards[cid]
+            g4.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+        assert g4.engine.matches >= 1, "4-card group did not match"
+        print("PASS four-face romaji board")
 
         # 16) Results "practice tricky words": mismatches during a game surface
         # as struggled words, and the practice button replays exactly them.
@@ -417,6 +429,27 @@ def run() -> int:
             "practice round contains non-struggled words"
         frames2(10)
         print("PASS practice-tricky-words rematch")
+
+        # 16b) Game history: the finished game above was logged; the History
+        # tab lists it and clicking a row replays exactly its words.
+        hist = app2.stats.game_history()
+        assert hist and hist[0]["mode"] == "Time Attack", hist[:1]
+        assert hist[0]["n_words"] >= 2
+        app2.go_stats()
+        sh = app2.scene
+        sh._set_tab("History")
+        frames2(6)
+        assert sh._filtered["History"], "history tab empty"
+        row0 = sh._filtered["History"][0]
+        sh._replay_game(row0)
+        gr = app2.scene
+        assert isinstance(gr, GameScene) and gr.config.session_mode
+        replay_keys = {(w.expression, w.reading) for w in gr.engine.pool}
+        assert replay_keys == set(row0["word_keys"]) & replay_keys
+        assert all((w.expression, w.reading) in set(row0["word_keys"])
+                   for w in gr.engine.round_words)
+        frames2(6)
+        print("PASS game history + replay")
 
         # 17) Today's Training end-to-end: seeded due reviews + new words form
         # the plan, the session completes and stamps the streak.

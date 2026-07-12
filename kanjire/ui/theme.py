@@ -1,4 +1,4 @@
-"""Theme palettes + the live colour constants every other module reads.
+﻿"""Theme palettes + the live colour constants every other module reads.
 
 The rest of the UI imports this module with ``from kanjire.ui import theme``
 and reads ``theme.BG``, ``theme.TEXT`` etc. as normal attributes, so calling
@@ -30,6 +30,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(225, 100, 115),
         FACE_KANJI=(85, 185, 230),
         FACE_READING=(125, 215, 150),
+        FACE_ROMAJI=(235, 200, 95),
         FACE_MEANING=(215, 125, 185),
     ),
     # --- Midnight: very dark blue, cooler tones, slightly more contrast --
@@ -46,6 +47,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(235, 100, 130),
         FACE_KANJI=(115, 195, 255),
         FACE_READING=(135, 230, 160),
+        FACE_ROMAJI=(245, 205, 90),
         FACE_MEANING=(225, 135, 200),
     ),
     # --- Sumi: nearly-black, ink-on-paper feel, restrained accents ----- #
@@ -62,6 +64,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(215, 130, 135),
         FACE_KANJI=(160, 200, 235),
         FACE_READING=(160, 215, 170),
+        FACE_ROMAJI=(230, 205, 130),
         FACE_MEANING=(220, 160, 195),
     ),
     # --- Graphite: medium grey for more contrast / accessibility ------- #
@@ -78,6 +81,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(235, 110, 120),
         FACE_KANJI=(105, 195, 245),
         FACE_READING=(140, 225, 160),
+        FACE_ROMAJI=(245, 205, 100),
         FACE_MEANING=(225, 135, 195),
     ),
     # --- Paper: light "ink on paper". The only light palette - widgets
@@ -95,6 +99,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(185, 50, 55),
         FACE_KANJI=(40, 100, 165),
         FACE_READING=(35, 120, 70),
+        FACE_ROMAJI=(160, 115, 15),
         FACE_MEANING=(150, 55, 120),
     ),
     # --- High Contrast: pure black, white text, vivid accents ---------- #
@@ -111,6 +116,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(255, 80, 90),
         FACE_KANJI=(90, 200, 255),
         FACE_READING=(90, 240, 140),
+        FACE_ROMAJI=(255, 220, 80),
         FACE_MEANING=(255, 120, 210),
     ),
     # --- Vivid: saturated, energetic accents on a deep indigo base ----- #
@@ -127,6 +133,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(255, 70, 120),
         FACE_KANJI=(70, 200, 255),
         FACE_READING=(120, 255, 110),
+        FACE_ROMAJI=(255, 210, 70),
         FACE_MEANING=(255, 95, 200),
     ),
     # --- Monochrome: greyscale. FACE_* differ by LIGHTNESS, not hue, and
@@ -145,6 +152,7 @@ PALETTES: dict[str, dict[str, object]] = {
         DANGER=(90, 90, 90),
         FACE_KANJI=(235, 235, 235),
         FACE_READING=(175, 175, 175),
+        FACE_ROMAJI=(205, 205, 205),
         FACE_MEANING=(115, 115, 115),
     ),
 }
@@ -167,7 +175,8 @@ GOLD: Color = (0, 0, 0)
 SUCCESS: Color = (0, 0, 0)
 DANGER: Color = (0, 0, 0)
 FACE_COLORS: dict[str, Color] = {}
-FACE_LABELS = {"kanji": "漢字", "reading": "かな", "meaning": "EN"}
+FACE_LABELS = {"kanji": "漢字", "reading": "かな", "romaji": "abc",
+               "meaning": "EN"}
 
 
 def apply_palette(name: str) -> None:
@@ -192,6 +201,7 @@ def apply_palette(name: str) -> None:
     FACE_COLORS = {
         "kanji":   p["FACE_KANJI"],
         "reading": p["FACE_READING"],
+        "romaji":  p["FACE_ROMAJI"],
         "meaning": p["FACE_MEANING"],
     }
 

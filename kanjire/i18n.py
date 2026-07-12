@@ -104,6 +104,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "WRITE_VERT":          "Vert.",
         "FACES_THREE":         "Kanji · Reading · Meaning",
         "FACES_TWO":           "Kanji · Meaning",
+        "FACES_FOUR":          "+ Romaji (4 cards)",
         "TOGGLE_OFF":          "Off",
         "TOGGLE_ON":           "On",
         "LEARN_NONE":          "None",
@@ -149,7 +150,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "STREAK_LINE":         "Day {n} streak",
 
         # --- today's training / streak -------------------------- #
-        "SEC_ROMAJI":          "ROMAJI ON KANA CARDS",
         "BTN_TODAY":           "Today  ·  {rev} reviews + {new} new",
         "TODAY_COMEBACK":      "Welcome back!  ·  {n} words picked to refresh",
         "TODAY_DONE":          "✓ Training done for today",
@@ -213,6 +213,12 @@ STRINGS: dict[str, dict[str, str]] = {
                                 "They'll show up as occasional reviews instead "
                                 "of new words. Words you've already played keep "
                                 "their history."),
+        "INNER_HISTORY":       "History",
+        "SEARCH_HISTORY":      "Search…  ·  click a row to replay",
+        "COL_DATE":            "Date",
+        "COL_MODE":            "Mode",
+        "COL_PTS":             "Points",
+        "COL_MISS":            "Misses",
         "INNER_OVERVIEW":      "Overview",
         "INNER_WORDS":         "Words",
         "INNER_KANJI":         "Kanji",
@@ -347,6 +353,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "WRITE_VERT":          "Vert.",
         "FACES_THREE":         "Kanji · Lecture · Sens",
         "FACES_TWO":           "Kanji · Sens",
+        "FACES_FOUR":          "+ Rōmaji (4 cartes)",
         "TOGGLE_OFF":          "Désact.",
         "TOGGLE_ON":           "Activé",
         "LEARN_NONE":          "Aucun",
@@ -391,7 +398,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "STREAK_LINE":         "Série de {n} jours",
 
         # --- entraînement du jour / série ------------------------ #
-        "SEC_ROMAJI":          "RŌMAJI SUR LES CARTES KANA",
         "BTN_TODAY":           "Aujourd'hui  ·  {rev} révisions + {new} nouveaux",
         "TODAY_COMEBACK":      "Bon retour !  ·  {n} mots à rafraîchir",
         "TODAY_DONE":          "✓ Entraînement du jour terminé",
@@ -456,6 +462,12 @@ STRINGS: dict[str, dict[str, str]] = {
                                 "Ils apparaîtront en révisions occasionnelles "
                                 "plutôt qu'en nouveaux mots. Les mots déjà joués "
                                 "gardent leur historique."),
+        "INNER_HISTORY":       "Historique",
+        "SEARCH_HISTORY":      "Chercher…  ·  clic = rejouer",
+        "COL_DATE":            "Date",
+        "COL_MODE":            "Mode",
+        "COL_PTS":             "Points",
+        "COL_MISS":            "Ratés",
         "INNER_OVERVIEW":      "Vue d'ensemble",
         "INNER_WORDS":         "Mots",
         "INNER_KANJI":         "Kanji",

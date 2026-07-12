@@ -59,6 +59,14 @@ KANJI_COLUMNS = (
     ("score",            "COL_SCORE",        "right"),
     ("bucket",           "COL_BUCKET",       "left"),
 )
+HISTORY_COLUMNS = (
+    ("day",      "COL_DATE",       "left"),
+    ("mode",     "COL_MODE",       "left"),
+    ("pts",      "COL_PTS",        "right"),
+    ("matches",  "COL_MATCH",      "right"),
+    ("mistakes", "COL_MISS",       "right"),
+    ("n_words",  "COL_WORDS",      "right"),
+)
 
 BUCKET_KEYS = {
     "known":      "BUCKET_KNOWN",
@@ -129,7 +137,8 @@ class StatsScene(Scene):
         self.inner = TabBar(
             [(tr("INNER_OVERVIEW"), lambda: self._set_tab("Overview")),
              (tr("INNER_WORDS"),    lambda: self._set_tab("Words")),
-             (tr("INNER_KANJI"),    lambda: self._set_tab("Kanji"))],
+             (tr("INNER_KANJI"),    lambda: self._set_tab("Kanji")),
+             (tr("INNER_HISTORY"),  lambda: self._set_tab("History"))],
             self.batch, self.g_bg, self.g_text,
             accent=theme.GOLD, font_size=13,
         )
@@ -142,18 +151,26 @@ class StatsScene(Scene):
             r["score"]  = knowledge_score(r)
             r["bucket"] = classify(r) if r.get("seen") else "unknown"
         self._all_kanji = _aggregate_kanji(self._all_words)
+        self._all_history = app.stats.game_history()
+        for h in self._all_history:
+            h["pts"] = h.get("score") or 0
 
         # Per-tab list-display state
-        self._sort_col: dict[str, str] = {"Words": "score", "Kanji": "score"}
-        self._sort_dir: dict[str, str] = {"Words": "asc",   "Kanji": "asc"}
-        self._scroll:   dict[str, int] = {"Words": 0,        "Kanji": 0}
-        self._query:    dict[str, str] = {"Words": "",       "Kanji": ""}
-        self._filtered: dict[str, list[dict]] = {"Words": [], "Kanji": []}
+        self._sort_col: dict[str, str] = {"Words": "score", "Kanji": "score",
+                                          "History": "id"}
+        self._sort_dir: dict[str, str] = {"Words": "asc",   "Kanji": "asc",
+                                          "History": "desc"}
+        self._scroll:   dict[str, int] = {"Words": 0, "Kanji": 0, "History": 0}
+        self._query:    dict[str, str] = {"Words": "", "Kanji": "",
+                                          "History": ""}
+        self._filtered: dict[str, list[dict]] = {"Words": [], "Kanji": [],
+                                                 "History": []}
 
         # Live list-display widgets (rebuilt on filter/sort/scroll/tab change)
         self._row_labels: list[Label] = []
         self._stripes: list[shapes.Rectangle] = []
-        self._header_labels: dict[str, list[Label]] = {"Words": [], "Kanji": []}
+        self._header_labels: dict[str, list[Label]] = {"Words": [], "Kanji": [],
+                                                       "History": []}
 
         # Search inputs (one per list tab so each remembers its query)
         self._search: dict[str, TextInput] = {
@@ -163,6 +180,10 @@ class StatsScene(Scene):
             "Kanji": TextInput(self.batch, self.g_panel, self.g_text, self.g_text,
                                placeholder=tr("SEARCH_KANJI"),
                                on_change=lambda q: self._on_search("Kanji", q)),
+            "History": TextInput(self.batch, self.g_panel, self.g_text,
+                                 self.g_text,
+                                 placeholder=tr("SEARCH_HISTORY"),
+                                 on_change=lambda q: self._on_search("History", q)),
         }
 
         # A framing card behind the tab content (purely decorative; sits in the
@@ -181,6 +202,7 @@ class StatsScene(Scene):
         self._build_headers()
         self._apply_sort_and_filter("Words")
         self._apply_sort_and_filter("Kanji")
+        self._apply_sort_and_filter("History")
 
     # ------------------------------------------------------------------ #
     # Overview tab
@@ -338,10 +360,14 @@ class StatsScene(Scene):
     # List tabs (Words, Kanji)
     # ------------------------------------------------------------------ #
     def _columns_for(self, tab: str) -> tuple:
-        return WORD_COLUMNS if tab == "Words" else KANJI_COLUMNS
+        if tab == "Words":
+            return WORD_COLUMNS
+        if tab == "History":
+            return HISTORY_COLUMNS
+        return KANJI_COLUMNS
 
     def _build_headers(self) -> None:
-        for tab in ("Words", "Kanji"):
+        for tab in ("Words", "Kanji", "History"):
             for col_key, header_key, _align in self._columns_for(tab):
                 lbl = self._label(tr(header_key), 11, theme.MUTED, bold=True,
                                    anchor_x="left")
@@ -354,12 +380,16 @@ class StatsScene(Scene):
         self._apply_sort_and_filter(tab)
 
     def _apply_sort_and_filter(self, tab: str) -> None:
-        source = self._all_words if tab == "Words" else self._all_kanji
-        q = self._query[tab]
         if tab == "Words":
+            source = self._all_words
             fields = ("expression", "reading", "meaning")
+        elif tab == "History":
+            source = self._all_history
+            fields = ("mode", "day")
         else:
+            source = self._all_kanji
             fields = ("char",)
+        q = self._query[tab]
         rows = [r for r in source if _matches_query(r, q, fields)]
         key_col = self._sort_col[tab]
         rev = (self._sort_dir[tab] == "desc")
@@ -384,7 +414,7 @@ class StatsScene(Scene):
             r.delete()
         self._stripes.clear()
         tab = self.active_tab
-        if tab not in ("Words", "Kanji"):
+        if tab not in ("Words", "Kanji", "History"):
             return
         n_visible = self._visible_rows()
         rows = self._filtered[tab]
@@ -401,7 +431,9 @@ class StatsScene(Scene):
             self._stripes.append(stripe)
             for col_key, _, _align in cols:
                 val = row.get(col_key)
-                if col_key == "score":
+                if col_key == "pts":
+                    text = f"{val or 0:,}"
+                elif col_key == "score":
                     text = f"{(val or 0) * 100:.0f}"
                 elif col_key == "bucket":
                     text = tr(BUCKET_KEYS.get(val, "")) if val in BUCKET_KEYS else (val or "")
@@ -583,8 +615,8 @@ class StatsScene(Scene):
         for s in self._search.values():
             s.unfocus()
         self.active_tab = name
-        self.inner.set_active({"Overview": 0, "Words": 1, "Kanji": 2}[name])
-        if name in ("Words", "Kanji"):
+        self.inner.set_active({"Overview": 0, "Words": 1, "Kanji": 2, "History": 3}[name])
+        if name in ("Words", "Kanji", "History"):
             self._apply_sort_and_filter(name)
         else:
             self._rebuild_rows()
@@ -606,7 +638,7 @@ class StatsScene(Scene):
                 b.set_rect(-4000, -4000, 1, 1)
                 b.set_visible(False)
 
-        for tab in ("Words", "Kanji"):
+        for tab in ("Words", "Kanji", "History"):
             visible = self.active_tab == tab
             op = 255 if visible else 0
             for lbl in self._header_labels[tab]:
@@ -622,9 +654,9 @@ class StatsScene(Scene):
 
         # Row labels and stripes are rebuilt per-tab, always visible when present
         for lbl in self._row_labels:
-            lbl.opacity = 255 if self.active_tab in ("Words", "Kanji") else 0
+            lbl.opacity = 255 if self.active_tab in ("Words", "Kanji", "History") else 0
         for r in self._stripes:
-            r.visible = self.active_tab in ("Words", "Kanji")
+            r.visible = self.active_tab in ("Words", "Kanji", "History")
 
     # ------------------------------------------------------------------ #
     # Input
@@ -643,7 +675,7 @@ class StatsScene(Scene):
                 if b.enabled and b.contains(x, y):
                     b.click()
                     return
-        if tab in ("Words", "Kanji"):
+        if tab in ("Words", "Kanji", "History"):
             if self._search[tab].on_mouse_press(x, y, button, modifiers):
                 return
             # Header click -> sort
@@ -672,6 +704,20 @@ class StatsScene(Scene):
                         self._confirm_reset_word(row["expression"], row["reading"])
                     else:
                         self._open_detail(row)
+                    return
+            # History rows: left-click replays the game, right-click forgets it.
+            if tab == "History":
+                row_idx = self._row_at_y(y)
+                if row_idx is not None:
+                    row = self._filtered["History"][row_idx]
+                    if button == mouse.RIGHT:
+                        self.app.stats.delete_game(row["id"])
+                        self._all_history = self.app.stats.game_history()
+                        for h in self._all_history:
+                            h["pts"] = h.get("score") or 0
+                        self._apply_sort_and_filter("History")
+                    else:
+                        self._replay_game(row)
                     return
 
     def _row_at_y(self, y: float) -> int | None:
@@ -745,6 +791,29 @@ class StatsScene(Scene):
         )
         self.app.go_game(cfg, pool=words)
 
+    def _replay_game(self, row: dict) -> None:
+        """Replay a past session: same words, finite session, fresh score."""
+        from kanjire.game.config import GameConfig
+        keys = set(row.get("word_keys") or [])
+        if len(keys) < 2:
+            return
+        try:
+            words = [w for w in db.load_words(self.app.con, require_kanji=True)
+                     if (w.expression, w.reading) in keys]
+        except Exception:
+            return
+        if len(words) < 2:
+            return
+        cfg = GameConfig(
+            name=f"Replay · {row.get('mode') or '?'}",
+            decks=("jlpt",), levels=(),
+            faces=("kanji", "reading", "meaning"),
+            words_per_round=min(6, len(words)),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+        )
+        self.app.go_game(cfg, pool=words)
+
     def _confirm_mark_known(self, level: int) -> None:
         """Placement: seed a whole JLPT level as already-known."""
         try:
@@ -790,7 +859,7 @@ class StatsScene(Scene):
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
         tab = self.active_tab
-        if tab not in ("Words", "Kanji"):
+        if tab not in ("Words", "Kanji", "History"):
             return
         n_visible = self._visible_rows()
         max_scroll = max(0, len(self._filtered[tab]) - n_visible)
@@ -801,17 +870,17 @@ class StatsScene(Scene):
 
     def on_text(self, text) -> None:
         tab = self.active_tab
-        if tab in ("Words", "Kanji"):
+        if tab in ("Words", "Kanji", "History"):
             self._search[tab].on_text(text)
 
     def on_text_motion(self, motion) -> None:
         tab = self.active_tab
-        if tab in ("Words", "Kanji"):
+        if tab in ("Words", "Kanji", "History"):
             self._search[tab].on_text_motion(motion)
 
     def on_text_motion_select(self, motion) -> None:
         tab = self.active_tab
-        if tab in ("Words", "Kanji"):
+        if tab in ("Words", "Kanji", "History"):
             self._search[tab].on_text_motion_select(motion)
 
     def on_key_press(self, symbol, modifiers) -> None:
@@ -820,7 +889,7 @@ class StatsScene(Scene):
                 self._close_detail()
                 return
             tab = self.active_tab
-            if tab in ("Words", "Kanji") and self._search[tab].focused:
+            if tab in ("Words", "Kanji", "History") and self._search[tab].focused:
                 self._search[tab].unfocus()
                 return
             self.app.go_menu()
@@ -840,7 +909,7 @@ class StatsScene(Scene):
         for w in self._ov_widgets:
             if isinstance(w, Label) and hasattr(w, "_base_fs"):
                 w.font_size = max(8, round(w._base_fs * s))
-        for t in ("Words", "Kanji"):
+        for t in ("Words", "Kanji", "History"):
             for lbl in self._header_labels[t]:
                 if hasattr(lbl, "_base_fs"):
                     lbl.font_size = max(8, round(lbl._base_fs * s))
@@ -850,7 +919,7 @@ class StatsScene(Scene):
         # Frame the content area (below the inner tabs, above the bottom margin).
         self.content_panel.set_rect(32 * s, 28 * s, width - 64 * s, height - 148 * s)
         # Rebuild table rows so their count + font track the new scale.
-        if self.active_tab in ("Words", "Kanji"):
+        if self.active_tab in ("Words", "Kanji", "History"):
             self._rebuild_rows()
         self._layout_overview()
         self._layout_rows()
@@ -883,8 +952,8 @@ class StatsScene(Scene):
         ly = col_top
         self._cov_title.x, self._cov_title.y = left, ly
         ly -= 30 * s
-        bar_x = left + 150 * s
-        bar_max_w = col_w - 200 * s
+        bar_x = left + 180 * s
+        bar_max_w = col_w - 230 * s
         for nm, bar, pct, cov in self._cov_rows:
             nm.x, nm.y = left, ly
             bar.x = bar_x
@@ -958,7 +1027,7 @@ class StatsScene(Scene):
 
     def _layout_rows(self) -> None:
         tab = self.active_tab
-        if tab not in ("Words", "Kanji"):
+        if tab not in ("Words", "Kanji", "History"):
             return
         s = self._s
         # Search input at top
@@ -1021,7 +1090,7 @@ class StatsScene(Scene):
         for w in self._ov_widgets:
             try: w.delete()
             except Exception: pass
-        for tab in ("Words", "Kanji"):
+        for tab in ("Words", "Kanji", "History"):
             for lbl in self._header_labels[tab]:
                 lbl.delete()
         for lbl in self._row_labels:

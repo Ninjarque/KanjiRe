@@ -105,12 +105,17 @@ class JourneyScene(Scene):
     def _is_boss(self, i: int) -> bool:
         return (i + 1) % BOSS_EVERY == 0
 
+    def _rows_fit(self) -> int:
+        """How many station rows the current window height can hold."""
+        s = scale_for(self.width, self.height)
+        return max(3, int((self.height - 240 * s) // (68 * s)))
+
     def _rebuild_nodes(self) -> None:
         for _i, b in self._node_buttons:
             b.delete()
         self._node_buttons.clear()
         start = self.scroll_row * COLS
-        for i in range(start, min(start + COLS * ROWS_VISIBLE,
+        for i in range(start, min(start + COLS * self._rows_fit(),
                                   len(self.stations))):
             n_known = self._known_counts[i]
             cleared = n_known >= CLEAR_AT
@@ -187,7 +192,8 @@ class JourneyScene(Scene):
                 known=n, total=len(self.stations[hover]))
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
-        max_row = max(0, (len(self.stations) - 1) // COLS - ROWS_VISIBLE + 1)
+        max_row = max(0, (len(self.stations) - 1) // COLS
+                      - self._rows_fit() + 1)
         self.scroll_row = max(0, min(max_row,
                                      self.scroll_row - int(scroll_y)))
         self._rebuild_nodes()
@@ -201,6 +207,12 @@ class JourneyScene(Scene):
     def on_resize(self, width, height) -> None:
         s = scale_for(width, height)
         self._s = s
+        # More (or fewer) rows fit after a resize: rebuild the node window.
+        want = min(COLS * self._rows_fit(),
+                   max(0, len(self.stations) - self.scroll_row * COLS))
+        if want != len(self._node_buttons):
+            self._rebuild_nodes()   # re-enters on_resize once, then stable
+            return
         for lbl in self.labels:
             lbl.font_size = max(8, round(lbl._base_fs * s))
         self.nav.set_scale(s)

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-#: The card "faces" a single word can be split into.
-ALL_FACES = ("kanji", "reading", "meaning")
+#: The card "faces" a single word can be split into. "romaji" is the reading
+#: romanised (a fourth, yellow card for players still warming up to kana).
+ALL_FACES = ("kanji", "reading", "romaji", "meaning")
 DEFAULT_FACES = ("kanji", "reading", "meaning")
 
 
@@ -43,9 +44,6 @@ class GameConfig:
     random_fonts: bool = False
     #: 'off' | 'random' (per-card 50/50) | 'all' (every kanji/reading vertical).
     vertical_writing: str = "off"
-    #: When True, cards whose text is entirely kana show a small romaji
-    #: pronunciation hint along their bottom edge.
-    show_romaji: bool = False
 
     # ---- learn mode (bucket mix; 0-3 ≈ None/Few/Some/Many) ------------- #
     learn_known:      int = 0

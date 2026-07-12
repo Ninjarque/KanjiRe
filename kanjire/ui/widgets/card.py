@@ -66,6 +66,11 @@ def _font_size_horizontal(face: str, text: str, w: float, h: float) -> int:
         target = h * 0.21
         max_by_width = (w - 2 * _PAD) / max(1, len(text)) * _H_WIDTH_FACTOR
         return int(max(13, min(target, max_by_width)))
+    if face == "romaji":
+        # Latin glyphs are ~half an em wide, so the width cap is looser.
+        target = h * 0.19
+        max_by_width = (w - 2 * _PAD) / max(1, len(text)) / 0.55
+        return int(max(12, min(target, max_by_width)))
     # meaning - English, may wrap.
     length = len(text)
     if length <= 10:
@@ -108,8 +113,9 @@ class CardText:
         self.text = text
         self.face = face
         self.font_name = font_name
-        # Meaning is English; vertical doesn't help recognition, so force h.
-        self.direction = "horizontal" if face == "meaning" else direction
+        # Meaning/romaji are Latin text; vertical doesn't help, so force h.
+        self.direction = ("horizontal" if face in ("meaning", "romaji")
+                          else direction)
         self._batch = batch
         self._group = group
         self._labels: list[Label] = []
@@ -162,17 +168,30 @@ class CardText:
         else:
             L = self._labels[0]
             fs = _font_size_horizontal(self.face, self.text, w, h)
+            avail = max(10, int(w - 2 * _PAD))
             if self.face == "meaning":
-                avail = max(10, int(w - 2 * _PAD))
+                avail_h = max(10, int(h - 2 * _PAD))
                 L.width = avail
                 L.font_size = fs
-                # A long single word can't wrap, so the laid-out content may be
-                # wider than the card. Shrink the font until the widest line
-                # fits, measuring the real layout (font-agnostic) rather than
-                # guessing from character counts.
+                # A long single word can't wrap (too wide), and a long gloss
+                # can wrap into more lines than the card is tall (dense
+                # boards). Shrink the font until the real layout fits BOTH
+                # ways, measuring rather than guessing from char counts.
+                guard = 0
+                while (fs > _MEANING_MIN_FS
+                       and (L.content_width > avail
+                            or L.content_height > avail_h)
+                       and guard < 20):
+                    fs -= 1
+                    L.font_size = fs
+                    guard += 1
+            elif self.face == "romaji":
+                # Single line, no wrap: measure and shrink until it fits
+                # (char-count estimates misjudge Latin advance widths).
+                L.font_size = fs
                 guard = 0
                 while (fs > _MEANING_MIN_FS and L.content_width > avail
-                       and guard < 20):
+                       and guard < 24):
                     fs -= 1
                     L.font_size = fs
                     guard += 1
@@ -217,7 +236,6 @@ class CardView:
         *,
         font_name: str | None = None,
         direction: str = "horizontal",
-        romaji: str | None = None,
     ) -> None:
         self.model = model
         self.face = model.face
@@ -261,16 +279,6 @@ class CardView:
             color=theme.with_alpha(theme.GOLD, 0),
             anchor_x="right", anchor_y="top", batch=batch, group=text_group,
         )
-        # Optional romaji pronunciation hint along the bottom edge (shown on
-        # kana cards when the ROMAJI toggle is on).
-        self._romaji = None
-        if romaji:
-            self._romaji = Label(
-                romaji, font_name=JP_FONT, font_size=10,
-                color=theme.with_alpha(theme.MUTED, 210),
-                anchor_x="center", anchor_y="bottom",
-                batch=batch, group=text_group,
-            )
         self._text = CardText(
             self.display_text, model.face,
             font_name or JP_FONT, direction,
@@ -287,14 +295,7 @@ class CardView:
 
     def set_slot(self, cx: float, cy: float, w: float, h: float) -> None:
         self.cx, self.cy, self.bw, self.bh = cx, cy, w, h
-        if self._romaji is not None:
-            # Reserve a strip at the bottom for the romaji hint so the main
-            # text (especially stacked vertical kana) can't run into it.
-            self._romaji.font_size = int(max(8, min(12, h * 0.11)))
-            inset = self._romaji.font_size + 12
-            self._text.set_geometry(cx, cy + inset / 2, w, h - inset)
-        else:
-            self._text.set_geometry(cx, cy, w, h)
+        self._text.set_geometry(cx, cy, w, h)
         self.apply()
 
     def contains(self, px: float, py: float) -> bool:
@@ -312,8 +313,6 @@ class CardView:
             self._text.apply(self.offset_y, self.shake, 0.0)
             self._badge.color = theme.with_alpha(self.face_color, 0)
             self._sticker.color = theme.with_alpha(self._sticker_color, 0)
-            if self._romaji is not None:
-                self._romaji.color = theme.with_alpha(theme.MUTED, 0)
             return
 
         s = self.scale
@@ -360,12 +359,6 @@ class CardView:
             self._sticker_color, int(235 * a) if self._sticker_text else 0
         )
 
-        if self._romaji is not None:
-            self._romaji.x = x + w / 2
-            self._romaji.y = y + 6
-            self._romaji.color = theme.with_alpha(
-                theme.readable_on(fill), int(200 * a))
-
         self._text.apply(self.offset_y, self.shake, a)
 
     def delete(self) -> None:
@@ -373,6 +366,4 @@ class CardView:
         self._bg.delete()
         self._badge.delete()
         self._sticker.delete()
-        if self._romaji is not None:
-            self._romaji.delete()
         self._text.delete()

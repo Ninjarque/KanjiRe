@@ -55,6 +55,10 @@ class Word:
             return self.expression
         if face == "reading":
             return self.reading
+        if face == "romaji":
+            # Lazy import: kana.py imports Word from this module at load time.
+            from kanjire.kana import hira_to_romaji
+            return hira_to_romaji(self.reading)
         if face == "meaning":
             return self.get_meaning(locale)
         raise ValueError(f"unknown face: {face!r}")

@@ -11,6 +11,18 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Romaji cards!** The CARDS PER WORD option now has a third choice:
+  "+ Romaji (4 cards)" adds a yellow *abc* card with the word's reading in
+  romaji, so each group is kanji + kana + romaji + meaning. (This replaces
+  the small romaji hint under kana cards.)
+- **Game history**: a new History tab in Stats lists your recent games —
+  date, mode, score, matches. **Click any row to replay that exact game**;
+  right-click to remove it.
+- **The whole interface is bigger** — everything scales up ~20% more with
+  your window, so it no longer feels small on 1080p+ screens, and the
+  Journey map now shows as many stations as your window fits.
+- Layout polish everywhere: long meanings can't spill out of dense boards
+  anymore, and every screen was re-checked at four window sizes.
 
 ## 0.8.1 — 2026-07-12
 - Fixed text overlapping in several places: KanjiRe is now **DPI-aware** on

@@ -124,6 +124,19 @@ CREATE TABLE IF NOT EXISTS review_log (
 CREATE INDEX IF NOT EXISTS idx_review_day  ON review_log(day);
 CREATE INDEX IF NOT EXISTS idx_review_word ON review_log(expression, reading);
 
+-- One row per finished game: what was played, how it went, and which words
+-- were on the table - enough to review past sessions and replay them.
+CREATE TABLE IF NOT EXISTS session_log (
+    id       INTEGER PRIMARY KEY,
+    ts       TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    mode     TEXT NOT NULL,
+    score    INTEGER NOT NULL DEFAULT 0,
+    matches  INTEGER NOT NULL DEFAULT 0,
+    mistakes INTEGER NOT NULL DEFAULT 0,
+    words    TEXT NOT NULL               -- JSON [[expression, reading], ...]
+);
+
 -- Reading Room log: one row per sentence the player read. Powers the
 -- characters-read / sentences-read stats and keeps sentences from repeating.
 CREATE TABLE IF NOT EXISTS read_log (

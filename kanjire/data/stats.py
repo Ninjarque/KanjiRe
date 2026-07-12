@@ -170,6 +170,8 @@ class StatsRecorder:
     def confused(self, target: Word, offending: Word, face: str) -> None:
         """A mismatch click: ``offending`` was selected while ``target`` was the
         in-progress group, and the click was on ``offending``'s ``face`` card."""
+        if face == "romaji":
+            face = "reading"    # romaji is the reading dimension, romanised
         if face not in _FACES:
             return
         col = f"mistakes_{face}"
@@ -336,6 +338,43 @@ class StatsRecorder:
             self.srs.seed_known(keys)
         return n
 
+    # ---- Game history (review + replay past sessions) ----------------- #
+    def log_game(self, mode: str, score: int, matches: int, mistakes: int,
+                 word_keys: list[tuple[str, str]], keep: int = 60) -> None:
+        """Record a finished game. Oldest entries are pruned past *keep*."""
+        import json
+        self.con.execute(
+            "INSERT INTO session_log (ts, day, mode, score, matches, mistakes,"
+            " words) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (_now(), _today(), mode, int(score), int(matches), int(mistakes),
+             json.dumps([[e, r] for e, r in word_keys], ensure_ascii=False)),
+        )
+        self.con.execute(
+            "DELETE FROM session_log WHERE id NOT IN "
+            "(SELECT id FROM session_log ORDER BY id DESC LIMIT ?)",
+            (keep,),
+        )
+        self.con.commit()
+
+    def game_history(self, limit: int = 60) -> list[dict]:
+        """Most recent games first, with parsed word-key lists."""
+        import json
+        out = []
+        for r in self.con.execute(
+                "SELECT * FROM session_log ORDER BY id DESC LIMIT ?", (limit,)):
+            d = dict(r)
+            try:
+                d["word_keys"] = [tuple(k) for k in json.loads(d["words"])]
+            except Exception:
+                d["word_keys"] = []
+            d["n_words"] = len(d["word_keys"])
+            out.append(d)
+        return out
+
+    def delete_game(self, session_id: int) -> None:
+        self.con.execute("DELETE FROM session_log WHERE id=?", (session_id,))
+        self.con.commit()
+
     # ---- Reading Room ------------------------------------------------ #
     def log_read(self, sentence_id: int, chars: int,
                  source: str = "tanaka") -> None:
@@ -389,6 +428,7 @@ class StatsRecorder:
         self.con.execute("DELETE FROM word_stats")
         self.con.execute("DELETE FROM review_log")
         self.con.execute("DELETE FROM read_log")
+        self.con.execute("DELETE FROM session_log")
         self.con.commit()
         if self.srs is not None:
             self.srs.reset_all()
