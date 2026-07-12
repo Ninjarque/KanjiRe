@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.16.0 — 2026-07-12
 - **Fixed: updating did nothing on Linux.** It downloaded, you clicked restart,
   the app closed and that was that — same version. The helper that swaps the
   folders waited for the app's process to disappear with a loop that could wait
