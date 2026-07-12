@@ -22,7 +22,7 @@ fi
 
 # 2) Build dependencies (idempotent; --user keeps it sudo-free).
 python3 -m pip install -q --user --break-system-packages \
-    'pyglet>=1.5,<2.0' pynacl pyinstaller >/dev/null 2>&1
+    'pyglet>=1.5,<2.0' pynacl 'fsrs>=6.0,<7' pyinstaller >/dev/null 2>&1
 
 # 3) Stage libGLU.so to bundle (download the .deb + extract, no install).
 GLU="$BUILD/libs"
