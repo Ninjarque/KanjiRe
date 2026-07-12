@@ -56,9 +56,16 @@ DEFAULT_SETTINGS = {
     "deck": "jlpt",
     "levels": [5],
     "board_size": 6,
-    "cards": 3,          # cards per word: 2 | 3 | 4 (4 adds the romaji face)
+    "cards": 4,          # cards per word: 2 | 3 | 4 (4 adds the romaji face)
     "turns_each": 10,
+    "writing": "off",    # horizontal | mixed | vertical  ("off" == horizontal)
+    "fonts": "fixed",    # fixed | random
 }
+
+#: Accepted values for the presentation settings (kept in sync with the menu's
+#: WRITING_OPTIONS so multiplayer and single player speak the same language).
+_WRITING_VALUES = ("off", "random", "all")
+_FONT_VALUES = ("fixed", "random")
 
 
 class Room:
@@ -90,6 +97,7 @@ class Room:
         self.scores: list[int] = []
         self.combos: list[int] = []
         self.connected: list[bool] = []
+        self.turns_taken: list[int] = []
 
         self.turn = 0                  # index into players
         self.turns_used = 0
@@ -121,6 +129,10 @@ class Room:
                 s["cards"] = int(d["cards"])
             if d.get("turns_each") in (5, 10, 15):
                 s["turns_each"] = int(d["turns_each"])
+            if d.get("writing") in _WRITING_VALUES:
+                s["writing"] = str(d["writing"])
+            if d.get("fonts") in _FONT_VALUES:
+                s["fonts"] = str(d["fonts"])
 
     # ---- membership -------------------------------------------------- #
     def add_player(self, handler: "Handler", name: str) -> int:
@@ -130,16 +142,34 @@ class Room:
             self.scores.append(0)
             self.combos.append(0)
             self.connected.append(True)
+            self.turns_taken.append(0)
             return len(self.clients) - 1
 
     def drop_player(self, idx: int) -> None:
+        """Take a player out of the game (quit, crash, or heartbeat timeout).
+
+        Their unplayed turns leave with them - the game ends when everyone
+        *still here* has had their turns, not when a fixed total is reached
+        (which used to hand a departed player's turns to whoever remained).
+        """
         with self.lock:
             if 0 <= idx < len(self.connected):
                 self.connected[idx] = False
                 self.clients[idx] = None
-            if (self.started and not self.finished
-                    and self.turn == idx and any(self.connected)):
+            if not self.started or self.finished:
+                return
+            if not any(self.connected):
+                self.finished = True
+                return
+            if self._turns_left() <= 0:
+                self.finished = True
+            elif self.turn == idx:
                 self._advance_turn(consume=False)
+
+    def _turns_left(self) -> int:
+        """Turns still owed to players who are still connected."""
+        return sum(max(0, self.turns_each - self.turns_taken[i])
+                   for i in range(len(self.connected)) if self.connected[i])
 
     def alive(self) -> bool:
         with self.lock:
@@ -176,7 +206,12 @@ class Room:
                 return                       # nothing to play with
             self.started = True
             self.paused = False
-            self.turns_total = self.turns_each * len(self.clients)
+            self.turns_taken = [0] * len(self.clients)
+            self.turns_used = 0
+            self.turn = next((i for i in range(len(self.connected))
+                              if self.connected[i]), 0)
+            self.turns_total = self.turns_each * sum(
+                1 for c in self.connected if c)
             for _ in range(min(self.board_size, len(self.pool))):
                 self._deal_group(self.pool.pop())
             self.rng.shuffle(self.board)
@@ -206,24 +241,29 @@ class Room:
             for i in range(len(self.scores)):
                 self.scores[i] = 0
                 self.combos[i] = 0
+                self.turns_taken[i] = 0
 
     def _advance_turn(self, consume: bool = True) -> None:
         if consume:
             self.turns_used += 1
+            if 0 <= self.turn < len(self.turns_taken):
+                self.turns_taken[self.turn] += 1
         self.selection.clear()
         self.current_group = None
         for cid in self.cards:
             self.cards[cid]["selected"] = False
-        if self.turns_used >= self.turns_total or not self.board:
+        if self._turns_left() <= 0 or not self.board:
             self.finished = True
             return
+        # Next connected player who still has turns owed to them.
         n = len(self.clients)
         for step in range(1, n + 1):
             cand = (self.turn + step) % n
-            if self.connected[cand]:
+            if (self.connected[cand]
+                    and self.turns_taken[cand] < self.turns_each):
                 self.turn = cand
                 return
-        self.finished = True   # nobody left
+        self.finished = True   # nobody left with turns
 
     def select(self, player: int, card_id: int) -> dict | None:
         """Apply one click. Returns the event dict (or None for a no-op)."""
@@ -299,6 +339,9 @@ class Room:
                 "turn": self.turn,
                 "turns_used": self.turns_used,
                 "turns_total": self.turns_total,
+                # Authoritative "how many turns are actually left": a dropped
+                # player's unplayed turns don't count, so total-minus-used lies.
+                "turns_left": self._turns_left() if self.started else 0,
                 "faces": list(self.faces),
                 "pool_left": len(self.pool),
                 "board": [dict(self.cards[cid]) for cid in self.board],

@@ -20,6 +20,7 @@ import queue
 import random
 import string
 import threading
+import time
 import uuid
 
 from kanjire.net import config
@@ -55,6 +56,18 @@ class RoomClient:
         self.connected = False
         self._join_attempts = 0
         self._last_state: dict | None = None
+
+        # Liveness. The broker's will only fires on a *clean* disconnect, so a
+        # killed app or a dead network would leave the room stuck on a player
+        # who is never coming back. Everyone pings; the host drops the silent.
+        # One clock for the whole client, advanced by tick(). Stamping arrivals
+        # with time.monotonic() while tick() ran on an injected clock meant the
+        # two were never comparable.
+        self._now = 0.0
+        self._seen: dict[str, float] = {}   # host: uid -> when last heard from
+        self._last_ping = 0.0
+        self._host_seen = 0.0               # guest: last sign of life from host
+        self._host_lost = False
 
     # ---- topics ------------------------------------------------------- #
     def _t(self, leaf: str) -> str:
@@ -136,7 +149,7 @@ class RoomClient:
         self.room = Room(self.code, msg.get("settings"))
         self.me = self.room.add_player(None, self.name)
         self.uids = [self.uid]
-        for leaf in ("join", "act", "bye"):
+        for leaf in ("join", "act", "bye", "ping"):
             self.transport.subscribe(self._t(leaf))
         # Clear any stale retained snapshot from a previous room that reused
         # this code, so a joiner can never see a ghost game.
@@ -147,8 +160,9 @@ class RoomClient:
     def _join(self, msg: dict) -> None:
         self.code = str(msg.get("room") or "").strip().upper()
         self.is_host = False
-        self.transport.subscribe(self._t("state"))
-        self.transport.subscribe(self._t("reject"))
+        self._host_seen = self._now          # clock starts on the first tick
+        for leaf in ("state", "reject", "hb"):
+            self.transport.subscribe(self._t(leaf))
         # The broker replays the retained state immediately on subscribe, so
         # we learn the room's shape without asking anyone.
         self.transport.set_will(
@@ -201,9 +215,16 @@ class RoomClient:
         leaf = topic.rsplit("/", 1)[-1]
         with self.lock:
             if self.is_host:
-                self._host_message(leaf, msg)
-            elif leaf == "state":
-                self._guest_state(msg)
+                # ANY message from a peer proves they're alive, not just a ping.
+                uid = msg.get("uid")
+                if uid:
+                    self._seen[uid] = self._now
+                if leaf != "ping":
+                    self._host_message(leaf, msg)
+            elif leaf in ("state", "hb"):
+                self._host_seen = self._now
+                if leaf == "state":
+                    self._guest_state(msg)
             elif leaf == "reject" and msg.get("uid") == self.uid:
                 self._join_attempts = _JOIN_RETRIES     # stop retrying
                 reason = msg.get("reason")
@@ -264,6 +285,55 @@ class RoomClient:
                 self.inbox.put({"t": "error", "msg": "room not found"})
                 return
         self.inbox.put(msg)
+
+    # ---- liveness ------------------------------------------------------- #
+    def tick(self, now: float | None = None) -> None:
+        """Send our heartbeat and time out anyone who has stopped sending theirs.
+
+        Called from the scene every frame (``now`` is injectable so tests can
+        drive 20 seconds of silence without sleeping for 20 seconds).
+        """
+        if now is None:
+            now = time.monotonic()
+        with self.lock:
+            self._now = now
+            if not self.code or self.transport is None:
+                return
+            if now - self._last_ping >= config.HEARTBEAT_SECONDS:
+                self._last_ping = now
+                leaf = "hb" if self.is_host else "ping"
+                try:
+                    self.transport.publish(
+                        self._t(leaf),
+                        json.dumps({"uid": self.uid}).encode("utf-8"))
+                except Exception:  # noqa: BLE001 — a failed ping is not fatal
+                    pass
+            if self.is_host:
+                self._reap_silent(now)
+            elif not self._host_lost:
+                if not self._host_seen:
+                    self._host_seen = now       # start the host's clock
+                elif now - self._host_seen > config.PEER_TIMEOUT_SECONDS:
+                    self._host_lost = True
+                    self.inbox.put({"t": "error", "msg": "host disconnected"})
+
+    def _reap_silent(self, now: float) -> None:
+        """Host: drop players we haven't heard from within the timeout."""
+        room = self.room
+        if room is None:
+            return
+        for idx, uid in enumerate(self.uids):
+            if uid == self.uid or idx >= len(room.connected):
+                continue          # never time ourselves out
+            if not room.connected[idx]:
+                continue
+            last = self._seen.get(uid)
+            if not last:
+                self._seen[uid] = now      # first sighting: start their clock
+                continue
+            if now - last > config.PEER_TIMEOUT_SECONDS:
+                room.drop_player(idx)
+                self._publish_state({"type": "leave", "player": idx})
 
     # ---- polled by the UI each frame ----------------------------------- #
     def poll(self) -> list[dict]:

@@ -11,7 +11,10 @@ from dataclasses import dataclass, field, replace
 #: The card "faces" a single word can be split into. "romaji" is the reading
 #: romanised (a fourth, yellow card for players still warming up to kana).
 ALL_FACES = ("kanji", "reading", "romaji", "meaning")
-DEFAULT_FACES = ("kanji", "reading", "meaning")
+#: Romaji is ON by default, everywhere (menu presets, Journey stations, boss
+#: fights): a beginner who can't read kana yet needs the bridge, and anyone who
+#: doesn't can turn it off in one click on the Advanced tab.
+DEFAULT_FACES = ("kanji", "reading", "romaji", "meaning")
 
 
 #: Allowed values for ``GameConfig.vertical_writing``.

@@ -265,3 +265,83 @@ def test_posix_swap_template_shape():
 
 def test_can_self_update_writable(tmp_path):
     assert applier.can_self_update(tmp_path / "KanjiRe") is True
+
+
+# --- the swap, actually executed ---------------------------------------- #
+def _fake_app(dirpath, tag: str, marker):
+    """A stand-in 'KanjiRe executable': on launch it stamps *tag* into marker.
+
+    On Windows it must be a .vbs, not a .bat: `start "" file.bat` runs it via
+    `cmd /K`, which leaves a console window sitting open forever. The real exe
+    is a GUI binary, so this is purely a test-rig concern - but a test that
+    litters the desktop with terminals is its own kind of bug.
+    """
+    if os.name == "nt":
+        exe = dirpath / "KanjiRe.vbs"
+        exe.write_text(
+            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+            f'Set f = fso.CreateTextFile("{marker}", True)\r\n'
+            f'f.Write "{tag}"\r\nf.Close\r\n',
+            encoding="ascii")
+    else:
+        exe = dirpath / "KanjiRe"
+        exe.write_text(f'#!/bin/sh\nprintf %s "{tag}" > "{marker}"\n', encoding="ascii",
+                       newline="\n")
+        exe.chmod(0o755)
+    return exe
+
+
+def test_swap_replaces_the_install_and_relaunches(tmp_path, monkeypatch):
+    """Run the real swap helper end-to-end against a throwaway install.
+
+    This is the test that was missing: everything below the swap was unit-tested,
+    the swap script itself never once ran, and it didn't work. It is executed
+    here under the condition that actually broke it - the app's *working
+    directory is the install folder* (what you get launching from Explorer),
+    which on Windows is an open handle that makes renaming the folder fail.
+    """
+    import subprocess
+    import time
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    monkeypatch.setattr(applier, "_staging_dir", lambda: staging)
+
+    install = tmp_path / "KanjiRe"
+    install.mkdir()
+    (install / "version.txt").write_text("old", encoding="ascii")
+    marker = tmp_path / "relaunched.txt"
+    _fake_app(install, "old", marker)
+
+    new_bundle = tmp_path / ".kanjire-update-new" / "KanjiRe"
+    new_bundle.mkdir(parents=True)
+    (new_bundle / "version.txt").write_text("new", encoding="ascii")
+    _fake_app(new_bundle, "new", marker)
+    exe = install / ("KanjiRe.vbs" if os.name == "nt" else "KanjiRe")
+
+    # The "running app": a process whose cwd is INSIDE the install directory.
+    app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                           cwd=str(install))
+    try:
+        applier.apply_and_restart(new_bundle, target=install, pid=app.pid, exe=exe)
+        app.terminate()
+        app.wait(timeout=20)
+
+        deadline = time.time() + 45
+        while time.time() < deadline:
+            if marker.exists() and (install / "version.txt").read_text() == "new":
+                break
+            time.sleep(0.25)
+    finally:
+        if app.poll() is None:
+            app.kill()
+
+    log = (staging / "update.log")
+    detail = log.read_text(errors="replace") if log.exists() else "(no log)"
+    assert (install / "version.txt").read_text(encoding="ascii") == "new", (
+        f"the swap did not replace the install: {detail}"
+    )
+    assert marker.exists() and marker.read_text(encoding="ascii").strip() == "new", (
+        f"the app was not relaunched from the NEW bundle: {detail}"
+    )
+    assert not (tmp_path / "KanjiRe.old").exists(), "backup left behind on success"

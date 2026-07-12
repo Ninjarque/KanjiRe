@@ -27,3 +27,12 @@ CODE_LEN = 5
 #: MQTT keepalive (seconds). Turn-based play has no latency needs; this only
 #: governs how quickly a dropped player is noticed via the broker's will.
 KEEPALIVE = 30
+
+#: How often every client announces "still here" on the room's heartbeat topic.
+HEARTBEAT_SECONDS = 4.0
+
+#: Drop a player the host hasn't heard from in this long. The broker's will
+#: only fires on a *clean* disconnect (and not for a killed app, a closed lid,
+#: or a yanked cable), so a game could otherwise sit forever on the turn of
+#: someone who is never coming back.
+PEER_TIMEOUT_SECONDS = 15.0

@@ -5,7 +5,7 @@ the process holds them, so applying an update is a two-process dance:
 
 1. We download the new zip to ``%LOCALAPPDATA%/KanjiRe/updates`` and verify its
    SHA-256 against the (already signature-verified) manifest.
-2. We extract it next to the current install — *same volume*, so the final
+2. We extract it next to the current install - *same volume*, so the final
    swap is an instant rename rather than a slow cross-drive copy.
 3. We launch a detached helper ``.bat`` that waits for this process to exit,
    renames the old folder aside as a backup, moves the new folder into place,
@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from kanjire import __version__
-from kanjire.update import config, verify
+from kanjire.update import checker, config, verify
 from kanjire.update.checker import UpdateInfo
 
 #: Subfolder name the release zip extracts to (matches build_release's zip layout).
@@ -86,7 +86,9 @@ def download(
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # Same certifi fallback as the manifest fetch: no point detecting an update
+    # we then can't download.
+    with checker.urlopen(req, timeout=timeout) as resp:
         total = int(resp.headers.get("Content-Length") or info.size or 0)
         done = 0
         with open(tmp, "wb") as out:
@@ -138,6 +140,10 @@ def stage(
 _SWAP_SH = r"""#!/usr/bin/env bash
 # Args: $1 pid  $2 install dir  $3 new bundle dir  $4 exe to relaunch.
 PID="$1"; INSTALL="$2"; NEWDIR="$3"; EXE="$4"; BACKUP="${INSTALL}.old"
+LOG="$(dirname "$0")/update.log"
+
+# Never stand inside the directory we're about to rename.
+cd / 2>/dev/null
 
 # --- wait for the running app to exit ---
 while kill -0 "$PID" 2>/dev/null; do sleep 0.5; done
@@ -145,16 +151,19 @@ while kill -0 "$PID" 2>/dev/null; do sleep 0.5; done
 rm -rf "$BACKUP"
 
 # --- back up current install (same-volume rename) ---
-if ! mv "$INSTALL" "$BACKUP" 2>/dev/null; then
+if ! mv "$INSTALL" "$BACKUP" 2>>"$LOG"; then
     # couldn't even back up; relaunch what's still there
+    echo "FAILED: could not rename $INSTALL aside; update not applied" >>"$LOG"
     setsid "$EXE" >/dev/null 2>&1 < /dev/null &
-    rm -f "$0"; exit 1
+    exit 1
 fi
 
 # --- move the new bundle into place; roll back on failure ---
-if mv "$NEWDIR" "$INSTALL" 2>/dev/null; then
+if mv "$NEWDIR" "$INSTALL" 2>>"$LOG"; then
     rm -rf "$BACKUP"
+    echo "OK: updated $INSTALL" >>"$LOG"
 else
+    echo "FAILED: could not move $NEWDIR into place; rolled back" >>"$LOG"
     rm -rf "$INSTALL"; mv "$BACKUP" "$INSTALL"
 fi
 
@@ -179,45 +188,60 @@ def _swap_script(staging: Path) -> Path:
     bat = staging / "kanjire_swap.bat"
     bat.write_text(
         r"""@echo off
-setlocal
+setlocal enabledelayedexpansion
 set "PID=%~1"
 set "INSTALL=%~2"
 set "NEWDIR=%~3"
 set "EXE=%~4"
 set "BACKUP=%INSTALL%.old"
+set "LOG=%~dp0update.log"
 
-rem --- wait for the running app to exit ---
-:waitloop
-tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >NUL
-    goto waitloop
-)
+rem A process's current directory is an OPEN HANDLE on Windows: standing inside
+rem the install folder would make the rename below fail. Move to this script's
+rem own folder (the staging dir) before touching anything.
+cd /d "%~dp0"
+echo swap start: pid=%PID% install="%INSTALL%" new="%NEWDIR%">>"%LOG%"
 
 if exist "%BACKUP%" rmdir /s /q "%BACKUP%"
 
-rem --- back up current install (same-volume rename) ---
-move "%INSTALL%" "%BACKUP%" >NUL 2>&1
-if errorlevel 1 goto fail
+rem --- wait for the app to let go, by RETRYING THE RENAME ---
+rem Do not poll the pid: `tasklist | find` and `timeout` both need a console,
+rem and this helper is launched DETACHED (no console) - the wait loop that did
+rem so never terminated, so the update silently never applied. Renaming the
+rem folder fails while the old exe is still mapped, and succeeds the moment it
+rem isn't, which is exactly the condition we care about. `ping` is the sleep
+rem that works without a console.
+set /a TRIES=0
+:retry
+move "%INSTALL%" "%BACKUP%" >>"%LOG%" 2>&1
+if not errorlevel 1 goto backedup
+set /a TRIES+=1
+if !TRIES! GEQ 120 goto fail
+ping -n 2 127.0.0.1 >NUL
+goto retry
 
+:backedup
 rem --- move the new bundle into place ---
-move "%NEWDIR%" "%INSTALL%" >NUL 2>&1
+move "%NEWDIR%" "%INSTALL%" >>"%LOG%" 2>&1
 if errorlevel 1 goto rollback
 
 rem --- success: relaunch + drop the backup ---
-start "" "%EXE%"
+echo OK: updated "%INSTALL%">>"%LOG%"
+start "" /b "%EXE%"
 rmdir /s /q "%BACKUP%" >NUL 2>&1
 goto cleanup
 
 :rollback
+echo FAILED: could not move "%NEWDIR%" into place; rolled back>>"%LOG%"
 if exist "%INSTALL%" rmdir /s /q "%INSTALL%" >NUL 2>&1
 move "%BACKUP%" "%INSTALL%" >NUL 2>&1
-start "" "%EXE%"
+start "" /b "%EXE%"
 goto cleanup
 
 :fail
 rem couldn't even back up; just relaunch what's still there
-start "" "%EXE%"
+echo FAILED: could not rename "%INSTALL%" aside; update not applied>>"%LOG%"
+start "" /b "%EXE%"
 
 :cleanup
 rem best-effort: remove the extract scratch dir
@@ -230,26 +254,48 @@ del "%~f0"
     return bat
 
 
-def apply_and_restart(new_bundle: Path, *, target: Path | None = None) -> None:
+def apply_and_restart(
+    new_bundle: Path,
+    *,
+    target: Path | None = None,
+    pid: int | None = None,
+    exe: Path | None = None,
+) -> None:
     """Launch the detached swap helper and ask the caller to exit immediately.
 
     The caller (the app) must close its window / DB handles and exit right
     after this returns so the helper can take the file lock and swap folders.
+
+    ``pid``/``exe`` exist so the swap can be driven end-to-end by a test
+    against a throwaway install; the app never passes them.
     """
     target = target or install_dir()
-    exe = target / Path(sys.executable).name
-    script = _swap_script(_staging_dir())
-    args = [str(os.getpid()), str(target), str(new_bundle), str(exe)]
+    exe = exe or (target / Path(sys.executable).name)
+    staging = _staging_dir()
+    script = _swap_script(staging)
+    args = [str(pid or os.getpid()), str(target), str(new_bundle), str(exe)]
+    # The helper MUST NOT run from inside the folder it is about to rename:
+    # a process's working directory is an open handle on Windows, so inheriting
+    # ours (the install dir, when launched from Explorer) made the very first
+    # `move` fail with access-denied. The script then fell through to its
+    # "couldn't back up" branch and relaunched the OLD build - the update looked
+    # like it applied and silently didn't.
+    cwd = str(staging)
     # Detach fully so the helper outlives this process and can swap the folder.
     if os.name == "nt":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
+        # CREATE_NO_WINDOW as well as DETACHED_PROCESS: detaching alone still
+        # let cmd.exe allocate its own console, so applying an update flashed a
+        # blank black window at the player.
+        flags = (subprocess.CREATE_NEW_PROCESS_GROUP
+                 | 0x00000008          # DETACHED_PROCESS
+                 | subprocess.CREATE_NO_WINDOW)
         subprocess.Popen(
             ["cmd", "/c", str(script), *args],
-            creationflags=flags, close_fds=True,
+            creationflags=flags, close_fds=True, cwd=cwd,
         )
     else:
         subprocess.Popen(
             ["/bin/bash", str(script), *args],
-            start_new_session=True, close_fds=True,
+            start_new_session=True, close_fds=True, cwd=cwd,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )

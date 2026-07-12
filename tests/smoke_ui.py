@@ -696,12 +696,17 @@ def run() -> int:
 
         mp._start()
         fst = frecv_state()          # start broadcast reaches the friend
-        assert fst["started"] and len(fst["board"]) == 18
+        # board = words x cards-per-word; both come from the room settings, so
+        # derive it (romaji-on-by-default already broke a hard-coded 18 here).
+        expect = (int(fst["settings"]["board_size"])
+                  * int(fst["settings"]["cards"]))
+        assert fst["started"] and len(fst["board"]) == expect, \
+            f"{len(fst['board'])} cards, expected {expect}"
         guard = 0
         while mp.phase != "play" and guard < 100:
             frames2(2)
             guard += 1
-        assert mp.phase == "play" and len(mp.cards) == 18
+        assert mp.phase == "play" and len(mp.cards) == expect
 
         # Host's turn: click one full group through the real scene input.
         g0 = mp.state["board"][0]["group"]
@@ -719,7 +724,7 @@ def run() -> int:
         assert mp.state["scores"][0] == 100, mp.state["scores"]
         assert mp.state["combos"][0] == 1
         assert mp.state["turn"] == 1
-        assert len(mp.state["board"]) == 18      # refilled from the pool
+        assert len(mp.state["board"]) == expect   # refilled from the pool
 
         # Friend's turn: a mismatch resets their combo and passes the turn.
         s_now = fst
@@ -790,6 +795,33 @@ def run() -> int:
         # ...and the settings buttons everyone sees reflect it.
         assert next(b for n, b in mp2.cards_btns if n == 4).selected
         assert not next(b for n, b in mp2.cards_btns if n == 3).selected
+
+        # Presentation settings (writing direction + fonts), shared with the
+        # single-player Advanced tab. Every row must SHOW its selection - a row
+        # whose buttons are all unhighlighted looks broken (and was).
+        mp2._set_setting("writing", "all")
+        mp2._set_setting("fonts", "random")
+        frames2(4)
+        fset = [m["state"] for m in friend.poll()
+                if m.get("t") == "state"][-1]["settings"]
+        assert fset["writing"] == "all" and fset["fonts"] == "random", fset
+        for _lbl, btns in (("writing", mp2.writing_btns),
+                           ("fonts", mp2.fonts_btns),
+                           ("cards", mp2.cards_btns),
+                           ("turns", mp2.lturns_btns)):
+            assert any(b.selected for _v, b in btns), \
+                f"the {_lbl} row shows no selection at all"
+        assert next(b for v, b in mp2.writing_btns if v == "all").selected
+        assert next(b for v, b in mp2.fonts_btns if v == "random").selected
+        # Everyone must see the SAME board, so the look can't be rolled locally.
+        mp2.room = "TESTS"
+        style = mp2._card_style({"id": 7, "face": "kanji"})
+        assert style == mp2._card_style({"id": 7, "face": "kanji"}), \
+            "card styling is not deterministic - players would see different boards"
+        assert style[1] == "vertical", style
+        mp2._set_setting("writing", "off")
+        mp2._set_setting("fonts", "fixed")
+        frames2(4)
 
         mp2._start()
         frames2(6)

@@ -153,8 +153,10 @@ def _bundle_lib_args() -> list[str]:
 def _hidden_imports() -> list[str]:
     """Per-OS modules PyInstaller occasionally misses for pyglet/TTS."""
     # fsrs and paho are imported lazily / inside try-excepts, which some
-    # PyInstaller analyses skip - name them so they actually ship.
-    common = ["pyglet.media.codecs.wave", "fsrs", "paho.mqtt.client"]
+    # PyInstaller analyses skip - name them so they actually ship. certifi is
+    # the updater's CA fallback for distros with no usable system CA store
+    # (without it, a TLS failure looks exactly like "no update available").
+    common = ["pyglet.media.codecs.wave", "fsrs", "paho.mqtt.client", "certifi"]
     if os.name == "nt":
         return common + [
             "pyglet.media.codecs.wmf",

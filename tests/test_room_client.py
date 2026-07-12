@@ -221,6 +221,63 @@ def test_dropped_player_frees_the_turn():
     assert hst["scores"][0] >= 100
 
 
+def test_silent_player_is_timed_out_and_their_turns_leave_with_them():
+    """A killed app / dead wifi sends no 'bye' - the broker's will only fires on
+    a *clean* disconnect. Without heartbeats the room sat forever on the turn of
+    someone who was never coming back."""
+    from kanjire.net import config
+
+    broker = LoopbackBroker()
+    host = _mk(broker, "alice", 30)
+    host.send({"t": "create", "settings": {"board_size": 4, "cards": 2}})
+    guest = _mk(broker, "bob", 31)
+    guest.send({"t": "join", "room": host.code})
+    host.poll(); guest.poll()
+    host.send({"t": "start", "pool": _pool(20), "faces": ["kanji", "meaning"],
+               "board_size": 4, "turns_each": 3})
+    hst = _drain_state(host); guest.poll()
+    assert hst["connected"] == [True, True]
+    assert hst["turns_left"] == 6          # 3 turns each, two players
+
+    t = 100.0
+    host.tick(t)
+    guest.tick(t)          # bob is alive and pinging
+    guest.poll()
+    assert not [m for m in host.poll() if m.get("t") == "state"], \
+        "a live player must not trigger any state change"
+    assert host.room.connected == [True, True]
+
+    # Bob's machine dies: no bye, no will, just silence. Only the host ticks.
+    for step in range(1, 8):
+        host.tick(t + step * config.HEARTBEAT_SECONDS)
+    hst = _drain_state(host)
+    assert hst["connected"] == [True, False], \
+        "a silent player was never dropped - the game would stall on their turn"
+    assert hst["turn"] == 0, "the turn must come back to the player still here"
+    # Bob's 3 unplayed turns leave with him instead of being handed to alice.
+    assert hst["turns_left"] == 3, hst["turns_left"]
+
+
+def test_guest_notices_a_vanished_host():
+    from kanjire.net import config
+
+    broker = LoopbackBroker()
+    host = _mk(broker, "alice", 40)
+    host.send({"t": "create", "settings": {"board_size": 4}})
+    guest = _mk(broker, "bob", 41)
+    guest.send({"t": "join", "room": host.code})
+    host.poll(); guest.poll()
+
+    t = 500.0
+    guest.tick(t)
+    guest.poll()
+    for step in range(1, 8):               # host never speaks again
+        guest.tick(t + step * config.HEARTBEAT_SECONDS)
+    errs = [m for m in guest.poll()
+            if m.get("t") == "error" and "host" in m.get("msg", "")]
+    assert errs, "guest sat forever on a dead room instead of being told"
+
+
 def test_host_settings_are_broadcast_live_and_guests_cannot_change_them():
     broker = LoopbackBroker()
     host = _mk(broker, "alice", 20)

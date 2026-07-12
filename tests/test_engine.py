@@ -45,13 +45,18 @@ def _select_group(engine: GameEngine, group: int):
 
 
 def test_deal_board():
+    from kanjire.game.config import DEFAULT_FACES
+
     e = new_engine(words_per_round=6)
     assert e.phase is Phase.PLAYING
-    assert len(e.board) == 6 * 3          # 3 faces each
+    # One card per face per word - assert against the configured faces rather
+    # than a hard-coded 3, so flipping the default (romaji is now on) doesn't
+    # break a test that isn't about faces at all.
+    assert len(e.board) == 6 * len(DEFAULT_FACES)
     assert len(e.round_words) == 6
     # every card maps to a real word/face
     faces = {c.face for c in e.board_cards}
-    assert faces == {"kanji", "reading", "meaning"}
+    assert faces == set(DEFAULT_FACES)
 
 
 def test_complete_group_scores_with_combo():

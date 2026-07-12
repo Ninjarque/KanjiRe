@@ -71,6 +71,8 @@ class UpdateController:
     def _run(self) -> None:
         self.status = CHECKING
         self.error = None
+        checker._debug(f"frozen={applier.is_frozen()} "
+                       f"capable={self.self_update_capable()}")
         info = checker.check_for_update(__version__)
         self.state.set_update_last_check(time.time())
         if info is None:

@@ -12,6 +12,30 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.14.0 — 2026-07-12
+- **The updater actually updates now.** On Windows it downloaded the new
+  version, said "ready", and then quietly relaunched the *old* one: the helper
+  that swaps the folders waited for the app to exit using a command that can't
+  run without a console window, so it waited forever. It now waits for the
+  files to be free instead, applies the update, restarts you into the new
+  build — and no longer flashes a black console window while it does.
+- **When an update check finds nothing, it now says why** (in `update.log` next
+  to your save file) instead of silently pretending you're up to date, and it
+  falls back to a bundled certificate store on Linux distros that don't ship a
+  usable one.
+- **Romaji is on by default everywhere**, including the Journey and boss fights.
+  Turn it off in one click on the Advanced tab if you don't want it.
+- **Multiplayer: writing direction and fonts** join the room settings, matching
+  the single-player Advanced tab — and everyone's board looks identical, which
+  a naive random roll would have broken.
+- **Multiplayer: players who vanish are dropped.** Close the app, lose wifi, or
+  pull the plug and the room now notices within 15 seconds and moves on — the
+  game used to sit forever on the turn of someone who was never coming back.
+  Their unplayed turns leave with them instead of being handed to whoever's left.
+- **Play again** on the multiplayer results screen: same players, same settings,
+  fresh words. The final scores are much bigger and easier to read, too.
+- The update banner no longer covers the Multiplayer and Save-as-preset buttons.
+
 ## 0.13.0 — 2026-07-12
 - **Fixed the missing characters on Linux.** 漢字 in the title, the streak
   icons and several buttons showed up as empty boxes. Two causes: the bundled

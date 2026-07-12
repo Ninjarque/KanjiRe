@@ -24,14 +24,14 @@ from pyglet.text import Label
 
 from kanjire.data import db
 from kanjire.i18n import tr
-from kanjire.ui.scenes.menu import _deck_label
+from kanjire.ui.scenes.menu import WRITING_OPTIONS, _deck_label
 from kanjire.model.sampling import weighted_sample_words
 from kanjire.net.client import NetClient
 from kanjire.net.room_client import RoomClient
 from kanjire.net.server import DEFAULT_PORT, start_in_thread
 from kanjire.ui import theme
 from kanjire.ui.anim import Animator, ease_out_back, ease_out_cubic, ease_out_elastic
-from kanjire.ui.fonts import JP_FONT
+from kanjire.ui.fonts import JP_FONT, JP_FONTS
 from kanjire.ui.gfx import fill_quad
 from kanjire.ui.layout import choose_grid, slot_center
 from kanjire.ui.metrics import scale_for
@@ -160,9 +160,12 @@ class MultiplayerScene(Scene):
         self.lbl_s_words = srow("SEC_WORDS")
         self.lbl_s_cards = srow("SEC_CARDS")
         self.lbl_s_turns = srow("MP_TURNS")
+        self.lbl_s_writing = srow("SEC_WRITING")
+        self.lbl_s_fonts = srow("SEC_FONTS")
         self.settings_labels = [self.lbl_s_deck, self.lbl_s_level,
                                 self.lbl_s_words, self.lbl_s_cards,
-                                self.lbl_s_turns]
+                                self.lbl_s_turns, self.lbl_s_writing,
+                                self.lbl_s_fonts]
 
         decks = []
         try:
@@ -207,9 +210,24 @@ class MultiplayerScene(Scene):
                        accent=theme.GOLD, font_size=11))
             for n in TURNS_CHOICES
         ]
+        # Presentation, with the same options (and the same words) as the
+        # single-player Advanced tab.
+        self.writing_btns = [
+            (v, Button(tr(key), lambda v=v: self._set_setting("writing", v),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.ACCENT, font_size=11))
+            for v, key in WRITING_OPTIONS
+        ]
+        self.fonts_btns = [
+            (v, Button(tr(key), lambda v=v: self._set_setting("fonts", v),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.ACCENT, font_size=11))
+            for v, key in (("fixed", "FONT_SINGLE"), ("random", "FONT_RANDOM"))
+        ]
         self.setting_btns = (self.deck_btns + self.level_btns
                              + self.words_btns + self.cards_btns
-                             + self.lturns_btns)
+                             + self.lturns_btns + self.writing_btns
+                             + self.fonts_btns)
 
         # ---- in-game host controls ---- #
         self.pause_btn = Button("", self._pause, self.batch, self.g_bg,
@@ -217,9 +235,14 @@ class MultiplayerScene(Scene):
         self.lobby_btn = Button(tr("MP_TO_LOBBY"), self._to_lobby, self.batch,
                                 self.g_bg, self.g_text, accent=theme.DANGER,
                                 font_size=12)
+        # Results screen: run it back with the same settings, same players.
+        self.replay_btn = Button(tr("MP_REPLAY"), self._replay, self.batch,
+                                 self.g_bg, self.g_text, accent=theme.SUCCESS,
+                                 font_size=15)
 
         self.buttons = ([self.host_btn, self.join_btn, self.start_btn,
-                         self.back_btn, self.pause_btn, self.lobby_btn]
+                         self.back_btn, self.pause_btn, self.lobby_btn,
+                         self.replay_btn]
                         + [b for _n, b in self.turns_btns]
                         + [b for _v, b in self.setting_btns])
         self._apply_phase()
@@ -252,6 +275,7 @@ class MultiplayerScene(Scene):
             self.pause_btn: ph == "play" and self.me == 0,
             self.lobby_btn: (self.me == 0
                              and (ph == "done" or (ph == "play" and paused))),
+            self.replay_btn: ph == "done" and self.me == 0,
         }
         for b, v in vis.items():
             b.set_visible(v)
@@ -312,6 +336,10 @@ class MultiplayerScene(Scene):
             b.set_selected(n == s.get("cards"))
         for n, b in self.lturns_btns:
             b.set_selected(n == s.get("turns_each"))
+        for v, b in self.writing_btns:
+            b.set_selected(v == (s.get("writing") or "off"))
+        for v, b in self.fonts_btns:
+            b.set_selected(v == (s.get("fonts") or "fixed"))
         self.lbl_s_level.opacity = (255 if (self.phase == "lobby" and is_jlpt)
                                     else 0)
 
@@ -451,6 +479,17 @@ class MultiplayerScene(Scene):
         if self.client is not None and self.me == 0:
             self.client.send({"t": "lobby"})
 
+    def _replay(self) -> None:
+        """Host, on the results screen: same players, same settings, new words.
+
+        Goes through the lobby first because that's what resets the finished
+        game and the scores; then immediately starts a freshly-sampled round.
+        """
+        if self.client is None or self.me != 0:
+            return
+        self.client.send({"t": "lobby"})
+        self._start()
+
     def _leave(self) -> None:
         if self.client is not None:
             self.client.close()
@@ -465,6 +504,8 @@ class MultiplayerScene(Scene):
             c.apply()
         if self.client is None:
             return
+        # Heartbeat: proves we're still here, and drops anyone who isn't.
+        self.client.tick()
         for msg in self.client.poll():
             t = msg.get("t")
             if t == "welcome" and "player" in msg:
@@ -529,6 +570,31 @@ class MultiplayerScene(Scene):
         self.cards.clear()
         self._board_sig = ()
 
+    def _card_style(self, d: dict) -> tuple[str | None, str]:
+        """(font, direction) for one card - identical on every client.
+
+        The single-player scene rolls these with a plain ``random``, which would
+        give each player a *different-looking* board of the same cards. Seeding
+        off the room code + card id keeps everyone's screens in sync while still
+        looking shuffled.
+        """
+        s = self._settings()
+        face = d.get("face")
+        if face in ("meaning", "romaji"):
+            return JP_FONT, "horizontal"
+        rng = random.Random(f"{self.room}:{d.get('id')}")
+        font = JP_FONT
+        if s.get("fonts") == "random" and JP_FONTS:
+            font = rng.choice(JP_FONTS)
+        writing = s.get("writing") or "off"
+        if writing == "all":
+            direction = "vertical"
+        elif writing == "random":
+            direction = "vertical" if rng.random() < 0.5 else "horizontal"
+        else:
+            direction = "horizontal"
+        return font, direction
+
     def _sync_board(self, state: dict) -> None:
         board = state.get("board") or []
         sig = tuple(c["id"] for c in board)
@@ -536,9 +602,10 @@ class MultiplayerScene(Scene):
             self._clear_cards()
             self._board_sig = sig
             for d in board:
+                font, direction = self._card_style(d)
                 self.cards[d["id"]] = CardView(
                     _MPCard(d), self.batch, self.g_glow, self.g_bg,
-                    self.g_text)
+                    self.g_text, font_name=font, direction=direction)
             self._layout_cards()
             for i, c in enumerate(self.cards.values()):
                 c.scale = 0.2
@@ -622,9 +689,13 @@ class MultiplayerScene(Scene):
                 self.turn_lbl.text = (tr("MP_YOUR_TURN") if mine else
                                       tr("MP_THEIR_TURN",
                                          name=players[turn] if 0 <= turn < len(players) else "?"))
-            left = max(0, (st.get("turns_total") or 0)
-                       - (st.get("turns_used") or 0))
-            self.turns_left_lbl.text = tr("MP_TURNS_LEFT", n=left)
+            # Trust the server's count: a player who left takes their unplayed
+            # turns with them, so total-minus-used overstates what's left.
+            left = st.get("turns_left")
+            if left is None:
+                left = max(0, (st.get("turns_total") or 0)
+                           - (st.get("turns_used") or 0))
+            self.turns_left_lbl.text = tr("MP_TURNS_LEFT", n=int(left))
         elif self.phase == "done":
             self.turn_lbl.text = ""
             self.turns_left_lbl.text = ""
@@ -694,6 +765,12 @@ class MultiplayerScene(Scene):
         self._s = s
         for lbl in self.labels:
             lbl.font_size = max(8, round(lbl._base_fs * s))
+        # The player rows double as the in-game HUD and the final scoreboard;
+        # on the results screen they're the headline, so blow them up.
+        if self.phase == "done":
+            for lbl in self.player_lbls:
+                lbl.font_size = max(16, round(28 * s))
+            self.title.font_size = max(22, round(34 * s))
         for b in self.buttons:
             b.set_scale(s)
         cx = width / 2
@@ -739,8 +816,15 @@ class MultiplayerScene(Scene):
                 (self.lbl_s_words, self.words_btns, 46 * s),
                 (self.lbl_s_cards, self.cards_btns, 168 * s),
                 (self.lbl_s_turns, self.lturns_btns, 46 * s),
+                (self.lbl_s_writing, self.writing_btns, 64 * s),
+                (self.lbl_s_fonts, self.fonts_btns, 78 * s),
             ]
-            ry = height - 200 * s - n_players * 26 * s
+            # Seven rows + the player list can outgrow a short window, so the
+            # row pitch shrinks to fit rather than running Start off the bottom.
+            top = height - 200 * s - n_players * 26 * s
+            floor = 150 * s                     # leaves room for Start + hint
+            pitch = min(40 * s, max(28 * s, (top - floor) / max(1, len(rows))))
+            ry = top
             gap = 8 * s
             for lb, btns, bw in rows:
                 total = len(btns) * bw + (len(btns) - 1) * gap
@@ -748,9 +832,9 @@ class MultiplayerScene(Scene):
                 lb.x, lb.y = x0 - 16 * s, ry
                 for i, (_v, b) in enumerate(btns):
                     b.set_rect(x0 + i * (bw + gap), ry - 13 * s, bw, 26 * s)
-                ry -= 40 * s
+                ry -= pitch
 
-            self.start_btn.set_rect(cx - 130 * s, max(96 * s, ry - 46 * s),
+            self.start_btn.set_rect(cx - 130 * s, max(96 * s, ry - 40 * s),
                                     260 * s, 46 * s)
             self.hint.x, self.hint.y = cx, 52 * s
         elif self.phase in ("play", "done"):
@@ -776,10 +860,17 @@ class MultiplayerScene(Scene):
                                         140 * s, 28 * s)
                 self._layout_cards()
             else:
+                # Results: the scores are the point of this screen, so they get
+                # room to breathe (they used to be the same size as a HUD line).
                 for i, lbl in enumerate(self.player_lbls):
                     lbl.anchor_x = "center"
-                    lbl.x, lbl.y = cx, height - 180 * s - i * 40 * s
-                self.lobby_btn.set_rect(cx - 100 * s, 90 * s, 200 * s, 40 * s)
+                    lbl.x, lbl.y = cx, height - 200 * s - i * 56 * s
+                # Replay (same players, same settings) sits next to the way out.
+                if self.me == 0:
+                    self.replay_btn.set_rect(cx - 220 * s, 90 * s, 210 * s, 44 * s)
+                    self.lobby_btn.set_rect(cx + 10 * s, 90 * s, 210 * s, 44 * s)
+                else:
+                    self.lobby_btn.set_rect(cx - 105 * s, 90 * s, 210 * s, 44 * s)
             self.hint.x, self.hint.y = cx, 16 * s
 
     def draw(self) -> None:

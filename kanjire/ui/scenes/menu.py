@@ -117,7 +117,7 @@ class MenuScene(Scene):
         )
         self.levels: set[int] = {5}
         self.board_size = 6
-        self.face_mode = 3   # 2 | 3 | 4 cards per word
+        self.face_mode = 4   # 2 | 3 | 4 cards per word (4 = with romaji)
         # Visual toggles (also part of saved presets)
         self.random_fonts = False
         self.vertical_writing = "off"
@@ -1052,18 +1052,30 @@ class MenuScene(Scene):
             self._set_group_visible(*learn_widgets, False)
             self._set_group_visible(*survival_widgets, False)
 
+    def _banner_height(self) -> float:
+        """Vertical space the update banner takes at the bottom (0 if hidden)."""
+        if not self._banner:
+            return 0.0
+        s = getattr(self, "_s", 1.0)
+        return (56 if self._banner.get("notes") else 40) * s + 22 * s
+
     def _layout_footer(self, cx, s) -> None:
         # Persistent footer, bottom-anchored so the buttons sit in the same
         # place on both sub-tabs. Today's Training and PLAY share one row (the
         # same vertical envelope as the old lone PLAY button, so the tab
         # content above never collides); save-preset tucks into the corner.
-        self.today_btn.set_rect(cx - 340 * s, 120 * s, 330 * s, 56 * s)
-        self.play_btn.set_rect(cx + 10 * s, 120 * s, 330 * s, 56 * s)
-        self.save_preset_btn.set_rect(16 * s, 16 * s, 180 * s, 26 * s)
-        self.mp_btn.set_rect(self.width - 196 * s, 16 * s, 180 * s, 26 * s)
-        self.avail_label.x, self.avail_label.y = cx, 90 * s
-        self.hiscore_label.x, self.hiscore_label.y = cx, 64 * s
-        self.streak_label.x, self.streak_label.y = cx, 40 * s
+        #
+        # The update banner is its own bottom strip, so everything here rides up
+        # by its height while it's showing - it used to sit straight on top of
+        # Multiplayer, Save-as-preset and the streak line.
+        lift = self._banner_height()
+        self.today_btn.set_rect(cx - 340 * s, 120 * s + lift, 330 * s, 56 * s)
+        self.play_btn.set_rect(cx + 10 * s, 120 * s + lift, 330 * s, 56 * s)
+        self.save_preset_btn.set_rect(16 * s, 16 * s + lift, 180 * s, 26 * s)
+        self.mp_btn.set_rect(self.width - 196 * s, 16 * s + lift, 180 * s, 26 * s)
+        self.avail_label.x, self.avail_label.y = cx, 90 * s + lift
+        self.hiscore_label.x, self.hiscore_label.y = cx, 64 * s + lift
+        self.streak_label.x, self.streak_label.y = cx, 40 * s + lift
 
     # ------------------------------------------------------------------ #
     # Update banner (bottom strip) — appears when a verified update is staged.
@@ -1077,6 +1089,10 @@ class MenuScene(Scene):
             self._build_banner()
         elif not want and self._banner is not None:
             self._destroy_banner()
+        else:
+            return
+        # The footer sits above the banner, so its height just changed.
+        self.on_resize(self.width, self.height)
 
     def _build_banner(self) -> None:
         from pyglet import shapes

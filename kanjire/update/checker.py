@@ -7,13 +7,36 @@ any pyglet object, so it is safe to call from a background thread.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
 from kanjire import __version__
 from kanjire.update import config, verify
+
+
+def _debug(msg: str) -> None:
+    """Record *why* a check came back empty.
+
+    check_for_update() returns None for every benign failure, which is right for
+    the UI and useless when a player reports "it never sees the update" - there
+    was no way to tell a throttled check from a TLS error from a bad signature.
+    The reason now always lands in ``<user dir>/update.log`` (and on stderr with
+    KANJIRE_UPDATE_DEBUG=1), so a friend can just send the file.
+    """
+    if os.environ.get("KANJIRE_UPDATE_DEBUG"):
+        print(f"[update] {msg}", file=sys.stderr, flush=True)
+    try:
+        from kanjire.paths import USER_DIR
+
+        with open(USER_DIR / "update.log", "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:  # noqa: BLE001 — logging must never break a check
+        pass
 
 
 def current_platform() -> str:
@@ -56,13 +79,38 @@ def is_newer(remote: str, local: str) -> bool:
     return parse_version(remote) > parse_version(local)
 
 
+def urlopen(req, timeout: int):
+    """urlopen, with a certifi fallback when the OS has no usable CA bundle.
+
+    A frozen build on a lean distro can hit CERTIFICATE_VERIFY_FAILED because
+    there is no system CA store where OpenSSL expects one. That raises
+    URLError -> OSError -> a silent "no update available", which is
+    indistinguishable from being up to date. Retry once against certifi's
+    bundle before giving up.
+    """
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        import ssl
+
+        if not isinstance(exc.reason, ssl.SSLError):
+            raise
+        try:
+            import certifi
+        except ImportError:
+            raise exc
+        _debug(f"TLS verify failed ({exc.reason}); retrying with certifi")
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+
+
 def _http_get(url: str, timeout: int) -> bytes:
     # HTTPS-only: refuse to fetch anything over plaintext, even via redirect to
     # a manifest-declared URL.
     if not url.lower().startswith("https://"):
         raise ValueError(f"refusing non-HTTPS URL: {url!r}")
     req = urllib.request.Request(url, headers={"User-Agent": f"KanjiRe/{__version__}"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urlopen(req, timeout=timeout) as resp:
         final = resp.geturl()
         if not final.lower().startswith("https://"):
             raise ValueError(f"redirected to non-HTTPS URL: {final!r}")
@@ -88,16 +136,26 @@ def check_for_update(
     manifest. Only genuinely unexpected programming errors propagate.
     """
     if not config.updates_enabled():
+        _debug("no public key baked in - updates disabled")
         return None
-    current = current_version or __version__
+    # KANJIRE_UPDATE_PRETEND_VERSION lets a real (frozen) build pretend it is
+    # older, so the whole download/swap/relaunch path can be exercised against
+    # the live release instead of only being reasoned about.
+    current = (os.environ.get("KANJIRE_UPDATE_PRETEND_VERSION")
+               or current_version or __version__)
+    _debug(f"current={current} platform={current_platform()}")
     try:
         manifest = fetch_manifest(manifest_url)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None  # offline / DNS / timeout / garbage — just skip quietly
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        # offline / DNS / timeout / TLS / garbage — benign for the UI, but the
+        # single most likely thing to go wrong in the field, so say what it was.
+        _debug(f"manifest fetch failed: {type(exc).__name__}: {exc}")
+        return None
 
     # Authenticity FIRST: never trust the version/url/hash in an unverified
     # manifest.
     if not verify.verify_manifest(manifest, config.PUBLIC_KEY_HEX):
+        _debug("manifest signature did NOT verify")
         return None
 
     try:
@@ -109,6 +167,8 @@ def check_for_update(
         if isinstance(platforms, dict):
             entry = platforms.get(current_platform())
             if not entry:
+                _debug(f"release {version} has no build for {current_platform()}"
+                       f" (has: {sorted(platforms)})")
                 return None  # this release has no build for our OS
             url = str(entry["url"])
             sha256 = str(entry["sha256"]).lower()
@@ -121,11 +181,15 @@ def check_for_update(
             url = str(manifest["url"])
             sha256 = str(manifest["sha256"]).lower()
             size = int(manifest.get("size", 0))
-    except (KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError) as exc:
+        _debug(f"malformed manifest: {type(exc).__name__}: {exc}")
         return None
 
     if not url.lower().startswith("https://"):
+        _debug(f"refusing non-HTTPS asset url: {url!r}")
         return None
     if not is_newer(version, current):
+        _debug(f"already up to date ({current} >= {version})")
         return None
+    _debug(f"update available: {version} <- {url}")
     return UpdateInfo(version=version, url=url, sha256=sha256, size=size, notes=notes)

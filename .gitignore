@@ -28,3 +28,6 @@ corpora/*.txt
 # OS
 Thumbs.db
 .DS_Store
+
+# updater diagnostics (written next to the user save file)
+update.log

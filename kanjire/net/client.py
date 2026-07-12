@@ -81,6 +81,11 @@ class NetClient:
             except queue.Empty:
                 return out
 
+    def tick(self, now: float | None = None) -> None:
+        """No-op: TCP notices a dead peer itself (the socket closes), so only
+        the relay transport needs heartbeats. Defined so the scene can call
+        ``client.tick()`` without caring which transport it got."""
+
     def close(self) -> None:
         if self.sock is not None:
             self.send({"t": "bye"})

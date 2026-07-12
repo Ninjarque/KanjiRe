@@ -165,6 +165,25 @@ def main() -> int:
         render(6)
         shot("stats_history", size)
 
+        # menu WITH the update banner: it's a bottom strip, and it used to sit
+        # right on top of Multiplayer / Save-as-preset / the streak line.
+        app.go_menu()
+        render(6)
+        from kanjire.update import controller as _uc
+        from kanjire.update.checker import UpdateInfo
+        _saved = (app.updater.status, app.updater.info)
+        app.updater.status = _uc.READY
+        app.updater.info = UpdateInfo(
+            version="9.9.9", url="https://example.invalid/x.zip",
+            sha256="0" * 64, size=1,
+            notes="- Fixed the missing characters on Linux\n- Search box works")
+        app.updater.staged = None
+        render(8)
+        shot("menu_update_banner", size)
+        app.updater.status, app.updater.info = _saved
+        app.go_menu()
+        render(4)
+
         # multiplayer lobby, host AND guest view (a guest's settings buttons
         # are read-only but must still show what the host picked). No network:
         # the scene renders whatever snapshot it was last handed.
@@ -186,6 +205,20 @@ def main() -> int:
             mp._on_state(snap, None)
             render(8)
             shot(f"mp_lobby_{who}", size)
+
+        # Multiplayer results: the host gets Play-again next to Lobby.
+        done = dict(snap, started=True, finished=True,
+                    scores=[4200, 3100, 900], combos=[3, 1, 0],
+                    turn=0, turns_used=30, turns_total=30, turns_left=0,
+                    board=[])
+        mp = MultiplayerScene(app)
+        app.set_scene(mp)
+        mp.me = 0
+        mp.room = "KANJI"
+        mp.client = None
+        mp._on_state(done, None)
+        render(8)
+        shot("mp_results", size)
 
         # settings / reading / journey / recall
         app.go_settings()
