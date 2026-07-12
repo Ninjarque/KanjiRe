@@ -67,21 +67,45 @@ def _write_version(new: str) -> None:
     INIT_PATH.write_text(text, encoding="utf-8")
 
 
-def _unreleased_body() -> str:
+def _section_body(heading: str | None = None) -> str:
+    """Bullets under ``## [Unreleased]``, or under the first ``## `` heading.
+
+    These bullets ARE the release notes: they're signed into the manifest and
+    are what a player reads in the in-app "update ready" banner. Writing the
+    version heading by hand (instead of letting _stamp_changelog add it) left
+    [Unreleased] empty and shipped a release with **no notes at all**, so fall
+    back to whatever the topmost section actually holds.
+    """
     body, capturing = [], False
     for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines():
         if line.startswith("## "):
             if capturing:
                 break
-            capturing = line.strip() == "## [Unreleased]"
+            capturing = (line.strip() == heading if heading
+                         else line.strip() == "## [Unreleased]")
             continue
         if capturing:
             body.append(line)
     return "\n".join(body).strip()
 
 
+def _unreleased_body() -> str:
+    body = _section_body()
+    if body:
+        return body
+    # [Unreleased] is empty: use the newest version section instead of shipping
+    # an empty "what's new".
+    for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## ") and line.strip() != "## [Unreleased]":
+            return _section_body(line.strip())
+    return ""
+
+
 def _stamp_changelog(new: str, today: str) -> None:
-    lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
+    text = CHANGELOG_PATH.read_text(encoding="utf-8")
+    if f"## {new} " in text:
+        return                      # already stamped by hand - don't duplicate
+    lines = text.splitlines()
     out, inserted = [], False
     for line in lines:
         out.append(line)
