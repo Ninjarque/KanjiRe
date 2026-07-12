@@ -287,9 +287,14 @@ class CardView:
 
     def set_slot(self, cx: float, cy: float, w: float, h: float) -> None:
         self.cx, self.cy, self.bw, self.bh = cx, cy, w, h
-        self._text.set_geometry(cx, cy, w, h)
         if self._romaji is not None:
+            # Reserve a strip at the bottom for the romaji hint so the main
+            # text (especially stacked vertical kana) can't run into it.
             self._romaji.font_size = int(max(8, min(12, h * 0.11)))
+            inset = self._romaji.font_size + 12
+            self._text.set_geometry(cx, cy + inset / 2, w, h - inset)
+        else:
+            self._text.set_geometry(cx, cy, w, h)
         self.apply()
 
     def contains(self, px: float, py: float) -> bool:

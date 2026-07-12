@@ -1043,15 +1043,20 @@ class MenuScene(Scene):
             [self.lbl_hearts, self.lbl_bounty],
         )
         if self.mode == "Learn":
-            section(self.lbl_known)
-            y -= 28 * s
-            self._row(self.known_btns, y, 78 * s, 30 * s, gap=12 * s)
-            section(self.lbl_less_known, dy=38)
-            y -= 28 * s
-            self._row(self.less_known_btns, y, 78 * s, 30 * s, gap=12 * s)
-            section(self.lbl_unknown, dy=38)
-            y -= 28 * s
-            self._row(self.unknown_btns, y, 78 * s, 30 * s, gap=12 * s)
+            # Compact inline rows (label left, buttons right) — the stacked
+            # version was ~180px taller and collided with the footer on
+            # short windows.
+            bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
+            row_w = 4 * bw2 + 3 * gap2
+            for lbl, btns in ((self.lbl_known, self.known_btns),
+                              (self.lbl_less_known, self.less_known_btns),
+                              (self.lbl_unknown, self.unknown_btns)):
+                y -= 40 * s
+                lbl.anchor_x = "right"
+                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
+                x0 = cx - row_w / 2
+                for i, (_v, b) in enumerate(btns):
+                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
             self._set_group_visible(*survival_widgets, False)
         elif self.mode == "Survival":
             section(self.lbl_hearts)

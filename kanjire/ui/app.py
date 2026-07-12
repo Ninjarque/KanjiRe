@@ -1,6 +1,8 @@
 """Application shell: the window, the frame clock, and scene switching."""
 from __future__ import annotations
 
+import sys
+
 import pyglet
 
 from kanjire.data import db
@@ -10,6 +12,27 @@ from kanjire.ui import theme
 from kanjire.ui.audio import Audio
 from kanjire.ui.scene import Scene
 from kanjire.userstate import UserState
+
+
+def _enable_dpi_awareness() -> None:
+    """Opt into real pixels on Windows.
+
+    pyglet 1.5 apps aren't DPI-aware, so at 125-175% display scaling Windows
+    reports a *virtual* window size (a 1920x1080 fullscreen window can claim
+    to be ~1165x653) and bitmap-stretches the result - blurry text AND
+    layouts squeezed into a size the window doesn't really have. Declaring
+    per-monitor DPI awareness makes width/height physical and text crisp;
+    scale_for() then sizes the UI from true dimensions."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor aware
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()   # Vista fallback
+        except Exception:
+            pass
 
 
 def _set_clear_color(color: tuple[int, int, int]) -> None:
@@ -93,6 +116,7 @@ class _Window(pyglet.window.Window):
 
 class GameApp:
     def __init__(self, db_path=None) -> None:
+        _enable_dpi_awareness()   # must run before the window is created
         self.con = (
             db.connect(db_path, read_only=True)
             if db_path

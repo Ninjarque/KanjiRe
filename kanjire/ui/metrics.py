@@ -13,7 +13,11 @@ from __future__ import annotations
 #: The size the UI was originally laid out at; scale is 1.0 here.
 REF_W, REF_H = 1180, 1020
 #: Clamp so text never collapses to unreadable nor balloons absurdly.
-MIN_SCALE, MAX_SCALE = 0.80, 1.50
+#: The floor tracks the minimum window (760x600 -> ~0.59): flooring higher
+#: (it used to be 0.80) made tall layouts like the Learn Advanced tab stop
+#: shrinking and overlap the footer on short windows. Font sizes have their
+#: own per-label minimums, so small scales stay legible.
+MIN_SCALE, MAX_SCALE = 0.58, 1.50
 
 
 def scale_for(width: float, height: float) -> float:

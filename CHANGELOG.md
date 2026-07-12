@@ -11,6 +11,12 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- Fixed text overlapping in several places: KanjiRe is now **DPI-aware** on
+  Windows, so with display scaling (125-175%) the window uses its real size —
+  layouts stop squeezing into a smaller virtual one and all text renders
+  noticeably **crisper**. The UI also keeps shrinking properly on genuinely
+  small windows, the Learn options are more compact, and vertical kana no
+  longer runs into the new romaji hints.
 
 ## 0.8.0 — 2026-07-12
 - New **ROMAJI ON KANA CARDS** toggle (Advanced tab): kana cards — reading
