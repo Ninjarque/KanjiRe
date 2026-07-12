@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.5.0 — 2026-07-12
 - **Kanji anatomy**: click a word in Stats and see what its kanji are built
   from, its **pitch accent**, and its **sound family** — 晴 borrows 青's
   せい, just like 清・精・請. Learn one component, unlock a whole family.
