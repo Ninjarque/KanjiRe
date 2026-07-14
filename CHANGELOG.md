@@ -11,6 +11,19 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Friends!** Add the people you play with straight from the room (a **+ add**
+  button next to their name), see who's online and who's sitting in a room, and
+  play together in one click: **invite** a friend while you're hosting, or **ask
+  to join** theirs when they're the one with the room open. Invites reach you
+  anywhere in the app, not just on the multiplayer screen — accept and you land
+  straight in their room, no code to read out loud. Remove a friend any time.
+  (Nothing is announced until you've actually played online once; a friend who
+  quits or crashes stops showing as online within seconds.)
+- **The multiplayer room settings are full-size now** — they were built at about
+  two-thirds the size of the equivalent menu rows, so they read like a shrunken
+  afterthought however big your window was.
+- Fixed text being clipped inside the name / room-code / search boxes at larger
+  window sizes.
 
 ## 0.16.0 — 2026-07-12
 - **Fixed: updating did nothing on Linux.** It downloaded, you clicked restart,

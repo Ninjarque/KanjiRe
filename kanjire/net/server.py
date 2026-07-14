@@ -104,6 +104,8 @@ class Room:
         self.combos: list[int] = []
         self.connected: list[bool] = []
         self.turns_taken: list[int] = []
+        #: Friend codes, parallel to names: lets players add each other after.
+        self.codes: list[str] = []
 
         self.turn = 0                  # index into players
         self.turns_used = 0
@@ -146,10 +148,13 @@ class Room:
                 s["fonts"] = str(d["fonts"])
 
     # ---- membership -------------------------------------------------- #
-    def add_player(self, handler: "Handler", name: str) -> int:
+    def add_player(self, handler: "Handler", name: str, code: str = "") -> int:
+        """*code* is the player's friend code - carried in the room snapshot so
+        anyone can add the people they just played with."""
         with self.lock:
             self.clients.append(handler)
             self.names.append(name)
+            self.codes.append(code or "")
             self.scores.append(0)
             self.combos.append(0)
             self.connected.append(True)
@@ -407,6 +412,7 @@ class Room:
         with self.lock:
             return {
                 "players": list(self.names),
+                "codes": list(self.codes),
                 "connected": list(self.connected),
                 "scores": list(self.scores),
                 "combos": list(self.combos),
@@ -476,6 +482,7 @@ class Handler(socketserver.StreamRequestHandler):
     def setup(self) -> None:
         super().setup()
         self.name = "?"
+        self.code = ""
         self.room: Room | None = None
         self.player = -1
         self.send_lock = threading.Lock()
@@ -507,6 +514,9 @@ class Handler(socketserver.StreamRequestHandler):
                     self.send({"t": "error", "msg": "version mismatch"})
                     return
                 self.name = str(msg.get("name") or "?")[:_MAX_NAME] or "?"
+                # Friend code: carried into the roster so players can add the
+                # people they just played with.
+                self.code = str(msg.get("code") or "")[:16]
                 self.send({"t": "welcome"})
             elif t == "create":
                 if self.room is not None:
@@ -518,7 +528,7 @@ class Handler(socketserver.StreamRequestHandler):
                     self.send({"t": "error", "msg": str(exc)})
                     continue
                 self.room = room
-                self.player = room.add_player(self, self.name)
+                self.player = room.add_player(self, self.name, self.code)
                 self.send({"t": "welcome", "player": self.player})
                 room.broadcast({"type": "join", "player": self.player})
             elif t == "join":
@@ -532,7 +542,7 @@ class Handler(socketserver.StreamRequestHandler):
                     self.send({"t": "error", "msg": "room closed"})
                     continue
                 self.room = room
-                self.player = room.add_player(self, self.name)
+                self.player = room.add_player(self, self.name, self.code)
                 self.send({"t": "welcome", "player": self.player})
                 room.broadcast({"type": "join", "player": self.player})
             elif t == "config":

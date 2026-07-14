@@ -48,6 +48,7 @@ class RoomClient:
         self.lock = threading.RLock()
 
         self.name = "player"
+        self.friend_code = ""       # our stable id, carried into the roster
         self.code = ""
         self.is_host = False
         self.room: Room | None = None      # host only
@@ -74,9 +75,10 @@ class RoomClient:
         return f"{config.TOPIC_ROOT}/{self.code}/{leaf}"
 
     # ---- lifecycle ---------------------------------------------------- #
-    def connect(self, name: str) -> str | None:
+    def connect(self, name: str, friend_code: str = "") -> str | None:
         """Connect to the relay. Returns an error string, or None."""
         self.name = (name or "player")[:18]
+        self.friend_code = friend_code or ""
         if self.transport is None:
             self.transport = PahoTransport(
                 config.BROKER_HOST, config.BROKER_PORT,
@@ -163,7 +165,7 @@ class RoomClient:
         self.code = _code(self.rng)
         self.is_host = True
         self.room = Room(self.code, msg.get("settings"))
-        self.me = self.room.add_player(None, self.name)
+        self.me = self.room.add_player(None, self.name, self.friend_code)
         self.uids = [self.uid]
         for leaf in ("join", "act", "bye", "ping"):
             self.transport.subscribe(self._t(leaf))
@@ -189,7 +191,8 @@ class RoomClient:
         self._join_attempts += 1
         self.transport.publish(
             self._t("join"),
-            json.dumps({"uid": self.uid, "name": self.name}).encode("utf-8"))
+            json.dumps({"uid": self.uid, "name": self.name,
+                        "code": self.friend_code}).encode("utf-8"))
 
     def _select(self, card_id: int) -> None:
         if self.is_host:
@@ -269,7 +272,8 @@ class RoomClient:
                                 "reason": "started" if started else "full"})
                     .encode("utf-8"))
                 return
-            idx = room.add_player(None, str(msg.get("name") or "?")[:18])
+            idx = room.add_player(None, str(msg.get("name") or "?")[:18],
+                                  str(msg.get("code") or "")[:16])
             self.uids.append(uid)
             self._publish_state({"type": "join", "player": idx})
         elif leaf == "act":

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 
 import pyglet
 
@@ -65,22 +66,23 @@ class _Window(pyglet.window.Window):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.current_scene: Scene | None = None
-        #: App-level overlay drawn on top of every scene (the update banner).
-        self.overlay = None
+        #: App-level overlays drawn on top of every scene (update banner,
+        #: friend invites). They get first refusal on clicks.
+        self.overlays: list = []
 
     def on_draw(self) -> None:
         self.clear()
         if self.current_scene:
             self.current_scene.draw()
-        if self.overlay is not None:
-            self.overlay.draw()
+        for ov in self.overlays:
+            ov.draw()
 
     def on_mouse_press(self, x, y, button, modifiers) -> None:
-        # The overlay sits on top, so it gets first refusal: a click on the
-        # update strip must not fall through to whatever is underneath it.
-        if self.overlay is not None and self.overlay.on_mouse_press(
-                x, y, button, modifiers):
-            return
+        # Overlays sit on top, so they get first refusal: a click on the update
+        # strip (or an invite) must not fall through to whatever is underneath.
+        for ov in self.overlays:
+            if ov.on_mouse_press(x, y, button, modifiers):
+                return
         if self.current_scene:
             self.current_scene.on_mouse_press(x, y, button, modifiers)
 
@@ -89,8 +91,8 @@ class _Window(pyglet.window.Window):
             self.current_scene.on_mouse_release(x, y, button, modifiers)
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
-        if self.overlay is not None:
-            self.overlay.on_mouse_motion(x, y, dx, dy)
+        for ov in self.overlays:
+            ov.on_mouse_motion(x, y, dx, dy)
         if self.current_scene:
             self.current_scene.on_mouse_motion(x, y, dx, dy)
 
@@ -122,8 +124,8 @@ class _Window(pyglet.window.Window):
 
     def on_resize(self, width, height) -> None:
         super().on_resize(width, height)
-        if self.overlay is not None:
-            self.overlay.layout()
+        for ov in self.overlays:
+            ov.layout()
         if self.current_scene:
             self.current_scene.on_resize(width, height)
 
@@ -174,9 +176,32 @@ class GameApp:
         from kanjire.ui.widgets.update_banner import UpdateBanner
 
         self.banner = UpdateBanner(self)
-        self.window.overlay = self.banner
+        # Friends: presence + invites. Lives at app level because a friend must
+        # be able to reach you wherever you are, not only on the multiplayer
+        # screen. It connects in the background and stays inert (never touching
+        # the network) for a player who has never used multiplayer.
+        from kanjire.net.friends import FriendService
+        from kanjire.ui.widgets.invite_toast import InviteToast
+
+        self.friends = FriendService(self.state)
+        self.invites = InviteToast(self)
+        self.window.overlays = [self.banner, self.invites]
+        self._maybe_go_online()
         self.scene: Scene | None = None
         self.go_menu()
+
+    def _maybe_go_online(self) -> None:
+        """Announce ourselves to friends, if we have any reason to.
+
+        A player who has never touched multiplayer gets no network connection at
+        all - going online is not something to do to someone silently.
+        """
+        if os.environ.get("KANJIRE_NO_NETWORK"):
+            return
+        if not (self.state.friends or self.state.setting("mp_name", "")):
+            return
+        threading.Thread(target=self.friends.connect, daemon=True,
+                         name="kanjire-friends").start()
 
     # -- scene management ----------------------------------------------- #
     def set_scene(self, scene: Scene) -> None:
@@ -228,10 +253,20 @@ class GameApp:
 
         self.set_scene(JourneyScene(self))
 
-    def go_multiplayer(self) -> None:
+    def go_multiplayer(self, join_room: str = "") -> None:
+        """Open multiplayer; with *join_room*, walk straight into that room
+        (accepting a friend's invite must be one click, not "now type ABCDE")."""
         from kanjire.ui.scenes.multiplayer import MultiplayerScene
 
-        self.set_scene(MultiplayerScene(self))
+        self.set_scene(MultiplayerScene(self, join_room=join_room))
+
+    def current_room_code(self) -> str:
+        """The room we're hosting right now, if any (for answering a request)."""
+        scene = self.scene
+        code = getattr(scene, "room", "")
+        if code and getattr(scene, "me", -1) == 0:
+            return code
+        return ""
 
     def go_reading(self) -> None:
         from kanjire.ui.scenes.reading import ReadingScene
@@ -252,6 +287,9 @@ class GameApp:
     def _tick(self, dt: float) -> None:
         if self.scene:
             self.scene.update(dt)
+        self.friends.tick()
+        for msg in self.friends.poll():
+            self.invites.push(msg)
         if self.banner.sync():
             self.on_banner_changed()
         if self._update_selftest:
@@ -335,6 +373,9 @@ class GameApp:
         try:
             pyglet.app.run()
         finally:
+            # Clear our retained presence: friends must not keep seeing us
+            # online after we quit.
+            self.friends.close()
             self.audio.shutdown()
             self.stats.close()
             self.con.close()

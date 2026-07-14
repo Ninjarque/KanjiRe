@@ -26,7 +26,8 @@ class NetClient:
         self.connected = False
 
     # ------------------------------------------------------------------ #
-    def connect(self, address: str, name: str) -> str | None:
+    def connect(self, address: str, name: str,
+                friend_code: str = "") -> str | None:
         """Connect + say hello. Returns an error string or None on success."""
         host, _, port_s = address.partition(":")
         host = host.strip() or "127.0.0.1"
@@ -45,7 +46,8 @@ class NetClient:
         self.connected = True
         threading.Thread(target=self._reader, daemon=True,
                          name="kanjire-net-reader").start()
-        self.send({"t": "hello", "name": name, "proto": PROTOCOL})
+        self.send({"t": "hello", "name": name, "proto": PROTOCOL,
+                   "code": friend_code})
         return None
 
     def _reader(self) -> None:

@@ -12,6 +12,10 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Never let a test announce itself to the real world: the friends service would
+# otherwise connect to the public relay just because a name is saved.
+os.environ["KANJIRE_NO_NETWORK"] = "1"
+
 
 def run() -> int:
     import random
@@ -20,6 +24,7 @@ def run() -> int:
 
     from kanjire.game.config import PRESETS
     from kanjire.game.engine import Phase
+    from kanjire.i18n import tr as tr_
     from kanjire.ui.app import GameApp
     from kanjire.ui.scenes.game import GameScene
     from kanjire.ui.scenes.menu import MenuScene
@@ -366,6 +371,78 @@ def run() -> int:
         app2.updater._dismissed = False
         frames2(2)
         print("PASS update banner shows on every tab (and lifts the footer)")
+
+        # 13e) Friends: see a friend come online, get their invite anywhere in
+        # the app, and add someone straight out of the room roster.
+        from kanjire.net.friends import LOBBY, FriendService
+        from kanjire.net.transport import LoopbackBroker, LoopbackTransport
+        from kanjire.ui.scenes.multiplayer import MultiplayerScene
+        from kanjire.userstate import UserState
+
+        broker = LoopbackBroker()
+        app2.friends.transport = LoopbackTransport(broker)
+        assert app2.friends.connect() is None
+        my_code = app2.state.friend_code
+
+        ken_state = UserState(path=Path(tempfile.mkdtemp()) / "ken.json")
+        ken_state.set_setting("mp_name", "ken")
+        ken = FriendService(ken_state, transport=LoopbackTransport(broker))
+        ken.state.add_friend(my_code, "me")
+        assert ken.connect() is None
+        app2.friends.add_friend(ken_state.friend_code, "ken")
+        frames2(3)
+        listed = {f["code"]: f for f in app2.friends.friends()}
+        assert listed[ken_state.friend_code]["status"] == "online", listed
+
+        # Their invite must reach us wherever we are - we're in the menu.
+        app2.go_menu()
+        frames2(2)
+        ken.set_status(LOBBY, "ZZZZZ")
+        ken.invite(my_code, "ZZZZZ")
+        frames2(4)
+        assert app2.invites.visible, "a friend's invite never surfaced"
+        assert app2.invites.current["room"] == "ZZZZZ"
+        app2.invites._decline()          # accepting would dial the real relay
+        frames2(2)
+        assert not app2.invites.visible
+
+        # The friends panel on the multiplayer screen shows them in a room, so
+        # you can ask to join without anyone reading a code out loud.
+        mp3 = MultiplayerScene(app2)
+        app2.set_scene(mp3)
+        frames2(4)
+        row = next(r for r in mp3._friend_rows
+                   if r["code"] == ken_state.friend_code)
+        assert any(b.text == tr_("FR_ASK_JOIN") for b in row["buttons"]), \
+            "no way to ask to join a friend who is sitting in a room"
+        mp3._ask_join(ken_state.friend_code)
+        frames2(2)
+        assert [m for m in ken.poll() if m["type"] == "join_request"], \
+            "the join request never reached them"
+
+        # Add a player straight from the room roster (that's how you make
+        # friends: you played with them).
+        mp3.me = 0
+        mp3.room = "QQQQQ"
+        mp3._on_state({"players": ["me", "sara"], "codes": [my_code, "SARA0001"],
+                       "connected": [True, True], "scores": [0, 0],
+                       "combos": [0, 0], "settings": {}, "started": False,
+                       "finished": False, "paused": False}, None)
+        frames2(3)
+        assert len(mp3._add_btns) == 1, "no way to add the player you just met"
+        mp3._add_btns[0]["button"].click()
+        frames2(3)
+        assert app2.state.is_friend("SARA0001")
+        assert not mp3._add_btns, "still offering to add an existing friend"
+        # ...and removing them again works.
+        mp3._remove_friend("SARA0001")
+        assert not app2.state.is_friend("SARA0001")
+        app2.friends.remove_friend(ken_state.friend_code)
+        app2.friends.close()
+        ken.close()
+        app2.go_menu()
+        frames2(2)
+        print("PASS friends (presence, invite anywhere, ask to join, add from room)")
 
         # 14) Learn mode picks from the right buckets when we have stats data.
         # Seed: 6 different words seen + matched but also flubbed (=> genuinely

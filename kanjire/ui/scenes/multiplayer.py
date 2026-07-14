@@ -70,8 +70,10 @@ class _MPCard:
 
 
 class MultiplayerScene(Scene):
-    def __init__(self, app) -> None:
+    def __init__(self, app, join_room: str = "") -> None:
         super().__init__(app)
+        #: Set when we arrived by accepting a friend's invite: join on entry.
+        self._auto_join = (join_room or "").strip().upper()
         self.batch = pyglet.graphics.Batch()
         self.g_glow = OrderedGroup(0)
         self.g_bg = OrderedGroup(1)
@@ -159,7 +161,7 @@ class MultiplayerScene(Scene):
 
         # ---- lobby settings: the host edits, everyone watches live ---- #
         def srow(label_key):
-            lb = lbl(11, theme.MUTED, bold=True, anchor_x="right")
+            lb = lbl(13, theme.MUTED, bold=True, anchor_x="right")
             lb.text = tr(label_key)
             self.labels.append(lb)
             return lb
@@ -186,19 +188,19 @@ class MultiplayerScene(Scene):
         self.deck_btns = [
             (d, Button(_deck_label(d), lambda d=d: self._set_setting("deck", d),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.ACCENT, font_size=11))
+                       accent=theme.ACCENT, font_size=13))
             for d in (decks or ["jlpt"])[:4]
         ]
         self.level_btns = [
             (lv, Button(f"N{lv}", lambda lv=lv: self._toggle_level(lv),
                         self.batch, self.g_bg, self.g_text,
-                        accent=theme.GOLD, font_size=11))
+                        accent=theme.GOLD, font_size=13))
             for lv in LEVEL_CHOICES
         ]
         self.words_btns = [
             (n, Button(str(n), lambda n=n: self._set_setting("board_size", n),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.SUCCESS, font_size=11))
+                       accent=theme.SUCCESS, font_size=13))
             for n in BOARD_CHOICES
         ]
         # Same labels as the single-player Advanced tab, so "cards per word"
@@ -210,13 +212,13 @@ class MultiplayerScene(Scene):
                        self.batch, self.g_bg, self.g_text,
                        accent=(theme.FACE_COLORS["romaji"] if n == 4
                                else theme.FACE_COLORS["meaning"]),
-                       font_size=10))
+                       font_size=12))
             for n in CARDS_CHOICES
         ]
         self.lturns_btns = [
             (n, Button(str(n), lambda n=n: self._set_setting("turns_each", n),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.GOLD, font_size=11))
+                       accent=theme.GOLD, font_size=13))
             for n in TURNS_CHOICES
         ]
         # Presentation, with the same options (and the same words) as the
@@ -224,13 +226,13 @@ class MultiplayerScene(Scene):
         self.writing_btns = [
             (v, Button(tr(key), lambda v=v: self._set_setting("writing", v),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.ACCENT, font_size=11))
+                       accent=theme.ACCENT, font_size=13))
             for v, key in WRITING_OPTIONS
         ]
         self.fonts_btns = [
             (v, Button(tr(key), lambda v=v: self._set_setting("fonts", v),
                        self.batch, self.g_bg, self.g_text,
-                       accent=theme.ACCENT, font_size=11))
+                       accent=theme.ACCENT, font_size=13))
             for v, key in (("fixed", "FONT_SINGLE"), ("random", "FONT_RANDOM"))
         ]
         self.setting_btns = (self.deck_btns + self.level_btns
@@ -254,7 +256,124 @@ class MultiplayerScene(Scene):
                          self.replay_btn]
                         + [b for _n, b in self.turns_btns]
                         + [b for _v, b in self.setting_btns])
+
+        # ---- friends panel: who's online, and one click to play with them ---- #
+        self.friends_title = lbl(13, theme.MUTED, bold=True)
+        self.friends_title.text = tr("FR_TITLE")
+        self.friends_hint = lbl(10, theme.DIM)
+        self.labels += [self.friends_title, self.friends_hint]
+        self._friend_rows: list[dict] = []   # rebuilt when the list/presence moves
+        self._friend_sig: tuple = ()
+        #: "+ add" buttons next to the players in the room roster.
+        self._add_btns: list[dict] = []
+        self._add_sig: tuple = ()
+
         self._apply_phase()
+
+    # ------------------------------------------------------------------ #
+    # Friends
+    # ------------------------------------------------------------------ #
+    def _friends_visible(self) -> bool:
+        return self.phase in ("connect", "lobby")
+
+    def _sync_friends(self) -> None:
+        """Rebuild the friend rows when the list or anyone's presence moves."""
+        svc = self.app.friends
+        friends = svc.friends() if self._friends_visible() else []
+        sig = tuple((f["code"], f["name"], f["status"], f["room"])
+                    for f in friends) + (self.phase, self.me)
+        if sig == self._friend_sig:
+            return
+        self._friend_sig = sig
+        for row in self._friend_rows:
+            row["label"].delete()
+            for b in row["buttons"]:
+                b.delete()
+                if b in self.buttons:
+                    self.buttons.remove(b)
+        self._friend_rows = []
+
+        hosting = self.phase == "lobby" and bool(self.room)
+        for f in friends:
+            status = f["status"]
+            dot = {"online": "●", "lobby": "●", "playing": "●"}.get(status, "○")
+            text = f"{dot} {f['name']}  {tr('FR_ST_' + status.upper())}"
+            label = Label(text, font_name=JP_FONT, font_size=12,
+                          color=theme.with_alpha(
+                              theme.TEXT if status != "offline" else theme.DIM,
+                              255),
+                          anchor_x="left", anchor_y="center",
+                          batch=self.batch, group=self.g_text)
+            label._base_fs = 12
+            buttons = []
+            if hosting and status in ("online", "lobby"):
+                buttons.append(Button(
+                    tr("FR_INVITE"), lambda c=f["code"]: self._invite(c),
+                    self.batch, self.g_bg, self.g_text, accent=theme.SUCCESS,
+                    font_size=11))
+            elif not hosting and status == "lobby" and f["room"]:
+                buttons.append(Button(
+                    tr("FR_ASK_JOIN"), lambda c=f["code"]: self._ask_join(c),
+                    self.batch, self.g_bg, self.g_text, accent=theme.ACCENT,
+                    font_size=11))
+            buttons.append(Button(
+                tr("FR_REMOVE"), lambda c=f["code"]: self._remove_friend(c),
+                self.batch, self.g_bg, self.g_text, accent=theme.DIM,
+                font_size=11))
+            self.buttons.extend(buttons)
+            self._friend_rows.append({"code": f["code"], "label": label,
+                                      "buttons": buttons})
+        self.friends_hint.text = ("" if friends else tr("FR_EMPTY"))
+        self.on_resize(self.width, self.height)
+
+    def _sync_add_friend_buttons(self) -> None:
+        """A "+ add" button beside each player in the room who isn't a friend."""
+        st = self.state or {}
+        show = self.phase in ("lobby", "done")
+        players = (st.get("players") or []) if show else []
+        codes = st.get("codes") or []
+        state = self.app.state
+        candidates = [
+            (i, players[i], codes[i]) for i in range(len(players))
+            if i != self.me and i < len(codes) and codes[i]
+            and not state.is_friend(codes[i])
+        ]
+        sig = tuple(candidates) + (self.phase,)
+        if sig == self._add_sig:
+            return
+        self._add_sig = sig
+        for row in self._add_btns:
+            row["button"].delete()
+            if row["button"] in self.buttons:
+                self.buttons.remove(row["button"])
+        self._add_btns = []
+        for idx, name, code in candidates:
+            b = Button(tr("FR_ADD"),
+                       lambda c=code, n=name: self._add_friend(c, n),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.GOLD, font_size=10)
+            self.buttons.append(b)
+            self._add_btns.append({"slot": idx, "button": b})
+        self.on_resize(self.width, self.height)
+
+    def _invite(self, code: str) -> None:
+        if self.room:
+            self.app.friends.invite(code, self.room)
+            self.status = tr("FR_INVITED")
+
+    def _ask_join(self, code: str) -> None:
+        self.app.friends.ask_to_join(code)
+        self.status = tr("FR_ASKED")
+
+    def _add_friend(self, code: str, name: str) -> None:
+        self.app.friends.add_friend(code, name)
+        self._add_sig = ()      # force a rebuild: they're a friend now
+        self._friend_sig = ()
+
+    def _remove_friend(self, code: str) -> None:
+        self.app.friends.remove_friend(code)
+        self._friend_sig = ()
+        self._add_sig = ()
 
     # ------------------------------------------------------------------ #
     # Phase plumbing
@@ -355,7 +474,17 @@ class MultiplayerScene(Scene):
     def _set_phase(self, ph: str) -> None:
         if ph != self.phase:
             self.phase = ph
+            self._publish_presence()
             self._apply_phase()
+
+    def _publish_presence(self) -> None:
+        """Let friends see what we're up to - that's what makes "ask to join"
+        possible without anyone reading a code out loud."""
+        from kanjire.net import friends as fr
+
+        status = {"lobby": fr.LOBBY, "play": fr.PLAYING,
+                  "done": fr.LOBBY}.get(self.phase, fr.ONLINE)
+        self.app.friends.set_status(status, self.room if self.room else "")
 
     # ------------------------------------------------------------------ #
     # Connect / host / join
@@ -363,6 +492,9 @@ class MultiplayerScene(Scene):
     def _my_name(self) -> str:
         name = self.in_name.text.strip() or "player"
         self.app.state.set_setting("mp_name", name)
+        # First time anyone plays online: that's the moment we're allowed to
+        # announce them to friends (the app stays offline until then).
+        self.app._maybe_go_online()
         return name
 
     def _settings(self) -> dict:
@@ -401,13 +533,15 @@ class MultiplayerScene(Scene):
     def _make_client(self, addr: str):
         """Room-code-only by default (relay, no setup); a direct server
         address is the optional advanced path (LAN / self-hosted)."""
+        # Our friend code rides along so the others can add us afterwards.
+        fcode = self.app.state.friend_code
         if addr:
             self.app.state.set_setting("mp_address", addr)
             client = NetClient()
-            err = client.connect(addr, self._my_name())
+            err = client.connect(addr, self._my_name(), fcode)
         else:
             client = RoomClient()
-            err = client.connect(self._my_name())
+            err = client.connect(self._my_name(), fcode)
         if err:
             self.status = tr("MP_ERR_CONNECT", err=err)
             return None
@@ -507,8 +641,17 @@ class MultiplayerScene(Scene):
     # ------------------------------------------------------------------ #
     # State intake
     # ------------------------------------------------------------------ #
+    def on_enter(self) -> None:
+        # Arrived by accepting a friend's invite: walk straight into their room.
+        if self._auto_join:
+            self.in_code.set_text(self._auto_join)
+            self._auto_join = ""
+            self._join()
+
     def update(self, dt: float) -> None:
         self.anim.update(dt)
+        self._sync_friends()
+        self._sync_add_friend_buttons()
         for c in self.cards.values():
             c.apply()
         if self.client is None:
@@ -863,6 +1006,7 @@ class MultiplayerScene(Scene):
         self.subtitle.x, self.subtitle.y = cx, height - 76 * s
         self.status_lbl.x, self.status_lbl.y = cx, 90 * s
         self.back_btn.set_rect(16 * s, 16 * s, 120 * s, 26 * s)
+        self._layout_friends(width, height, s)
 
         if self.phase == "connect":
             for w in self.inputs:
@@ -890,37 +1034,43 @@ class MultiplayerScene(Scene):
             n_players = max(1, len((self.state or {}).get("players") or [1]))
             for i, lbl in enumerate(self.player_lbls):
                 lbl.anchor_x = "center"
-                lbl.x, lbl.y = cx, height - 178 * s - i * 26 * s
+                lbl.x, lbl.y = cx, height - 178 * s - i * 28 * s
 
             # Settings block, under the player list. Label on the left of each
             # row, its choices to the right - same for host and guests, so
             # everyone reads the same thing while the host tweaks.
+            # Widths/heights in the same register as the single-player menu
+            # rows (40*s tall, 150*s wide). They used to be built at 26*s with
+            # font 10-11, so the whole settings block read as a shrunken
+            # afterthought next to the rest of the UI.
             rows = [
-                (self.lbl_s_deck, self.deck_btns, 108 * s),
-                (self.lbl_s_level, self.level_btns, 46 * s),
-                (self.lbl_s_words, self.words_btns, 46 * s),
-                (self.lbl_s_cards, self.cards_btns, 168 * s),
-                (self.lbl_s_turns, self.lturns_btns, 46 * s),
-                (self.lbl_s_writing, self.writing_btns, 64 * s),
-                (self.lbl_s_fonts, self.fonts_btns, 78 * s),
+                (self.lbl_s_deck, self.deck_btns, 148 * s),
+                (self.lbl_s_level, self.level_btns, 62 * s),
+                (self.lbl_s_words, self.words_btns, 62 * s),
+                (self.lbl_s_cards, self.cards_btns, 210 * s),
+                (self.lbl_s_turns, self.lturns_btns, 62 * s),
+                (self.lbl_s_writing, self.writing_btns, 92 * s),
+                (self.lbl_s_fonts, self.fonts_btns, 108 * s),
             ]
+            bh = 36 * s
             # Seven rows + the player list can outgrow a short window, so the
-            # row pitch shrinks to fit rather than running Start off the bottom.
-            top = height - 200 * s - n_players * 26 * s
-            floor = 150 * s                     # leaves room for Start + hint
-            pitch = min(40 * s, max(28 * s, (top - floor) / max(1, len(rows))))
+            # row pitch (not the buttons) is what gives, and only when it must.
+            top = height - 210 * s - n_players * 28 * s
+            floor = 168 * s                     # leaves room for Start + hint
+            pitch = min(46 * s, max(bh + 4 * s,
+                                    (top - floor) / max(1, len(rows))))
             ry = top
-            gap = 8 * s
+            gap = 10 * s
             for lb, btns, bw in rows:
                 total = len(btns) * bw + (len(btns) - 1) * gap
-                x0 = cx - total / 2 + 60 * s
-                lb.x, lb.y = x0 - 16 * s, ry
+                x0 = cx - total / 2 + 70 * s
+                lb.x, lb.y = x0 - 18 * s, ry
                 for i, (_v, b) in enumerate(btns):
-                    b.set_rect(x0 + i * (bw + gap), ry - 13 * s, bw, 26 * s)
+                    b.set_rect(x0 + i * (bw + gap), ry - bh / 2, bw, bh)
                 ry -= pitch
 
-            self.start_btn.set_rect(cx - 130 * s, max(96 * s, ry - 40 * s),
-                                    260 * s, 46 * s)
+            self.start_btn.set_rect(cx - 150 * s, max(96 * s, ry - 44 * s),
+                                    300 * s, 50 * s)
             self.hint.x, self.hint.y = cx, 52 * s
         elif self.phase in ("play", "done"):
             if self.phase == "play":
@@ -958,6 +1108,49 @@ class MultiplayerScene(Scene):
                     self.lobby_btn.set_rect(cx - 105 * s, 90 * s, 210 * s, 44 * s)
             self.hint.x, self.hint.y = cx, 16 * s
 
+    def _layout_friends(self, width, height, s) -> None:
+        """Friends live in a right-hand column on the connect + lobby screens,
+        clear of the centred content."""
+        show = self._friends_visible()
+        panel_w = 300 * s
+        x = width - panel_w - 24 * s
+        y = height - 130 * s
+        self.friends_title.anchor_x = "left"
+        self.friends_hint.anchor_x = "left"
+        if not show:
+            for lb in (self.friends_title, self.friends_hint):
+                lb.opacity = 0
+                lb.x = lb.y = -4000
+        else:
+            self.friends_title.opacity = 255
+            self.friends_title.x, self.friends_title.y = x, y + 26 * s
+            self.friends_hint.opacity = 255 if self.friends_hint.text else 0
+            self.friends_hint.x, self.friends_hint.y = x, y
+
+        row_h = 34 * s
+        for i, row in enumerate(self._friend_rows):
+            ry = y - (i + 1) * row_h
+            lb = row["label"]
+            lb.font_size = max(9, round(12 * s))
+            lb.x, lb.y = x, ry
+            bx = x + panel_w
+            for b in reversed(row["buttons"]):
+                bw = (46 if b.text == tr("FR_REMOVE") else 96) * s
+                bx -= bw + 6 * s
+                b.set_scale(s)
+                b.set_rect(bx, ry - 13 * s, bw, 26 * s)
+
+        # "+ add" sits next to the player it belongs to in the room roster.
+        for row in self._add_btns:
+            b = row["button"]
+            slot = row["slot"]
+            if self.phase not in ("lobby", "done") or slot >= len(self.player_lbls):
+                b.set_rect(-4000, -4000, 1, 1)
+                continue
+            lbl_ref = self.player_lbls[slot]
+            b.set_scale(s)
+            b.set_rect(lbl_ref.x + 110 * s, lbl_ref.y - 11 * s, 74 * s, 22 * s)
+
     def draw(self) -> None:
         if self.phase == "play":
             s = self._s
@@ -968,6 +1161,11 @@ class MultiplayerScene(Scene):
         self.batch.draw()
 
     def on_exit(self) -> None:
+        # Back to plain "online": friends must not keep seeing us in a room we
+        # already left.
+        from kanjire.net import friends as fr
+
+        self.app.friends.set_status(fr.ONLINE, "")
         if self.client is not None:
             self.client.close()
         self._clear_cards()

@@ -97,6 +97,58 @@ class UserState:
         self.data.setdefault("settings", {})[key] = str(value)
         self.save()
 
+    # ---- multiplayer identity + friends ------------------------------ #
+    @property
+    def friend_code(self) -> str:
+        """This player's stable ID, minted once and kept forever.
+
+        Friends are remembered by *this*, not by display name (which anyone can
+        change or duplicate) and not by the per-session network uid (which is a
+        fresh random string every launch).
+        """
+        code = str(self.data.get("settings", {}).get("friend_code", ""))
+        if not code:
+            import random
+            import string
+
+            alphabet = string.ascii_uppercase + string.digits
+            code = "".join(random.choice(alphabet) for _ in range(8))
+            self.data.setdefault("settings", {})["friend_code"] = code
+            self.save()
+        return code
+
+    @property
+    def friends(self) -> list[dict]:
+        """``[{"code": ..., "name": ...}]`` - the people you've added."""
+        return list(self.data.get("friends", []))
+
+    def add_friend(self, code: str, name: str) -> bool:
+        """True if this actually added someone new."""
+        code = (code or "").strip().upper()
+        if not code or code == self.friend_code:
+            return False
+        friends = self.data.setdefault("friends", [])
+        for f in friends:
+            if f.get("code") == code:
+                f["name"] = name or f.get("name") or "?"
+                self.save()
+                return False
+        friends.append({"code": code, "name": name or "?"})
+        self.save()
+        return True
+
+    def remove_friend(self, code: str) -> bool:
+        friends = self.data.setdefault("friends", [])
+        before = len(friends)
+        self.data["friends"] = [f for f in friends if f.get("code") != code]
+        if len(self.data["friends"]) != before:
+            self.save()
+            return True
+        return False
+
+    def is_friend(self, code: str) -> bool:
+        return any(f.get("code") == code for f in self.data.get("friends", []))
+
     # ---- visual theme palette --------------------------------------- #
     @property
     def palette(self) -> str:

@@ -16,6 +16,10 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Never let a test announce itself to the real world: the friends service would
+# otherwise connect to the public relay just because a name is saved.
+os.environ["KANJIRE_NO_NETWORK"] = "1"
+
 import pyglet
 from pyglet.window import mouse
 
@@ -41,20 +45,23 @@ def main() -> int:
     i18n.set_locale("en")
     win = app.window
 
+    def _draw():
+        win.switch_to()
+        win.clear()
+        app.scene.draw()
+        for ov in win.overlays:      # update banner / invite toast
+            ov.draw()
+
     def render(n=8, dt=1 / 60.0):
         for _ in range(n):
             win.dispatch_events()
             app._tick(dt)
-            win.switch_to()
-            win.clear()
-            app.scene.draw()
+            _draw()
             win.flip()
 
     def shot(name, size):
         win.dispatch_events()
-        win.switch_to()
-        win.clear()
-        app.scene.draw()
+        _draw()
         win.flip()
         path = os.path.join(OUT, f"{name}_{size[0]}x{size[1]}.png")
         pyglet.image.get_buffer_manager().get_color_buffer().save(path)
@@ -196,6 +203,20 @@ def main() -> int:
             "started": False, "finished": False, "paused": False,
             "settings": dict(DEFAULT_SETTINGS),
         }
+        # Seed a couple of friends with live presence so the panel has content.
+        from kanjire.net.friends import LOBBY, ONLINE
+        app.state.add_friend("KEN00001", "kenji")
+        app.state.add_friend("SARA0002", "sara")
+        app.state.add_friend("YUKI0003", "yuki")
+        import time as _time
+        _now = _time.monotonic()
+        app.friends.presence.update({
+            "KEN00001": {"name": "kenji", "status": LOBBY, "room": "ABCDE",
+                         "seen": _now},
+            "SARA0002": {"name": "sara", "status": ONLINE, "room": "",
+                         "seen": _now},
+        })
+
         for who, me in (("host", 0), ("guest", 2)):
             mp = MultiplayerScene(app)
             app.set_scene(mp)
@@ -205,6 +226,17 @@ def main() -> int:
             mp._on_state(snap, None)
             render(8)
             shot(f"mp_lobby_{who}", size)
+
+        # Multiplayer connect screen, with the friends panel + an invite toast.
+        mp = MultiplayerScene(app)
+        app.set_scene(mp)
+        render(8)
+        app.invites.push({"type": "invite", "from": "KEN00001",
+                          "name": "kenji", "room": "ABCDE"})
+        render(6)
+        shot("mp_connect_friends", size)
+        app.invites._decline()
+        render(2)
 
         # Multiplayer mid-reveal: a completed group held up for everyone.
         mp = MultiplayerScene(app)
@@ -267,6 +299,10 @@ def main() -> int:
         shot("recall", size)
 
     # ---- restore ---- #
+    # The seeded friends went into the REAL save file (this harness runs against
+    # the user's state) - take them back out.
+    for code in ("KEN00001", "SARA0002", "YUKI0003"):
+        app.state.remove_friend(code)
     for k, v in streak_backup.items():
         if v is None:
             settings.pop(k, None)

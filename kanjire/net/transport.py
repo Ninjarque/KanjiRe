@@ -32,7 +32,7 @@ class _BaseTransport:
         self._subs: list[str] = []
         self._on_message = None
         self._on_connect = None
-        self._will: tuple[str, bytes] | None = None
+        self._will: tuple[str, bytes, bool] | None = None
         self.connected = False
 
     def on_message(self, cb) -> None:
@@ -41,8 +41,14 @@ class _BaseTransport:
     def on_connect(self, cb) -> None:
         self._on_connect = cb
 
-    def set_will(self, topic: str, payload: bytes) -> None:
-        self._will = (topic, payload)
+    def set_will(self, topic: str, payload: bytes, retain: bool = False) -> None:
+        """Message the broker publishes if we vanish without saying goodbye.
+
+        ``retain`` matters for presence: an *empty retained* will is what wipes
+        a player's "online" flag when their app is killed. Without it their
+        friends would see them online forever.
+        """
+        self._will = (topic, payload, retain)
 
     def _deliver(self, topic: str, payload: bytes) -> None:
         if self._on_message is not None:
@@ -82,7 +88,8 @@ class PahoTransport(_BaseTransport):
                 v2 = False
 
             if self._will is not None:
-                client.will_set(self._will[0], self._will[1], qos=1)
+                client.will_set(self._will[0], self._will[1], qos=1,
+                                retain=self._will[2])
 
             def _connected():
                 self.connected = True
@@ -176,7 +183,7 @@ class LoopbackBroker:
             will = tr._will
         tr.connected = False
         if will is not None:
-            self.publish(will[0], will[1], False)
+            self.publish(will[0], will[1], will[2])
 
 
 class LoopbackTransport(_BaseTransport):

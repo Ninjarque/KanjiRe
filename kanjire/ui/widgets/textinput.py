@@ -51,6 +51,11 @@ class TextInput:
             self._document, 10, 10, multiline=False,
             batch=batch, group=layout_group,
         )
+        # NB: leave anchor_y at its default "bottom". IncrementalTextLayout
+        # clips to a scissor rect anchored at its own (x, y) - with anchor_y
+        # "center" the glyphs sit half a line BELOW that rect and the layout
+        # slices its own text in half. Instead we keep the text inside the box
+        # and move the box (see set_rect), which can't clip by construction.
         self._caret = _caret.Caret(self._layout, color=theme.readable_on(theme.PANEL))
         self._caret.visible = False
 
@@ -84,17 +89,16 @@ class TextInput:
         self._bg.width = w
         self._bg.height = h
         pad_x = max(6, round(0.7 * self._fs))
-        # Centre one line of text in the box instead of pinning it a fixed 4px
-        # above the bottom edge: at large scales the glyphs used to overflow the
-        # top of the scissor rect and get sliced in half.
-        line_h = self._fs * 1.4
-        pad_y = max(2, (h - line_h) / 2)
         # IncrementalTextLayout feeds these straight into glScissor, which needs
-        # ints — callers may pass scaled floats, so coerce here.
+        # ints - callers may pass scaled floats, so coerce here.
         self._layout.x = int(x + pad_x)
-        self._layout.y = int(y + pad_y)
         self._layout.width = int(max(10, w - 2 * pad_x))
-        self._layout.height = int(max(line_h, h - 2 * pad_y))
+        # Size the layout to its one line, then centre that whole box in the
+        # field. The text is always inside the layout (and so inside its own
+        # scissor), so it can't be clipped however large the font gets.
+        line_h = max(int(self._layout.content_height or 0), self._fs + 6)
+        self._layout.height = line_h
+        self._layout.y = int(y + (h - line_h) / 2)
         self._placeholder.x = x + pad_x
         self._placeholder.y = y + h / 2
 
