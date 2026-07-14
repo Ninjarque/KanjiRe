@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.17.0 — 2026-07-14
 - **Friends!** Add the people you play with straight from the room (a **+ add**
   button next to their name), see who's online and who's sitting in a room, and
   play together in one click: **invite** a friend while you're hosting, or **ask
