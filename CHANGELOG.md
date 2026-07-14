@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.18.0 — 2026-07-14
 - **Friends is now its own tab**, next to Stats — who's online, who's in a room,
   requests waiting on you, and one click to play together from anywhere.
 - **Friendship goes both ways now.** Adding someone sends them a *request*: they
