@@ -45,6 +45,7 @@ class ReadingScene(Scene):
              (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
              (tr("NAV_READ"),     lambda: None),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
+             (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
@@ -403,7 +404,7 @@ class ReadingScene(Scene):
         for b in self.buttons:
             b.set_scale(s)
         cx = width / 2
-        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
+        self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
         self.title.x, self.title.y = cx, height - 92 * s
         self.totals.x, self.totals.y = width - 40 * s, height - 92 * s
         if self.source_btns:

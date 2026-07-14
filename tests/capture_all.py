@@ -227,6 +227,16 @@ def main() -> int:
             render(8)
             shot(f"mp_lobby_{who}", size)
 
+        # The Friends tab: a request waiting on you, friends with presence, and
+        # a request you've sent.
+        app.state.add_request_out("MIKA0004", "mika")
+        app.friends.pending_in["TARO0005"] = "taro"
+        app.go_friends()
+        render(8)
+        shot("friends_tab", size)
+        app.friends.pending_in.clear()
+        app.state.drop_request_out("MIKA0004")
+
         # Multiplayer connect screen, with the friends panel + an invite toast.
         mp = MultiplayerScene(app)
         app.set_scene(mp)

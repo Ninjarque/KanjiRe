@@ -47,6 +47,7 @@ class JourneyScene(Scene):
              (tr("NAV_JOURNEY"),  lambda: None),
              (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
+             (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
@@ -217,7 +218,7 @@ class JourneyScene(Scene):
             lbl.font_size = max(8, round(lbl._base_fs * s))
         self.nav.set_scale(s)
         cx = width / 2
-        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
+        self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
         self.title.x, self.title.y = cx, height - 92 * s
         self.progress.x, self.progress.y = cx, height - 118 * s
 

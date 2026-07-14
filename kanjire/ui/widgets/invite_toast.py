@@ -52,13 +52,24 @@ class InviteToast:
     def _text(self) -> str:
         m = self.current or {}
         who = m.get("name") or "?"
-        if m.get("type") == "invite":
+        kind = m.get("type")
+        if kind == "invite":
             return tr("FR_INVITE_MSG", name=who)
+        if kind == "friend_request":
+            return tr("FR_WANTS_FRIEND", name=who)
+        if kind == "friend_accept":
+            return tr("FR_ACCEPTED_MSG", name=who)
+        if kind == "friend_decline":
+            return tr("FR_DECLINED_MSG", name=who)
         return tr("FR_REQUEST_MSG", name=who)
 
     def _build(self) -> None:
         m = self.current or {}
-        accent = theme.SUCCESS if m.get("type") == "invite" else theme.GOLD
+        kind = m.get("type")
+        accent = theme.SUCCESS if kind == "invite" else theme.GOLD
+        # An answer to a request we sent is just news - it needs an OK, not a
+        # yes/no.
+        info_only = kind in ("friend_accept", "friend_decline")
         bg = shapes.BorderedRectangle(
             0, 0, 10, 10, border=2, color=theme.PANEL, border_color=accent,
             batch=self.batch, group=self.g_bg)
@@ -66,12 +77,17 @@ class InviteToast:
                       color=theme.with_alpha(theme.TEXT, 255),
                       anchor_x="left", anchor_y="center",
                       batch=self.batch, group=self.g_text)
-        yes = Button(tr("FR_ACCEPT"), self._accept, self.batch, self.g_bg,
-                     self.g_text, accent=accent, font_size=12)
-        no = Button(tr("FR_DECLINE"), self._decline, self.batch, self.g_bg,
-                    self.g_text, accent=theme.DIM, font_size=12)
+        if info_only:
+            ok = Button(tr("FR_OK"), self._next, self.batch, self.g_bg,
+                        self.g_text, accent=theme.DIM, font_size=12)
+            self.buttons = [ok]
+        else:
+            yes = Button(tr("FR_ACCEPT"), self._accept, self.batch, self.g_bg,
+                         self.g_text, accent=accent, font_size=12)
+            no = Button(tr("FR_DECLINE"), self._decline, self.batch, self.g_bg,
+                        self.g_text, accent=theme.DIM, font_size=12)
+            self.buttons = [yes, no]
         self._parts = {"bg": bg, "label": label}
-        self.buttons = [yes, no]
         self.layout()
 
     def _destroy(self) -> None:
@@ -102,11 +118,12 @@ class InviteToast:
         label.y = y + h - 26 * s
         label.font_size = max(9, round(13 * s))
         bw, bh, gap = 120 * s, 30 * s, 10 * s
-        yes, no = self.buttons
-        yes.set_scale(s)
-        no.set_scale(s)
-        yes.set_rect(x + w - 16 * s - bw, y + 14 * s, bw, bh)
-        no.set_rect(x + w - 16 * s - 2 * bw - gap, y + 14 * s, bw, bh)
+        bx = x + w - 16 * s
+        for b in self.buttons:                 # right-to-left
+            bx -= bw
+            b.set_scale(s)
+            b.set_rect(bx, y + 14 * s, bw, bh)
+            bx -= gap
 
     def draw(self) -> None:
         if self._parts:
@@ -131,16 +148,25 @@ class InviteToast:
     # ---- actions ---------------------------------------------------------- #
     def _accept(self) -> None:
         m = self.current or {}
-        if m.get("type") == "invite":
+        kind = m.get("type")
+        if kind == "friend_request":
+            self.app.friends.accept_request(str(m.get("from") or ""),
+                                            str(m.get("name") or "?"))
+            self._next()
+            return
+        if kind == "invite":
             # Straight into their room - the whole point is that it's one click.
             self.app.go_multiplayer(join_room=str(m.get("room") or ""))
         else:
-            # They asked to join us: answer with an invite carrying our code, so
-            # they don't have to be told it out loud.
+            # They asked to join us: answer with an invite carrying our room
+            # code, so they don't have to be told it out loud.
             room = self.app.current_room_code()
             if room:
                 self.app.friends.invite(str(m.get("from") or ""), room)
         self._next()
 
     def _decline(self) -> None:
+        m = self.current or {}
+        if m.get("type") == "friend_request":
+            self.app.friends.decline_request(str(m.get("from") or ""))
         self._next()

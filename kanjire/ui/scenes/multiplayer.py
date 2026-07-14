@@ -333,10 +333,13 @@ class MultiplayerScene(Scene):
         players = (st.get("players") or []) if show else []
         codes = st.get("codes") or []
         state = self.app.state
+        # Offer "+ add" for anyone in the room who isn't already a friend and
+        # hasn't already been asked - and offer it in the LOBBY, not just after
+        # the game: you decide you like someone the moment you meet them.
         candidates = [
             (i, players[i], codes[i]) for i in range(len(players))
             if i != self.me and i < len(codes) and codes[i]
-            and not state.is_friend(codes[i])
+            and not state.is_friend(codes[i]) and not state.requested(codes[i])
         ]
         sig = tuple(candidates) + (self.phase,)
         if sig == self._add_sig:
@@ -366,8 +369,10 @@ class MultiplayerScene(Scene):
         self.status = tr("FR_ASKED")
 
     def _add_friend(self, code: str, name: str) -> None:
-        self.app.friends.add_friend(code, name)
-        self._add_sig = ()      # force a rebuild: they're a friend now
+        """Ask them to be friends - they have to accept."""
+        if self.app.friends.send_friend_request(code, name):
+            self.status = tr("FR_REQUEST_SENT", name=name)
+        self._add_sig = ()      # force a rebuild: the button is spent
         self._friend_sig = ()
 
     def _remove_friend(self, code: str) -> None:

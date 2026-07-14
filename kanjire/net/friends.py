@@ -15,12 +15,18 @@ change, and not the per-session network uid, which is random every launch):
 
 ``…/user/<CODE>/inbox``
     Invites ("come play, the room code is ABCDE"), requests to join, and the
-    replies to them.
+    answers to friend requests.
 
-Presence is only published for people you've added, and only carries what you
-are doing in KanjiRe. Adding someone is one-sided, like a contact list: there is
-no accept/decline dance, because the only thing a friend code lets you do is see
-whether that person is in a game and ask them to play.
+``…/user/<CODE>/req/<SENDER>``
+    A friend request, **retained** and one topic per sender, so it reaches
+    someone who is offline right now - they see it next time they open the app.
+    (An invite is worthless five minutes later, so those are *not* retained.)
+    Answering it clears the retained message.
+
+Friendship is mutual: you ask, they accept, and only then do you appear on each
+other's lists. Being someone's friend is what lets them see your presence and
+send you an invite - a stranger who somehow learns your code can do neither, so
+knowing a code is never enough to reach you.
 """
 from __future__ import annotations
 
@@ -61,6 +67,8 @@ class FriendService:
         self._now = 0.0
         #: friend code -> {"name", "status", "room", "seen"}
         self.presence: dict[str, dict] = {}
+        #: Friend requests waiting on OUR answer: code -> their name.
+        self.pending_in: dict[str, str] = {}
 
     # ---- identity ------------------------------------------------------ #
     @property
@@ -108,6 +116,9 @@ class FriendService:
 
     def _subscribe_all(self) -> None:
         self.transport.subscribe(self._t(self.code, "inbox"))
+        # Friend requests: one retained topic per sender, so they queue up for
+        # us even if we were offline when they were sent.
+        self.transport.subscribe(self._t(self.code, "req/+"))
         for f in self.state.friends:
             self.transport.subscribe(self._t(f["code"], "presence"))
 
@@ -189,7 +200,52 @@ class FriendService:
                 })
             return out
 
-    # ---- invites / requests --------------------------------------------- #
+    # ---- friend requests (mutual consent) -------------------------------- #
+    def send_friend_request(self, code: str, name: str = "") -> bool:
+        """Ask to be someone's friend. They have to say yes.
+
+        Published **retained**, on a topic of its own per sender, so a request
+        reaches someone who is offline right now: they'll get it the moment they
+        next open the app. (An invite, by contrast, is worthless five minutes
+        later - those are not retained.)
+        """
+        code = (code or "").strip().upper()
+        if not self.state.add_request_out(code, name):
+            return False
+        with self.lock:
+            if self.connected and self.transport is not None:
+                self.transport.publish(
+                    self._t(code, f"req/{self.code}"),
+                    json.dumps({"from": self.code,
+                                "name": self.name}).encode("utf-8"),
+                    retain=True)
+        return True
+
+    def accept_request(self, code: str, name: str = "") -> None:
+        """Say yes: now you're both friends, and they're told so."""
+        code = (code or "").strip().upper()
+        self.add_friend(code, name)
+        self._clear_request(code)
+        self._send(code, {"type": "friend_accept"})
+
+    def decline_request(self, code: str) -> None:
+        code = (code or "").strip().upper()
+        self._clear_request(code)
+        self._send(code, {"type": "friend_decline"})
+
+    def _clear_request(self, code: str) -> None:
+        """Wipe the retained request they left in our inbox - it's answered."""
+        with self.lock:
+            self.pending_in.pop(code, None)
+            if self.connected and self.transport is not None:
+                self.transport.publish(self._t(self.code, f"req/{code}"), b"",
+                                       retain=True)
+
+    def pending_requests(self) -> list[dict]:
+        with self.lock:
+            return [{"code": c, "name": n} for c, n in self.pending_in.items()]
+
+    # ---- invites / join requests ----------------------------------------- #
     def invite(self, code: str, room: str) -> None:
         """"Come play with me" - carries the room code so they can just join."""
         self._send(code, {"type": "invite", "room": room})
@@ -212,6 +268,23 @@ class FriendService:
         leaf = parts[-1]
         code = parts[-2] if len(parts) >= 2 else ""
         with self.lock:
+            # ".../user/<me>/req/<them>" - a friend request, retained by sender.
+            if len(parts) >= 2 and parts[-2] == "req":
+                sender = leaf
+                if not payload:
+                    self.pending_in.pop(sender, None)   # they withdrew it
+                    return
+                if sender == self.code or self.state.is_friend(sender):
+                    return
+                try:
+                    d = json.loads(payload.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    return
+                name = str(d.get("name") or "?")[:18]
+                self.pending_in[sender] = name
+                self.inbox.put({"type": "friend_request", "from": sender,
+                                "name": name})
+                return
             if leaf == "presence":
                 if not payload:
                     self.presence.pop(code, None)   # they cleared it: offline
@@ -232,8 +305,21 @@ class FriendService:
                 except (ValueError, UnicodeDecodeError):
                     return
                 sender = str(d.get("from") or "")
-                # Only people you've added can reach you. Without this, knowing
-                # a code would be enough to spam anyone with invites.
+                kind = d.get("type")
+                if kind in ("friend_accept", "friend_decline"):
+                    # The answer to a request WE sent. They aren't a friend yet,
+                    # so this has to bypass the friends-only gate below - but
+                    # only if we actually asked them.
+                    if not self.state.requested(sender):
+                        return
+                    self.state.drop_request_out(sender)
+                    if kind == "friend_accept":
+                        self.add_friend(sender, str(d.get("name") or "?"))
+                    self.inbox.put(d)
+                    return
+                # Everything else (invites, join requests): only people you've
+                # added can reach you. Without this, knowing a code would be
+                # enough to spam anyone.
                 if not self.state.is_friend(sender):
                     return
                 self.inbox.put(d)

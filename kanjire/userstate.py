@@ -149,6 +149,32 @@ class UserState:
     def is_friend(self, code: str) -> bool:
         return any(f.get("code") == code for f in self.data.get("friends", []))
 
+    # ---- pending friend requests (mutual consent) --------------------- #
+    @property
+    def requests_out(self) -> list[dict]:
+        """People we've asked to be friends with, who haven't answered yet."""
+        return list(self.data.get("friend_requests_out", []))
+
+    def add_request_out(self, code: str, name: str) -> bool:
+        code = (code or "").strip().upper()
+        if not code or code == self.friend_code or self.is_friend(code):
+            return False
+        out = self.data.setdefault("friend_requests_out", [])
+        if any(r.get("code") == code for r in out):
+            return False
+        out.append({"code": code, "name": name or "?"})
+        self.save()
+        return True
+
+    def drop_request_out(self, code: str) -> None:
+        out = self.data.setdefault("friend_requests_out", [])
+        self.data["friend_requests_out"] = [r for r in out
+                                            if r.get("code") != code]
+        self.save()
+
+    def requested(self, code: str) -> bool:
+        return any(r.get("code") == code for r in self.requests_out)
+
     # ---- visual theme palette --------------------------------------- #
     @property
     def palette(self) -> str:

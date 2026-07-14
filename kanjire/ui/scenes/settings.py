@@ -41,6 +41,7 @@ class SettingsScene(Scene):
              (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
              (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
+             (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: None)],
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
@@ -262,7 +263,7 @@ class SettingsScene(Scene):
             lbl.font_size = max(9, round(14 * s))
         self.hint.font_size = max(8, round(11 * s))
 
-        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
+        self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
 
         margin = 70 * s
         pw = width - 2 * margin

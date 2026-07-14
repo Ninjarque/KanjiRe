@@ -1,4 +1,4 @@
-"""Verify the LIVE update channel: can every released version reach the latest?
+﻿"""Verify the LIVE update channel: can every released version reach the latest?
 
 Run after publishing (``release.py`` calls it automatically), or any time you
 want to be sure nobody is stranded on an old build::
@@ -37,7 +37,7 @@ for _stream in (sys.stdout, sys.stderr):
 RELEASED = [
     "0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0",
     "0.8.0", "0.8.1", "0.9.0", "0.10.0", "0.11.0", "0.11.1", "0.12.0",
-    "0.13.0", "0.14.0", "0.15.0", "0.16.0", "0.17.0",
+    "0.13.0", "0.14.0", "0.15.0", "0.16.0", "0.17.0", "0.18.0",
 ]
 
 

@@ -129,6 +129,7 @@ class StatsScene(Scene):
              (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
              (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: None),
+             (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
@@ -919,7 +920,7 @@ class StatsScene(Scene):
                 if hasattr(lbl, "_base_fs"):
                     lbl.font_size = max(8, round(lbl._base_fs * s))
 
-        self.nav.set_rect(width / 2 - 300 * s, height - 50 * s, 600 * s, 36 * s)
+        self.nav.set_rect(width / 2 - 350 * s, height - 50 * s, 700 * s, 36 * s)
         self.inner.set_rect(width / 2 - 200 * s, height - 100 * s, 400 * s, 32 * s)
         # Frame the content area (below the inner tabs, above the bottom margin).
         self.content_panel.set_rect(32 * s, 28 * s, width - 64 * s, height - 148 * s)

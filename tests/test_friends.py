@@ -127,6 +127,74 @@ def test_invite_and_join_request_reach_the_other_player(tmp_path):
     assert got[0]["from"] == "BBBB2222"
 
 
+def test_friendship_needs_both_sides_to_agree(tmp_path):
+    broker = LoopbackBroker()
+    me = _svc(broker, tmp_path, "me", "AAAA1111")
+    them = _svc(broker, tmp_path, "ken", "BBBB2222")
+    me.connect(); them.connect()
+
+    # I ask. Nobody is anybody's friend yet - it's a request, not an add.
+    assert me.send_friend_request("BBBB2222", "ken") is True
+    assert me.state.friends == [], "adding must not be one-sided any more"
+    assert me.state.requested("BBBB2222")
+    assert me.send_friend_request("BBBB2222", "ken") is False, "asked twice"
+
+    got = [m for m in them.poll() if m["type"] == "friend_request"]
+    assert got and got[0]["from"] == "AAAA1111" and got[0]["name"] == "me"
+    assert them.state.friends == [], "a request must not add them either"
+
+    # They accept: now BOTH sides have each other.
+    them.accept_request("AAAA1111", "me")
+    assert them.state.is_friend("AAAA1111")
+    answer = [m for m in me.poll() if m["type"] == "friend_accept"]
+    assert answer, "the answer never came back"
+    assert me.state.is_friend("BBBB2222"), "accepting only added one side"
+    assert not me.state.requested("BBBB2222"), "still listed as pending"
+
+
+def test_a_declined_request_adds_nobody(tmp_path):
+    broker = LoopbackBroker()
+    me = _svc(broker, tmp_path, "me", "AAAA1111")
+    them = _svc(broker, tmp_path, "ken", "BBBB2222")
+    me.connect(); them.connect()
+
+    me.send_friend_request("BBBB2222", "ken")
+    them.poll()
+    them.decline_request("AAAA1111")
+    assert them.state.friends == []
+    got = [m for m in me.poll() if m["type"] == "friend_decline"]
+    assert got
+    assert me.state.friends == []
+    assert not me.state.requested("BBBB2222"), "a declined request must clear"
+    # ...and the retained request is gone, so it can't haunt them next launch.
+    assert not [t for t in broker.retained if t.endswith("/req/AAAA1111")]
+
+
+def test_a_request_waits_for_someone_who_is_offline(tmp_path):
+    """Requests are retained: you can add someone who has already gone to bed."""
+    broker = LoopbackBroker()
+    me = _svc(broker, tmp_path, "me", "AAAA1111")
+    me.connect()
+    me.send_friend_request("BBBB2222", "ken")      # they aren't even connected
+
+    them = _svc(broker, tmp_path, "ken", "BBBB2222")
+    them.connect()                                 # ...they open the app later
+    got = [m for m in them.poll() if m["type"] == "friend_request"]
+    assert got and got[0]["from"] == "AAAA1111", \
+        "the request evaporated because they were offline when it was sent"
+
+
+def test_an_answer_to_a_request_we_never_sent_is_ignored(tmp_path):
+    broker = LoopbackBroker()
+    me = _svc(broker, tmp_path, "me", "AAAA1111")
+    liar = _svc(broker, tmp_path, "liar", "CCCC3333")
+    me.connect(); liar.connect()
+
+    liar._send("AAAA1111", {"type": "friend_accept"})   # nobody asked them
+    assert me.poll() == []
+    assert me.state.friends == [], "a forged acceptance added a stranger"
+
+
 def test_a_stranger_cannot_message_you(tmp_path):
     """Knowing someone's code must not be enough to spam them with invites."""
     broker = LoopbackBroker()

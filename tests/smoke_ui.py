@@ -380,6 +380,12 @@ def run() -> int:
         from kanjire.userstate import UserState
 
         broker = LoopbackBroker()
+        # This harness runs against the REAL save file, so start from a clean
+        # slate (a previous run may have left friends/requests behind).
+        for _f in app2.state.friends:
+            app2.state.remove_friend(_f["code"])
+        for _r in app2.state.requests_out:
+            app2.state.drop_request_out(_r["code"])
         app2.friends.transport = LoopbackTransport(broker)
         assert app2.friends.connect() is None
         my_code = app2.state.friend_code
@@ -420,8 +426,8 @@ def run() -> int:
         assert [m for m in ken.poll() if m["type"] == "join_request"], \
             "the join request never reached them"
 
-        # Add a player straight from the room roster (that's how you make
-        # friends: you played with them).
+        # Ask a player to be friends straight from the room roster - in the
+        # LOBBY, not just after the game. It's a request: they have to accept.
         mp3.me = 0
         mp3.room = "QQQQQ"
         mp3._on_state({"players": ["me", "sara"], "codes": [my_code, "SARA0001"],
@@ -429,20 +435,48 @@ def run() -> int:
                        "combos": [0, 0], "settings": {}, "started": False,
                        "finished": False, "paused": False}, None)
         frames2(3)
+        assert mp3.phase == "lobby"
         assert len(mp3._add_btns) == 1, "no way to add the player you just met"
         mp3._add_btns[0]["button"].click()
         frames2(3)
-        assert app2.state.is_friend("SARA0001")
-        assert not mp3._add_btns, "still offering to add an existing friend"
-        # ...and removing them again works.
-        mp3._remove_friend("SARA0001")
-        assert not app2.state.is_friend("SARA0001")
+        assert app2.state.requested("SARA0001"), "no request was sent"
+        assert not app2.state.is_friend("SARA0001"),             "adding a friend must not be one-sided"
+        assert not mp3._add_btns, "still offering to ask someone already asked"
+
+        # The Friends TAB: a request waiting on us, accepted from there.
+        from kanjire.ui.scenes.friends import FriendsScene
+
+        # (they're already a friend from the presence check above - un-friend
+        # them first, or the request is correctly ignored as redundant)
         app2.friends.remove_friend(ken_state.friend_code)
+        ken.state.remove_friend(my_code)
+        ken.send_friend_request(my_code, "ken")
+        frames2(3)
+        app2.go_friends()
+        assert isinstance(app2.scene, FriendsScene)
+        frames2(4)
+        kinds = [r["kind"] for r in app2.scene._rows]
+        assert "request" in kinds, f"no incoming request on the Friends tab: {kinds}"
+        assert "sent" in kinds, "the request we sent isn't shown as pending"
+        # Accept it: now we're both friends and they're told.
+        req_row = next(r for r in app2.scene._rows if r["kind"] == "request")
+        req_row["buttons"][0].click()             # Accept
+        frames2(4)
+        assert app2.state.is_friend(ken_state.friend_code)
+        assert [m for m in ken.poll() if m["type"] == "friend_accept"],             "they were never told we accepted"
+        assert any(r["kind"] == "friend" for r in app2.scene._rows)
+
+        # ...and removing works from the tab.
+        app2.scene._remove(ken_state.friend_code)
+        frames2(3)
+        assert not app2.state.is_friend(ken_state.friend_code)
+        app2.state.drop_request_out("SARA0001")
         app2.friends.close()
         ken.close()
         app2.go_menu()
         frames2(2)
-        print("PASS friends (presence, invite anywhere, ask to join, add from room)")
+        print("PASS friends tab (request -> accept, presence, invite anywhere, "
+              "ask to join, add from lobby)")
 
         # 14) Learn mode picks from the right buckets when we have stats data.
         # Seed: 6 different words seen + matched but also flubbed (=> genuinely

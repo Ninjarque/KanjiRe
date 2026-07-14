@@ -11,6 +11,13 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Friends is now its own tab**, next to Stats — who's online, who's in a room,
+  requests waiting on you, and one click to play together from anywhere.
+- **Friendship goes both ways now.** Adding someone sends them a *request*: they
+  accept (or decline) and only then do you appear on each other's lists. You can
+  ask the moment you meet — the **+ add** button is there in the room lobby, not
+  just at the end of the game — and a request waits for someone who's offline,
+  arriving the next time they open the app.
 
 ## 0.17.0 — 2026-07-14
 - **Friends!** Add the people you play with straight from the room (a **+ add**

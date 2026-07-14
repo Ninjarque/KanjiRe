@@ -253,6 +253,11 @@ class GameApp:
 
         self.set_scene(JourneyScene(self))
 
+    def go_friends(self) -> None:
+        from kanjire.ui.scenes.friends import FriendsScene
+
+        self.set_scene(FriendsScene(self))
+
     def go_multiplayer(self, join_room: str = "") -> None:
         """Open multiplayer; with *join_room*, walk straight into that room
         (accepting a friend's invite must be one click, not "now type ABCDE")."""

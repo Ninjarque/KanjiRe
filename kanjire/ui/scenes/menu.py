@@ -177,6 +177,7 @@ class MenuScene(Scene):
              (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
              (tr("NAV_READ"),     lambda: self.app.go_reading()),
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
+             (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: self.app.go_settings())],
             self.batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
@@ -912,7 +913,7 @@ class MenuScene(Scene):
         self.streak_label.font_size = max(8, round(12 * s))
 
         # Top nav bar (Play | Stats | Settings)
-        self.nav.set_rect(cx - 300 * s, height - 50 * s, 600 * s, 36 * s)
+        self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
         y = height - 112 * s
         # Place "KanjiRe" and "漢字" side by side, centred as a group.
         gap = 14 * s
