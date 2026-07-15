@@ -218,6 +218,14 @@ class GameApp:
         self.set_scene(MenuScene(self))
 
     def go_game(self, config, pool=None, recall_words=None) -> None:
+        # The Recall mode has no card board - it's a typed-recall session. Route
+        # it to the recall scene directly, so "Play again" from its results
+        # (which comes back through go_game) lands here too.
+        if getattr(config, "recall_mode", False):
+            from kanjire.ui.scenes.recall import RecallScene
+
+            self.set_scene(RecallScene(self, config=config, pool=pool))
+            return
         from kanjire.ui.scenes.game import GameScene
 
         self.set_scene(GameScene(self, config, pool=pool,

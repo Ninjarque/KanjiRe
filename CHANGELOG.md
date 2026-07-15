@@ -11,6 +11,13 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **New mode: Recall.** The type-the-reading drill that used to only appear at
+  the end of a Today session is now a mode of its own — pick it, and every
+  prompt shows you a word to type the reading of (romaji converts to kana as you
+  type, no Japanese keyboard needed). It has the same controls as everything
+  else: deck, JLPT levels, how many words, the known/less-known/unknown
+  difficulty mix, and a **prompt style** — read-and-type, listen-and-type
+  (dictation, if your system speaks Japanese), or a mix of both.
 
 ## 0.18.0 — 2026-07-14
 - **Friends is now its own tab**, next to Stats — who's online, who's in a room,

@@ -44,6 +44,7 @@ _MODE_TR = {
     "Zen":         "MODE_ZEN",
     "Familiarize": "MODE_FAMILIAR",
     "Learn":       "MODE_LEARN",
+    "Recall":      "MODE_RECALL",
 }
 
 
@@ -69,8 +70,14 @@ _PRESET_FIELDS = (
     "repetitions", "random_fonts", "vertical_writing",
     "learn_known", "learn_less_known", "learn_unknown",
     "lives_mode", "start_lives", "max_lives", "heart_chance",
+    "recall_mode", "recall_prompt",
     "name",
 )
+
+#: (state value, translation key) for the Recall prompt-style row.
+RECALL_PROMPT_OPTIONS = (("typed", "RECALL_P_TYPED"),
+                         ("listen", "RECALL_P_LISTEN"),
+                         ("mixed", "RECALL_P_MIXED"))
 
 
 def _config_to_dict(cfg: GameConfig) -> dict:
@@ -128,6 +135,8 @@ class MenuScene(Scene):
         # Survival difficulty (only shown when "Survival" is the active mode).
         self.start_hearts = 3
         self.bounty_freq = "low"
+        # Recall prompt style (only shown when "Recall" is the active mode).
+        self.recall_prompt = "mixed"
         # Which menu sub-tab is showing: "quick" (mode/deck/level/words) or
         # "advanced" (cards/fonts/writing/passes/learn buckets).
         self.active_subtab = "quick"
@@ -329,6 +338,14 @@ class MenuScene(Scene):
             for val, key in BOUNTY_OPTIONS
         ]
 
+        # Recall prompt style: type / listen / mixed. Shown only for Recall.
+        self.lbl_recall_prompt = self._section(tr("SEC_RECALL_PROMPT"))
+        self.recall_prompt_btns = [
+            (val, self._btn(tr(key), lambda v=val: self._set_recall_prompt(v),
+                            accent=theme.FACE_COLORS["reading"], font_size=11))
+            for val, key in RECALL_PROMPT_OPTIONS
+        ]
+
         self.save_preset_btn = self._btn(
             tr("BTN_SAVE_PRESET"), self._save_preset_dialog,
             accent=theme.GOLD, font_size=12,
@@ -372,12 +389,12 @@ class MenuScene(Scene):
             self.faces_btns, self.font_btns, self.writing_btns,
             self.repeat_btns,
             self.known_btns, self.less_known_btns, self.unknown_btns,
-            self.hearts_btns, self.bounty_btns,
+            self.hearts_btns, self.bounty_btns, self.recall_prompt_btns,
         )
         self._adv_labels = [
             self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat,
             self.lbl_known, self.lbl_less_known, self.lbl_unknown,
-            self.lbl_hearts, self.lbl_bounty,
+            self.lbl_hearts, self.lbl_bounty, self.lbl_recall_prompt,
         ]
 
     # ------------------------------------------------------------------ #
@@ -439,6 +456,10 @@ class MenuScene(Scene):
         self.bounty_freq = v
         self._after_change()
 
+    def _set_recall_prompt(self, v: str) -> None:
+        self.recall_prompt = v
+        self._after_change()
+
     def _after_change(self) -> None:
         """Persist current settings under the active mode, then re-render."""
         self.app.state.set_last_for_mode(self.mode, self._settings_dict())
@@ -460,6 +481,7 @@ class MenuScene(Scene):
             "kana_script": self.kana_script,
             "start_hearts": self.start_hearts,
             "bounty_freq": self.bounty_freq,
+            "recall_prompt": self.recall_prompt,
         }
 
     def _apply_settings(self, d: dict) -> None:
@@ -495,6 +517,8 @@ class MenuScene(Scene):
             self.start_hearts = int(d["start_hearts"])
         if d.get("bounty_freq") in _BOUNTY_CHANCE:
             self.bounty_freq = d["bounty_freq"]
+        if d.get("recall_prompt") in {v for v, _ in RECALL_PROMPT_OPTIONS}:
+            self.recall_prompt = d["recall_prompt"]
 
     def _sync_from_mode(self, name: str) -> None:
         """Update toggle state from the chosen mode (built-in or saved)."""
@@ -507,6 +531,7 @@ class MenuScene(Scene):
         self.learn_known = int(cfg.get("learn_known", 0))
         self.learn_less_known = int(cfg.get("learn_less_known", 0))
         self.learn_unknown = int(cfg.get("learn_unknown", 0))
+        self.recall_prompt = cfg.get("recall_prompt", "mixed")
         # Saved presets also restore deck / levels / faces / board size.
         if name in self._user_preset_names:
             decks = tuple(cfg.get("decks", ()))
@@ -635,8 +660,9 @@ class MenuScene(Scene):
                 b.set_selected(val == self.vertical_writing)
             for n, b in self.repeat_btns:
                 b.set_selected(n == self.repetitions)
-            # Learn-mode bucket selectors: visible only in Learn mode.
-            showing_learn = self.mode == "Learn"
+            # Word-difficulty bucket selectors: shown for Learn AND Recall,
+            # which both draw a tuned known/less-known/unknown mix.
+            showing_learn = self.mode in ("Learn", "Recall")
             for n, b in self.known_btns:
                 b.set_visible(showing_learn)
                 if showing_learn:
@@ -666,6 +692,13 @@ class MenuScene(Scene):
             sop = 255 if showing_survival else 0
             self.lbl_hearts.opacity = sop
             self.lbl_bounty.opacity = sop
+            # Recall prompt-style selector: visible only in Recall mode.
+            showing_recall = self.mode == "Recall"
+            for v, b in self.recall_prompt_btns:
+                b.set_visible(showing_recall)
+                if showing_recall:
+                    b.set_selected(v == self.recall_prompt)
+            self.lbl_recall_prompt.opacity = 255 if showing_recall else 0
 
         # availability count
         if self.deck == kana.KANA_DECK:
@@ -767,6 +800,7 @@ class MenuScene(Scene):
             start_lives=self.start_hearts,
             max_lives=_HEARTS_MAX[self.start_hearts],
             heart_chance=_BOUNTY_CHANCE[self.bounty_freq],
+            recall_prompt=self.recall_prompt,
             name=self.mode,
         )
 
@@ -993,6 +1027,47 @@ class MenuScene(Scene):
             y -= dy * s
             lbl.x, lbl.y = cx, y
 
+        learn_widgets = (
+            self._flat(self.known_btns) + self._flat(self.less_known_btns)
+            + self._flat(self.unknown_btns),
+            [self.lbl_known, self.lbl_less_known, self.lbl_unknown],
+        )
+        survival_widgets = (
+            self._flat(self.hearts_btns) + self._flat(self.bounty_btns),
+            [self.lbl_hearts, self.lbl_bounty],
+        )
+        recall_widgets = (
+            self._flat(self.recall_prompt_btns), [self.lbl_recall_prompt],
+        )
+        board_widgets = (
+            self._flat(self.faces_btns) + self._flat(self.font_btns)
+            + self._flat(self.writing_btns) + self._flat(self.repeat_btns),
+            [self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat],
+        )
+
+        # Recall is a typing drill: cards / fonts / writing / passes make no
+        # sense, so hide them and show only what shapes a recall session - the
+        # prompt style, and (shared with Learn) the word-difficulty mix.
+        if self.mode == "Recall":
+            self._set_group_visible(*board_widgets, False)
+            self._set_group_visible(*survival_widgets, False)
+            section(self.lbl_recall_prompt, dy=10)
+            y -= 28 * s
+            self._row(self.recall_prompt_btns, y, 130 * s, 32 * s, gap=10 * s)
+            bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
+            row_w = 4 * bw2 + 3 * gap2
+            for lbl, btns in ((self.lbl_known, self.known_btns),
+                              (self.lbl_less_known, self.less_known_btns),
+                              (self.lbl_unknown, self.unknown_btns)):
+                y -= 44 * s
+                lbl.anchor_x = "right"
+                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
+                x0 = cx - row_w / 2
+                for i, (_v, b) in enumerate(btns):
+                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+            return
+
+        self._set_group_visible(*recall_widgets, False)
         section(self.lbl_faces, dy=10)
         y -= 30 * s
         self._row(self.faces_btns, y, 200 * s, 40 * s, gap=12 * s)
@@ -1005,15 +1080,6 @@ class MenuScene(Scene):
         section(self.lbl_repeat)
         y -= 28 * s
         self._row(self.repeat_btns, y, 76 * s, 32 * s, gap=12 * s)
-        learn_widgets = (
-            self._flat(self.known_btns) + self._flat(self.less_known_btns)
-            + self._flat(self.unknown_btns),
-            [self.lbl_known, self.lbl_less_known, self.lbl_unknown],
-        )
-        survival_widgets = (
-            self._flat(self.hearts_btns) + self._flat(self.bounty_btns),
-            [self.lbl_hearts, self.lbl_bounty],
-        )
         if self.mode == "Learn":
             # Compact inline rows (label left, buttons right) — the stacked
             # version was ~180px taller and collided with the footer on

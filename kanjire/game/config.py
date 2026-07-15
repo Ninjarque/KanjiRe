@@ -20,6 +20,11 @@ DEFAULT_FACES = ("kanji", "reading", "romaji", "meaning")
 #: Allowed values for ``GameConfig.vertical_writing``.
 VERTICAL_MODES = ("off", "random", "all")
 
+#: Allowed values for ``GameConfig.recall_prompt`` (the standalone Recall mode).
+#: 'typed' = see the kanji, type the reading; 'listen' = hear it, type it
+#: (needs Japanese TTS); 'mixed' = alternate between the two.
+RECALL_PROMPTS = ("typed", "listen", "mixed")
+
 
 @dataclass
 class GameConfig:
@@ -78,6 +83,15 @@ class GameConfig:
     #: game with ``session_complete``.
     session_mode: bool = False
 
+    # ---- typed recall (the standalone "Recall" writing mode) ----------- #
+    #: When True the session is a typed-recall drill (type the reading of each
+    #: word) rather than a card-matching board. Reuses the same content
+    #: controls - deck / levels / word count / learn-bucket mix - so word
+    #: selection is as tunable as every other mode.
+    recall_mode: bool = False
+    #: 'typed' | 'listen' | 'mixed' - see RECALL_PROMPTS.
+    recall_prompt: str = "mixed"
+
     name: str = "Custom"
 
     def __post_init__(self) -> None:
@@ -89,6 +103,8 @@ class GameConfig:
         self.frequency_bias = max(0.0, min(1.0, self.frequency_bias))
         if self.vertical_writing not in VERTICAL_MODES:
             raise ValueError(f"unknown vertical_writing: {self.vertical_writing!r}")
+        if self.recall_prompt not in RECALL_PROMPTS:
+            raise ValueError(f"unknown recall_prompt: {self.recall_prompt!r}")
         self.repetitions = max(1, int(self.repetitions))
         self.start_lives = max(1, int(self.start_lives))
         self.max_lives = max(self.start_lives, int(self.max_lives))
@@ -183,10 +199,29 @@ def _learn() -> GameConfig:
     )
 
 
+def _recall() -> GameConfig:
+    """Type the reading of each word - the recall drill that used to only run as
+    an epilogue, now a mode of its own. Draws a learn-tuned mix so it stays at
+    the player's level, and defaults to mixing typed prompts with dictation."""
+    return GameConfig(
+        name="Recall",
+        recall_mode=True,
+        recall_prompt="mixed",
+        duration=None,
+        max_mistakes=None,
+        words_per_round=8,        # number of words to write in a session
+        mismatch_penalty=0,
+        learn_known=2,            # a solid anchor of words you know
+        learn_less_known=2,       # the struggle words worth drilling
+        learn_unknown=1,          # a little fresh growth
+    )
+
+
 PRESETS: dict[str, "callable[[], GameConfig]"] = {
     "Time Attack": _time_attack,
     "Survival": _survival,
     "Zen": _zen,
     "Familiarize": _familiarize,
     "Learn": _learn,
+    "Recall": _recall,
 }

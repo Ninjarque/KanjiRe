@@ -97,6 +97,55 @@ def run() -> int:
     frames(10)
     print("PASS play-again works")
 
+    # 6b) The standalone Recall mode: pick it, play it, answer some prompts.
+    from kanjire.ui.scenes.recall import RecallScene
+    app.go_menu()
+    frames(4)
+    app.scene._set_mode("Recall")
+    frames(4)
+    assert app.scene.mode == "Recall"
+    # Its Advanced tab shows the prompt-style + word-difficulty rows, not cards.
+    app.scene._set_subtab("advanced")
+    frames(4)
+    assert app.scene.recall_prompt_btns[0][1].visible, "no prompt-style row"
+    assert not app.scene.faces_btns[0][1].visible, "card row shown in Recall"
+    app.scene._set_recall_prompt("typed")   # deterministic: no dictation
+    app.scene._set_subtab("quick")
+    frames(2)
+    app.scene._play()
+    assert isinstance(app.scene, RecallScene), "Recall did not start"
+    rc = app.scene
+    assert rc.standalone and rc.words, "Recall sampled no words"
+    # Answer the first word correctly, give up on the rest, and reach results.
+    guard = 0
+    while isinstance(app.scene, RecallScene) and guard < 400:
+        rc = app.scene
+        w = rc.word
+        if w is None:
+            break
+        from kanjire.kana import hira_to_romaji
+        if rc.idx == 0:
+            for ch in hira_to_romaji(w.reading):
+                rc.on_text(ch)
+            rc.on_key_press(pkey.ENTER, 0)
+        else:
+            # Two wrong submissions -> gives up and moves on.
+            rc.on_text("x")
+            rc.on_key_press(pkey.ENTER, 0)
+            rc.on_text("x")
+            rc.on_key_press(pkey.ENTER, 0)
+        frames(60)   # let the advance animation run
+        guard += 1
+    assert isinstance(app.scene, ResultsScene), \
+        f"Recall did not reach results: {type(app.scene).__name__}"
+    assert app.scene.engine.matches >= 1, "a correct recall wasn't scored"
+    assert app.scene.engine.score > 0
+    # Play again comes straight back into a Recall session, not a card game.
+    app.scene._again()
+    assert isinstance(app.scene, RecallScene), "Recall play-again broke"
+    frames(6)
+    print("PASS recall mode (standalone play, scoring, results, play-again)")
+
     # 7) Import a tiny text file -> ingest -> back to menu
     import tempfile, time
     from pathlib import Path

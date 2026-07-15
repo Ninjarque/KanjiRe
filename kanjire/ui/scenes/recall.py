@@ -1,14 +1,23 @@
-"""Typed-recall epilogue: type the reading of the words you just reviewed.
+"""Typed-recall: type the reading of each word.
 
-Runs after a completed Today's Training session, over the session's hardest
-review words. Typing the reading is *recall* — much stronger evidence than
-recognising a card on a board — so a clean first-try answer rates Easy in
-the scheduler, an eventual answer rates Hard, and giving up rates Again.
+Two ways in:
+
+* as the **epilogue** to a completed Today's Training session, over its hardest
+  review words (``engine`` is the finished session, results follow it), and
+* as the standalone **Recall** mode (``engine`` is None: the scene samples its
+  own words from the config, keeps its own score, and builds a results screen at
+  the end).
+
+Typing the reading is *recall* — much stronger evidence than recognising a card
+on a board — so a clean first-try answer rates Easy in the scheduler, an
+eventual answer rates Hard, and giving up rates Again.
 
 Input is IME-free: romaji is converted to hiragana live as you type (see
 :func:`kanjire.kana.romaji_to_hira`); real kana input passes through.
 """
 from __future__ import annotations
+
+import random
 
 import pyglet
 from pyglet.graphics import OrderedGroup
@@ -16,6 +25,7 @@ from pyglet.text import Label
 
 from kanjire.i18n import tr
 from kanjire.kana import romaji_to_hira
+from kanjire.model.wordpick import sample_words
 from kanjire.ui import theme
 from kanjire.ui.anim import Animator, ease_out_cubic, ease_out_elastic
 from kanjire.ui.fonts import JP_FONT
@@ -27,23 +37,86 @@ from kanjire.ui.widgets.textinput import TextInput
 #: Give up and show the answer after this many wrong submissions.
 MAX_ATTEMPTS = 2
 
+#: Standalone scoring: a clean first-try answer is worth the most, an eventual
+#: answer half, a given-up word nothing.
+_POINTS_FIRST = 100
+_POINTS_LATER = 50
+
+
+class _RecallEngine:
+    """A minimal engine stand-in so ResultsScene can render a standalone Recall
+    session. Exposes the same read-only surface the results screen expects from
+    a real GameEngine (score / matches / mistakes / accuracy / ...)."""
+
+    def __init__(self, words) -> None:
+        self.score = 0
+        self.matches = 0            # words recalled (first or eventual)
+        self.mistakes = 0          # words given up on
+        self.seen_words = list(words)
+        self.pool = list(words)
+        self.session_left = 0      # not a session-mode game
+        self.rounds_completed = 0  # counts each word as it's answered
+        self.best_combo = 0        # longest run of first-try recalls
+        self._combo = 0
+
+    def record(self, *, recalled: bool, first_try: bool) -> None:
+        self.rounds_completed += 1
+        if recalled:
+            self.matches += 1
+            self.score += _POINTS_FIRST if first_try else _POINTS_LATER
+            if first_try:
+                self._combo += 1
+                self.best_combo = max(self.best_combo, self._combo)
+            else:
+                self._combo = 0
+        else:
+            self.mistakes += 1
+            self._combo = 0
+
+    @property
+    def accuracy(self) -> float:
+        total = self.matches + self.mistakes
+        return (self.matches / total) if total else 0.0
+
+    @property
+    def words_learned(self) -> int:
+        return self.matches
+
 
 class RecallScene(Scene):
-    def __init__(self, app, words, engine, config, session=None) -> None:
+    def __init__(self, app, words=None, engine=None, config=None,
+                 session=None, pool=None) -> None:
         super().__init__(app)
-        self.words = list(words)
-        self.engine = engine          # the finished Today engine (for results)
         self.config = config
         self.session = session
+        # Standalone when no finished game engine was handed in (the Recall
+        # mode). The epilogue passes the Today engine and its words; the mode
+        # passes neither and samples its own from the config.
+        self.standalone = engine is None
+        if words:
+            self.words = list(words)
+        elif pool:
+            self.words = list(pool)
+        elif self.standalone:
+            self.words = sample_words(app, config, config.words_per_round,
+                                      rng=random.Random())
+        else:
+            self.words = []
+        self.engine = engine if engine is not None else _RecallEngine(self.words)
         self.idx = 0
         self.attempts = 0
         self._advancing = False
         self._shake = 0.0             # animated by the Animator on a miss
-        # Every other prompt becomes *dictation* when Japanese TTS exists:
-        # the word is spoken, the kanji hidden - type what you hear.
+        self.error = None if self.words else tr("NO_WORDS")
+        # Which prompt each word uses. 'listen' (dictation) needs Japanese TTS;
+        # without it we always fall back to typed. The standalone mode's
+        # recall_prompt setting picks typed / listen / mixed; the epilogue keeps
+        # its historical every-other-one dictation.
         tts_ok = bool(getattr(app.audio.speech, "has_jp", False)
                       and not app.audio.muted)
-        self.modes = ["listen" if (tts_ok and i % 2 == 1) else "typed"
+        want = getattr(config, "recall_prompt", "mixed") if self.standalone \
+            else "mixed"
+        self.modes = [self._prompt_for(i, want, tts_ok)
                       for i in range(len(self.words))]
 
         self.batch = pyglet.graphics.Batch()
@@ -80,6 +153,14 @@ class RecallScene(Scene):
         self._show_word()
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _prompt_for(i: int, want: str, tts_ok: bool) -> str:
+        if want == "listen":
+            return "listen" if tts_ok else "typed"
+        if want == "typed":
+            return "typed"
+        return "listen" if (tts_ok and i % 2 == 1) else "typed"  # mixed
+
     @property
     def word(self):
         return self.words[self.idx] if self.idx < len(self.words) else None
@@ -129,6 +210,8 @@ class RecallScene(Scene):
                 self.app.stats.recalled(w, first_try=first_try)
             except Exception:
                 pass
+            if self.standalone:
+                self.engine.record(recalled=True, first_try=first_try)
             self.app.audio.sfx.play("match_hi" if first_try else "match")
             self.feedback.color = theme.with_alpha(theme.SUCCESS, 255)
             self.feedback.text = w.reading + "  ○"
@@ -145,6 +228,8 @@ class RecallScene(Scene):
                     self.app.stats.confused(w, w, "reading")
                 except Exception:
                     pass
+                if self.standalone:
+                    self.engine.record(recalled=False, first_try=False)
                 self.feedback.color = theme.with_alpha(theme.DANGER, 255)
                 self.feedback.text = tr("RECALL_ANSWER", reading=w.reading)
                 if self.mode == "listen":
@@ -171,6 +256,11 @@ class RecallScene(Scene):
         self.anim.after(delay, nxt)
 
     def _finish(self) -> None:
+        # A standalone session with nothing to recall (empty pool, or bailed
+        # before answering anything) has no meaningful results screen.
+        if self.standalone and not self.engine.seen_words:
+            self.app.go_menu()
+            return
         self.app.go_results(self.engine, self.config, session=self.session)
 
     # ------------------------------------------------------------------ #

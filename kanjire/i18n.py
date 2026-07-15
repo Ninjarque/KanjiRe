@@ -76,6 +76,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_KANA_SCRIPT": "KANA SCRIPT",
         "SEC_HEARTS":    "STARTING HEARTS",
         "SEC_BOUNTY":    "HEART BOUNTIES",
+        "SEC_RECALL_PROMPT": "PROMPT",
+        "RECALL_P_TYPED":  "Read, type",
+        "RECALL_P_LISTEN": "Listen, type",
+        "RECALL_P_MIXED":  "Mixed",
         "BOUNTY_NONE":   "None",
         "BOUNTY_LOW":    "Low",
         "BOUNTY_MED":    "Med",
@@ -91,6 +95,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MODE_ZEN":       "Zen",
         "MODE_FAMILIAR":  "Familiarize",
         "MODE_LEARN":     "Learn",
+        "MODE_RECALL":    "Recall",
 
         # --- buttons / toggles ------------------------------------- #
         "BTN_PLAY":            "PLAY",
@@ -386,6 +391,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_KANA_SCRIPT": "ÉCRITURE KANA",
         "SEC_HEARTS":    "CŒURS DE DÉPART",
         "SEC_BOUNTY":    "PRIMES CŒUR",
+        "SEC_RECALL_PROMPT": "INVITE",
+        "RECALL_P_TYPED":  "Lire, écrire",
+        "RECALL_P_LISTEN": "Écouter, écrire",
+        "RECALL_P_MIXED":  "Mixte",
         "BOUNTY_NONE":   "Aucune",
         "BOUNTY_LOW":    "Faible",
         "BOUNTY_MED":    "Moy.",
@@ -401,6 +410,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "MODE_ZEN":       "Zen",
         "MODE_FAMILIAR":  "Familiarisation",
         "MODE_LEARN":     "Apprendre",
+        "MODE_RECALL":    "Rappel",
 
         # --- buttons / toggles --------------------------------- #
         "BTN_PLAY":            "JOUER",
