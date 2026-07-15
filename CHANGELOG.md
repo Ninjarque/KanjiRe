@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.19.0 — 2026-07-15
 - **New mode: Recall.** The type-the-reading drill that used to only appear at
   the end of a Today session is now a mode of its own — pick it, and every
   prompt shows you a word to type the reading of (romaji converts to kana as you
