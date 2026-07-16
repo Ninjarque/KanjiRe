@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.21.0 — 2026-07-16
 - **Reading Room: fixed sentences being wrongly marked "you know every word".**
   A sentence full of names or loanwords (like 竹内力とバンバンバザール) was judged
   only on the one common word the dictionary recognised, so it claimed you knew
