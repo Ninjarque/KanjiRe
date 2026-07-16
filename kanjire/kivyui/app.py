@@ -142,8 +142,6 @@ class KanjiReApp(App):
 
     def _build_tabs(self) -> None:
         """(Re)create every tab screen. Call after theme/locale changes."""
-        from kanjire.i18n import tr
-        from kanjire.kivyui.screens.placeholder import PlaceholderScreen
         from kanjire.kivyui.screens.play import PlayScreen
         from kanjire.kivyui.screens.settings import SettingsScreen
         from kanjire.kivyui.screens.stats import StatsScreen
@@ -151,12 +149,12 @@ class KanjiReApp(App):
         for name in [s.name for s in list(self.sm.screens)]:
             self.sm.remove_widget(self.sm.get_screen(name))
         from kanjire.kivyui.screens.friends import FriendsScreen
+        from kanjire.kivyui.screens.journey import JourneyScreen
+        from kanjire.kivyui.screens.reading import ReadingScreen
 
         self.sm.add_widget(PlayScreen(self, name="play"))
-        self.sm.add_widget(PlaceholderScreen("旅", tr("NAV_JOURNEY"),
-                                             name="journey"))
-        self.sm.add_widget(PlaceholderScreen("読", tr("NAV_READ"),
-                                             name="read"))
+        self.sm.add_widget(JourneyScreen(self, name="journey"))
+        self.sm.add_widget(ReadingScreen(self, name="read"))
         self.sm.add_widget(FriendsScreen(self, name="friends"))
         self.sm.add_widget(StatsScreen(self, name="stats"))
         self.sm.add_widget(SettingsScreen(self, name="settings"))
@@ -203,11 +201,22 @@ class KanjiReApp(App):
         self.nav.set_active("play")
 
     def go_game(self, config=None, pool=None):
+        config = config or PRESETS["Time Attack"]()
+        # Recall has no card board — route it to its own screen (Play again
+        # from its results comes back through here too, same as pyglet).
+        if getattr(config, "recall_mode", False):
+            if not self.sm.has_screen("recall"):
+                from kanjire.kivyui.screens.recall import RecallScreen
+                self.sm.add_widget(RecallScreen(name="recall"))
+            self._show_nav(False)
+            self.sm.current = "recall"
+            self.sm.get_screen("recall").start(self, config)
+            return
         if not self.sm.has_screen("game"):
             from kanjire.kivyui.screens.game import GameScreen
             self.sm.add_widget(GameScreen(name="game"))
         screen = self.sm.get_screen("game")
-        screen.start(self, config or PRESETS["Time Attack"](), pool=pool)
+        screen.start(self, config, pool=pool)
         self._show_nav(False)
         self.sm.current = "game"
 

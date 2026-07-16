@@ -166,6 +166,67 @@ def main() -> None:
             snap(app, "09-friends")
             app.state.remove_friend("DEF456")
             app.friends.pending_in.clear()
+            app.switch_tab("journey")
+            later(0.5, step_journey)
+
+        def step_journey():
+            js = app.sm.get_screen("journey")
+            check("journey stations built", len(js.stations) > 100)
+            check("journey grid rendered", len(js._grid.children)
+                  == len(js.stations))
+            snap(app, "10-journey")
+            app.switch_tab("read")
+            later(0.6, step_reading)
+
+        def step_reading():
+            rs = app.sm.get_screen("read")
+            check("reading session built", rs.session is not None)
+            # With this test profile's small known set the room may be empty
+            # or serving +1 sentences — either way the screen must render.
+            has_sentence = rs.session.current is not None
+            check("reading renders (sentence or empty state)",
+                  has_sentence or rs._empty.text != "")
+            if has_sentence:
+                before = rs.session.current["id"]
+                rs._next()
+                after = rs.session.current["id"] if rs.session.current else None
+                check("reading advances", after != before)
+            else:
+                check("reading advances", True)  # nothing to advance through
+            snap(app, "11-reading")
+            step_recall()
+
+        def step_recall():
+            from kanjire.game.config import PRESETS
+            cfg = PRESETS["Recall"]().with_(words_per_round=2,
+                                            recall_prompt="typed")
+            app.go_game(cfg)
+            later(0.6, step_recall_answer)
+
+        def step_recall_answer():
+            check("recall screen shown", app.sm.current == "recall")
+            rs = app.sm.get_screen("recall")
+            check("recall sampled words", len(rs.words) == 2)
+            snap(app, "12-recall")
+            # Answer both words correctly (kana passes through the converter).
+            rs._input.text = rs.word.reading
+            rs._submit()
+            check("first word scored", rs.engine.score > 0)
+            later(1.0, step_recall_second)
+
+        def step_recall_second():
+            rs = app.sm.get_screen("recall")
+            if rs.word is not None:
+                rs._input.text = rs.word.reading
+                rs._submit()
+            later(1.2, step_recall_done)
+
+        def step_recall_done():
+            rs = app.sm.get_screen("recall")
+            check("recall results shown", rs._overlay is not None)
+            check("recall all matched", rs.engine.matches == 2)
+            snap(app, "13-recall-results")
+            rs._quit()
             app.stop()
 
         later(0.4, step_complete_group)  # let the fade transition finish
