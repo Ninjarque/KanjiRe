@@ -818,7 +818,31 @@ def run() -> int:
             assert rd.current is not None, "no readable corpus sentence"
             assert not rd.trans_btn.enabled, "own text has no translation"
             rd._set_source("tanaka")
-            print("PASS reading room (i+1 feed, translation, log, popup, corpus)")
+
+            # Curriculum controls: new-word budget + difficulty, both change
+            # the queue immediately and every served sentence carries a rating.
+            rd._set_new_words(0)          # known-only
+            frames2(4)
+            assert rd.new_words == 0 and app2.state.setting("read_new_words") == "0"
+            assert rd.current is None or rd.current["unknown"] == 0, \
+                "known-only still served a sentence with a new word"
+            rd._set_new_words(1)
+            frames2(4)
+            # Difficulty ordering: easy should not lead with a harder sentence
+            # than challenging does. Compare the average difficulty of the head.
+            rd._set_difficulty("easy")
+            frames2(4)
+            easy_avg = rd.current.get("avg") if rd.current else None
+            rd._set_difficulty("challenging")
+            frames2(4)
+            hard_avg = rd.current.get("avg") if rd.current else None
+            if easy_avg is not None and hard_avg is not None:
+                assert hard_avg >= easy_avg - 1e-6, \
+                    f"challenging ({hard_avg}) served easier than easy ({easy_avg})"
+            assert app2.state.setting("read_difficulty") == "challenging"
+            rd._set_difficulty("comfortable")
+            print("PASS reading room (i+1 feed, translation, log, popup, corpus, "
+                  "curriculum)")
         else:
             print("SKIP reading room (sentences.db not built)")
 

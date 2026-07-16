@@ -252,6 +252,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "READ_ONE_NEW":        "{n} new word — tap the gold chip",
         "READ_LEARN":          "+ learn this word",
         "READ_SRC_GENERAL":    "General",
+        "READ_NEW_LABEL":      "NEW WORDS",
+        "READ_NEW_0":          "Known only",
+        "READ_NEW_1":          "+1 new",
+        "READ_NEW_2":          "+2 new",
+        "READ_DIFF_LABEL":     "DIFFICULTY",
+        "READ_DIFF_EASY":      "Easy",
+        "READ_DIFF_MID":       "Comfortable",
+        "READ_DIFF_HARD":      "Challenging",
+        "READ_LEVEL_TAG":      "level ~N{lvl}",
         "READ_EMPTY":          ("Match a few words first — sentences appear "
                                 "here as soon as you know enough to read them."),
 
@@ -569,6 +578,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "READ_ONE_NEW":        "{n} mot nouveau — touchez la puce dorée",
         "READ_LEARN":          "+ apprendre ce mot",
         "READ_SRC_GENERAL":    "Général",
+        "READ_NEW_LABEL":      "NOUVEAUX MOTS",
+        "READ_NEW_0":          "Connus",
+        "READ_NEW_1":          "+1 nouveau",
+        "READ_NEW_2":          "+2 nouveaux",
+        "READ_DIFF_LABEL":     "DIFFICULTÉ",
+        "READ_DIFF_EASY":      "Facile",
+        "READ_DIFF_MID":       "Confortable",
+        "READ_DIFF_HARD":      "Exigeant",
+        "READ_LEVEL_TAG":      "niveau ~N{lvl}",
         "READ_EMPTY":          ("Associez d'abord quelques mots — les phrases "
                                 "apparaîtront dès que vous en saurez assez "
                                 "pour les lire."),

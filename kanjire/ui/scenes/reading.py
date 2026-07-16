@@ -17,6 +17,7 @@ from pyglet.text import Label
 
 from kanjire.data import coverage as coverage_mod
 from kanjire.data import kanjidata
+from kanjire.data import reading_level
 from kanjire.i18n import tr
 from kanjire.jputil import has_kanji, uncovered_kanji
 from kanjire.ui import theme
@@ -29,6 +30,17 @@ from kanjire.ui.widgets.tabs import TabBar
 
 #: Refill the queue when it runs this low.
 _REFILL_AT = 5
+
+#: How many words in a sentence may be new (unknown), i.e. the i+1 dial.
+#: (state value, translation key).
+NEW_WORD_OPTIONS = ((0, "READ_NEW_0"), (1, "READ_NEW_1"), (2, "READ_NEW_2"))
+
+#: Difficulty preference: how the readable pool is ordered/biased. "easy"
+#: serves the gentlest sentences first, "challenging" the hardest (highest
+#: average, spikes welcome), "comfortable" aims at the middle of your range.
+DIFFICULTY_OPTIONS = (("easy", "READ_DIFF_EASY"),
+                      ("comfortable", "READ_DIFF_MID"),
+                      ("challenging", "READ_DIFF_HARD"))
 
 
 class ReadingScene(Scene):
@@ -57,6 +69,17 @@ class ReadingScene(Scene):
             expr for expr, _r in coverage_mod.known_keys(app.stats)
             if has_kanji(expr)
         }
+        # Curriculum controls (persisted). new_words = how many unknown words a
+        # sentence may have (the i+1 dial); difficulty = how the readable pool
+        # is ordered by intrinsic hardness.
+        self.new_words = int(app.state.setting("read_new_words", "1") or 1)
+        if self.new_words not in {v for v, _ in NEW_WORD_OPTIONS}:
+            self.new_words = 1
+        self.difficulty = app.state.setting("read_difficulty", "comfortable")
+        if self.difficulty not in {v for v, _ in DIFFICULTY_OPTIONS}:
+            self.difficulty = "comfortable"
+        # Intrinsic word difficulty (JLPT + frequency), loaded once.
+        self._word_diff = reading_level.load_word_difficulty(app.con)
         # Sources: the built-in Tanaka corpus plus any imported deck that
         # captured sentences (imports made before v0.7 have none).
         self.sources: list[tuple[str, str]] = [("tanaka", tr("READ_SRC_GENERAL"))]
@@ -114,6 +137,29 @@ class ReadingScene(Scene):
                 self.buttons.append(b)
                 self.source_btns.append((key, b))
 
+        # Curriculum control rows: how many new words, and how hard.
+        self.lbl_new = lbl(10, theme.MUTED, anchor_x="right")
+        self.lbl_new.text = tr("READ_NEW_LABEL")
+        self.lbl_diff = lbl(10, theme.MUTED, anchor_x="right")
+        self.lbl_diff.text = tr("READ_DIFF_LABEL")
+        self.labels += [self.lbl_new, self.lbl_diff]
+        self.new_btns: list[tuple[int, Button]] = []
+        for val, key in NEW_WORD_OPTIONS:
+            b = Button(tr(key), lambda v=val: self._set_new_words(v),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.ACCENT, font_size=10)
+            b.set_selected(val == self.new_words)
+            self.buttons.append(b)
+            self.new_btns.append((val, b))
+        self.diff_btns: list[tuple[str, Button]] = []
+        for val, key in DIFFICULTY_OPTIONS:
+            b = Button(tr(key), lambda v=val: self._set_difficulty(v),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.GOLD, font_size=10)
+            b.set_selected(val == self.difficulty)
+            self.buttons.append(b)
+            self.diff_btns.append((val, b))
+
         # Word chips for the current sentence (rebuilt per sentence).
         self.chips: list[tuple[Button, dict]] = []
         # Popup widgets for a tapped chip.
@@ -136,6 +182,69 @@ class ReadingScene(Scene):
         self._queue.clear()
         self.current = None
         self._advance(log=False)
+
+    def _set_new_words(self, n: int) -> None:
+        self.new_words = int(n)
+        self.app.state.set_setting("read_new_words", str(n))
+        for v, b in self.new_btns:
+            b.set_selected(v == n)
+        self._requeue()
+
+    def _set_difficulty(self, pref: str) -> None:
+        self.difficulty = pref
+        self.app.state.set_setting("read_difficulty", pref)
+        for v, b in self.diff_btns:
+            b.set_selected(v == pref)
+        self._requeue()
+
+    def _requeue(self) -> None:
+        """A control changed: rebuild the queue and show a fresh first sentence
+        so the change is felt immediately, not five sentences later."""
+        self._queue.clear()
+        self.current = None
+        self._advance(log=False)
+
+    def _order_pool(self, pool: list[dict]) -> list[dict]:
+        """Rate a readable shortlist and order it by the difficulty preference.
+
+        Every sentence keeps its own difficulty (``avg``/``peak``); unrated ones
+        (no placeable words) sort to the middle so they neither lead nor vanish.
+        """
+        mids = []
+        for s in pool:
+            heads = [h for (h, _r, _g) in self._words_of(s["id"])]
+            r = reading_level.rate_from_heads(heads, self._word_diff)
+            s["avg"] = r.average if r else None
+            s["peak"] = r.peak if r else None
+        rated = [s for s in pool if s["avg"] is not None]
+        if not rated:
+            return pool
+        avgs = sorted(s["avg"] for s in rated)
+        median = avgs[len(avgs) // 2]
+
+        def key(s):
+            a = s["avg"]
+            if a is None:
+                a = median          # unrated: neutral
+            if self.difficulty == "easy":
+                return (a, s["peak"] or a)                # gentlest first
+            if self.difficulty == "challenging":
+                return (-a, -(s["peak"] or a))            # hardest first
+            return (abs(a - median), s["peak"] or a)      # comfortable: middle
+
+        return sorted(pool, key=key)
+
+    def _words_of(self, sentence_id: int):
+        """Indexed (headword, reading, good) for any source."""
+        if self.source == "tanaka":
+            return kanjidata.words_of(sentence_id)
+        try:
+            return [(r["headword"], r["reading"], False)
+                    for r in self.app.con.execute(
+                        "SELECT headword, reading FROM corpus_sentence_words "
+                        "WHERE sentence_id=?", (sentence_id,))]
+        except Exception:
+            return []
 
     def _corpus_sentences(self, max_unknown: int,
                           exclude: set[int]) -> list[dict]:
@@ -179,15 +288,21 @@ class ReadingScene(Scene):
         exclude = self._read_ids | {s["id"] for s in self._queue}
         if self.current:
             exclude.add(self.current["id"])
-        for max_unknown in (1, 2):
+        # Try the player's chosen new-word budget first, then loosen by one so
+        # the room never runs dry (an advanced reader on "known only" still gets
+        # served if their exact setting is momentarily empty).
+        budgets = [self.new_words]
+        if self.new_words < 2:
+            budgets.append(self.new_words + 1)
+        for max_unknown in budgets:
             if self.source == "tanaka":
                 got = kanjidata.readable_sentences(
-                    self._known, max_unknown=max_unknown, limit=40,
+                    self._known, max_unknown=max_unknown, limit=60,
                     exclude_ids=exclude, rng=self.rng)
             else:
                 got = self._corpus_sentences(max_unknown, exclude)
             if got:
-                self._queue.extend(got)
+                self._queue.extend(self._order_pool(got))
                 return
 
     def _advance(self, log: bool = True) -> None:
@@ -227,9 +342,15 @@ class ReadingScene(Scene):
         self.trans_btn._refresh()
         self.sentence.text = self.current["ja"]
         self.translation.text = ""
-        self.level_note.text = (
-            tr("READ_ALL_KNOWN") if self.current["unknown"] == 0
-            else tr("READ_ONE_NEW", n=self.current["unknown"]))
+        note = (tr("READ_ALL_KNOWN") if self.current["unknown"] == 0
+                else tr("READ_ONE_NEW", n=self.current["unknown"]))
+        avg = self.current.get("avg")
+        if avg is not None:
+            # avg difficulty 1..5 maps back to N5..N1; show it so the reader
+            # can feel the level, and how hard they've set it.
+            lvl = max(1, min(5, 6 - round(avg)))
+            note = f"{note}   ·   {tr('READ_LEVEL_TAG', lvl=lvl)}"
+        self.level_note.text = note
         # chips: kanji-bearing words only, known ones green, unknown gold
         for head, reading, _good in self._current_words():
             if not has_kanji(head):
@@ -248,17 +369,7 @@ class ReadingScene(Scene):
     def _current_words(self) -> list[tuple[str, str | None, bool]]:
         if self.current is None:
             return []
-        if self.source == "tanaka":
-            return kanjidata.words_of(self.current["id"])
-        try:
-            return [
-                (r["headword"], r["reading"], False)
-                for r in self.app.con.execute(
-                    "SELECT headword, reading FROM corpus_sentence_words "
-                    "WHERE sentence_id=?", (self.current["id"],))
-            ]
-        except Exception:
-            return []
+        return self._words_of(self.current["id"])
 
     def _toggle_translation(self) -> None:
         if self.current is None:
@@ -418,6 +529,18 @@ class ReadingScene(Scene):
             x0 = cx - (n * bw + (n - 1) * gap) / 2
             for i, (_k, b) in enumerate(self.source_btns):
                 b.set_rect(x0 + i * (bw + gap), height - 132 * s, bw, 26 * s)
+
+        # Two curriculum rows tucked into the top-left, out of the reading line.
+        row_y = height - (160 if self.source_btns else 132) * s
+        for lbl_ref, btns, bw in ((self.lbl_new, self.new_btns, 92 * s),
+                                  (self.lbl_diff, self.diff_btns, 120 * s)):
+            total = len(btns) * bw + (len(btns) - 1) * 8 * s
+            rx = 150 * s
+            lbl_ref.x, lbl_ref.y = rx - 12 * s, row_y
+            for i, (_v, b) in enumerate(btns):
+                b.set_scale(s)
+                b.set_rect(rx + i * (bw + 8 * s), row_y - 12 * s, bw, 24 * s)
+            row_y -= 34 * s
         self.sentence.width = min(860 * s, width - 120 * s)
         self.sentence.x, self.sentence.y = cx, height - 190 * s
         self.level_note.x, self.level_note.y = cx, height - 250 * s

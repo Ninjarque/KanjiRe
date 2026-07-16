@@ -299,8 +299,16 @@ def main() -> int:
         app.go_settings()
         render(8)
         shot("settings", size)
+        # Seed a broad known set so the Reading Room actually has sentences to
+        # show (and the difficulty controls have a pool to order).
+        try:
+            n5 = db.load_words(app.con, decks=["jlpt"], levels=[5],
+                               require_kanji=True)
+            app.stats.mark_known(n5)
+        except Exception:
+            pass
         app.go_reading()
-        render(8)
+        render(10)
         shot("reading", size)
         app.go_journey()
         render(8)
