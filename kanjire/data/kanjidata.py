@@ -187,7 +187,7 @@ def readable_sentences(known_exprs: set[str], *, max_unknown: int = 1,
         ):
             counts[r["sentence_id"]] = counts.get(r["sentence_id"], 0) + r["n"]
 
-    out: list[dict] = []
+    prelim: list[dict] = []
     for r in st.execute(
             "SELECT id, ja, en, n_kanji_words FROM sentences "
             "WHERE n_kanji_words > 0"):
@@ -195,8 +195,32 @@ def readable_sentences(known_exprs: set[str], *, max_unknown: int = 1,
             continue
         unknown = r["n_kanji_words"] - counts.get(r["id"], 0)
         if 0 <= unknown <= max_unknown:
-            out.append({"id": r["id"], "ja": r["ja"], "en": r["en"],
-                        "unknown": unknown})
+            prelim.append({"id": r["id"], "ja": r["ja"], "en": r["en"],
+                           "unknown": unknown})
+
+    # Refine: the word-count denominator ignores kanji the indexer dropped
+    # (proper nouns, unresolved tokens). A sentence with such kanji is NOT one
+    # you know every word of, so fetch the shortlist's indexed headwords and
+    # bump unknown by one when uncovered kanji remain. (Only the shortlist is
+    # queried, so this stays cheap.)
+    from kanjire.jputil import uncovered_kanji
+    heads_by_sent: dict[int, list[str]] = {}
+    ids = [s["id"] for s in prelim]
+    for i in range(0, len(ids), 400):
+        chunk = ids[i:i + 400]
+        marks = ",".join("?" * len(chunk))
+        for r in st.execute(
+            f"SELECT sentence_id, headword FROM sentence_words "
+            f"WHERE sentence_id IN ({marks})", chunk,
+        ):
+            heads_by_sent.setdefault(r["sentence_id"], []).append(r["headword"])
+
+    out: list[dict] = []
+    for s in prelim:
+        if uncovered_kanji(s["ja"], heads_by_sent.get(s["id"], [])):
+            s["unknown"] += 1
+        if s["unknown"] <= max_unknown:
+            out.append(s)
     out.sort(key=lambda s: (s["unknown"], rng.random()))
     return out[:limit]
 

@@ -11,6 +11,14 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Reading Room: fixed sentences being wrongly marked "you know every word".**
+  A sentence full of names or loanwords (like 竹内力とバンバンバザール) was judged
+  only on the one common word the dictionary recognised, so it claimed you knew
+  the whole thing. It now counts the kanji actually on screen — a name or word
+  the dictionary doesn't cover no longer hides behind a word you do know.
+- **Crashes are now written to a file** (`crash.log` next to your save data), so
+  if the app ever dies you can share that instead of having to relaunch from a
+  terminal to catch the error.
 
 ## 0.20.0 — 2026-07-16
 - **Fixed a Linux crash** when clicking "mark a JLPT level as known", deleting a

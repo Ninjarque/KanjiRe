@@ -31,6 +31,22 @@ def kanji_chars(text: str) -> list[str]:
     return [ch for ch in text if is_kanji(ch)]
 
 
+def uncovered_kanji(sentence: str, indexed_heads) -> list[str]:
+    """Kanji in *sentence* that appear in none of the *indexed_heads*.
+
+    The reading room only knows a sentence through its build-time word index,
+    which drops proper nouns, numerals and anything the dictionary couldn't
+    resolve. So a name-heavy sentence can look "fully known" on the strength of
+    one common word. These are the kanji on screen that no indexed word
+    accounts for - if there are any, the sentence is NOT one you know every word
+    of, whatever the indexed words say.
+    """
+    covered: set[str] = set()
+    for h in indexed_heads:
+        covered.update(kanji_chars(h))
+    return [k for k in dict.fromkeys(kanji_chars(sentence)) if k not in covered]
+
+
 def is_kana(ch: str) -> bool:
     cp = ord(ch)
     return _HIRAGANA[0] <= cp <= _HIRAGANA[1] or _KATAKANA[0] <= cp <= _KATAKANA[1]

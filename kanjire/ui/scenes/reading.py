@@ -18,7 +18,7 @@ from pyglet.text import Label
 from kanjire.data import coverage as coverage_mod
 from kanjire.data import kanjidata
 from kanjire.i18n import tr
-from kanjire.jputil import has_kanji
+from kanjire.jputil import has_kanji, uncovered_kanji
 from kanjire.ui import theme
 from kanjire.ui.fonts import JP_FONT
 from kanjire.ui.gfx import fill_quad
@@ -157,11 +157,16 @@ class ReadingScene(Scene):
                 words = self.app.con.execute(
                     "SELECT headword FROM corpus_sentence_words "
                     "WHERE sentence_id=?", (r["id"],)).fetchall()
-                kanji_words = [w["headword"] for w in words
-                               if has_kanji(w["headword"])]
+                heads = [w["headword"] for w in words]
+                kanji_words = [h for h in heads if has_kanji(h)]
                 if not kanji_words:
                     continue
                 unknown = sum(1 for h in kanji_words if h not in self._known)
+                # Kanji the indexer dropped (names like 竹内, unresolved tokens)
+                # count as unknown too - otherwise a name-heavy sentence claims
+                # you know every word on the strength of one common one.
+                if uncovered_kanji(r["ja"], heads):
+                    unknown += 1
                 if unknown <= max_unknown:
                     out.append({"id": r["id"], "ja": r["ja"], "en": "",
                                 "unknown": unknown})
