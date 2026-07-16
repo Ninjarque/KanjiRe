@@ -51,6 +51,8 @@ def main() -> int:
         app.scene.draw()
         for ov in win.overlays:      # update banner / invite toast
             ov.draw()
+        if win.modal is not None:
+            win.modal.draw()
 
     def render(n=8, dt=1 / 60.0):
         for _ in range(n):
@@ -310,6 +312,17 @@ def main() -> int:
             app.scene.on_text(ch)
         render(6)
         shot("recall", size)
+
+        # The in-app confirm dialog (replaces the tkinter one that crashed Linux).
+        app.go_menu()
+        render(4)
+        app.confirm("Mark all 80 N5 words as already known?  They'll drift back "
+                    "as occasional reviews instead of flooding your queue.",
+                    lambda: None)
+        render(6)
+        shot("modal_confirm", size)
+        app.modal.close()
+        render(2)
 
     # ---- restore ---- #
     # The seeded friends went into the REAL save file (this harness runs against

@@ -352,6 +352,32 @@ def run() -> int:
         frames2(2)
         print("PASS heatmap + word detail overlay")
 
+        # 13b') The in-app confirm dialog. This is the exact flow that CRASHED on
+        # Linux: clicking a Stats "mark N5 known" button called tkinter, which
+        # isn't in a frozen build. It must now raise an in-app modal instead.
+        sc._set_tab("Overview")
+        frames2(4)
+        n5_btn = next(b for lv, b in sc._ov_buttons if lv == 5)
+        n5_btn.click()          # the exact call that used to reach tkinter
+        frames2(3)
+        assert app2.modal.active, "the confirm dialog never opened"
+        # While it's open the window routes ALL input to it - the scene beneath
+        # is frozen. Esc cancels; nothing is applied.
+        app2.window.on_key_press(pkey.ESCAPE, 0)
+        frames2(2)
+        assert not app2.modal.active, "Esc did not close the modal"
+        # Open again and confirm with Enter (also routed through the window).
+        n5_btn.click()
+        frames2(3)
+        assert app2.modal.active
+        app2.window.on_key_press(pkey.ENTER, 0)
+        frames2(6)
+        assert not app2.modal.active, "Enter did not confirm+close the modal"
+        assert isinstance(app2.scene, StatsScene), "mark-known didn't rebuild stats"
+        print("PASS in-app confirm dialog (replaces tkinter; was the Linux crash)")
+
+        sc = app2.scene
+
         # 13c) The search box as a PLAYER uses it: click it, type, hit Enter.
         # Three shipped bugs live here - Enter was inserted into the query as a
         # literal character (an empty box on Linux), the filtered rows were

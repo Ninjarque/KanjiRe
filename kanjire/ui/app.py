@@ -69,6 +69,9 @@ class _Window(pyglet.window.Window):
         #: App-level overlays drawn on top of every scene (update banner,
         #: friend invites). They get first refusal on clicks.
         self.overlays: list = []
+        #: A modal dialog, drawn above everything and eating all input while
+        #: open (confirm / prompt boxes - see kanjire.ui.widgets.modal).
+        self.modal = None
 
     def on_draw(self) -> None:
         self.clear()
@@ -76,8 +79,14 @@ class _Window(pyglet.window.Window):
             self.current_scene.draw()
         for ov in self.overlays:
             ov.draw()
+        if self.modal is not None:
+            self.modal.draw()   # topmost
 
     def on_mouse_press(self, x, y, button, modifiers) -> None:
+        # A modal dialog is exclusive: while it's open nothing behind it reacts.
+        if self.modal is not None and self.modal.active:
+            self.modal.on_mouse_press(x, y, button, modifiers)
+            return
         # Overlays sit on top, so they get first refusal: a click on the update
         # strip (or an invite) must not fall through to whatever is underneath.
         for ov in self.overlays:
@@ -91,24 +100,38 @@ class _Window(pyglet.window.Window):
             self.current_scene.on_mouse_release(x, y, button, modifiers)
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
+        if self.modal is not None and self.modal.active:
+            self.modal.on_mouse_motion(x, y, dx, dy)
+            return
         for ov in self.overlays:
             ov.on_mouse_motion(x, y, dx, dy)
         if self.current_scene:
             self.current_scene.on_mouse_motion(x, y, dx, dy)
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
+        if self.modal is not None and self.modal.active:
+            return
         if self.current_scene:
             self.current_scene.on_mouse_scroll(x, y, scroll_x, scroll_y)
 
     def on_text(self, text) -> None:
+        if self.modal is not None and self.modal.active:
+            self.modal.on_text(text)
+            return
         if self.current_scene:
             self.current_scene.on_text(text)
 
     def on_text_motion(self, motion) -> None:
+        if self.modal is not None and self.modal.active:
+            self.modal.on_text_motion(motion)
+            return
         if self.current_scene:
             self.current_scene.on_text_motion(motion)
 
     def on_text_motion_select(self, motion) -> None:
+        if self.modal is not None and self.modal.active:
+            self.modal.on_text_motion_select(motion)
+            return
         if self.current_scene:
             self.current_scene.on_text_motion_select(motion)
 
@@ -119,6 +142,10 @@ class _Window(pyglet.window.Window):
         if symbol == key.F11:
             self.set_fullscreen(not self.fullscreen)
             return
+        # A modal dialog swallows every key (Esc cancels, Enter confirms).
+        if self.modal is not None and self.modal.active:
+            self.modal.on_key_press(symbol, modifiers)
+            return
         if self.current_scene:
             self.current_scene.on_key_press(symbol, modifiers)
 
@@ -126,6 +153,8 @@ class _Window(pyglet.window.Window):
         super().on_resize(width, height)
         for ov in self.overlays:
             ov.layout()
+        if self.modal is not None:
+            self.modal.layout()
         if self.current_scene:
             self.current_scene.on_resize(width, height)
 
@@ -186,9 +215,24 @@ class GameApp:
         self.friends = FriendService(self.state)
         self.invites = InviteToast(self)
         self.window.overlays = [self.banner, self.invites]
+        # In-app confirm / prompt dialogs. Replaces tkinter, which isn't in a
+        # frozen build and crashed the app on Linux the moment a player clicked
+        # "mark known", "delete preset", etc.
+        from kanjire.ui.widgets.modal import ModalDialog
+
+        self.modal = ModalDialog(self)
+        self.window.modal = self.modal
         self._maybe_go_online()
         self.scene: Scene | None = None
         self.go_menu()
+
+    def confirm(self, message, on_confirm, **kw) -> None:
+        """Yes/no dialog; *on_confirm* runs only if the player confirms."""
+        self.modal.ask(message, on_confirm, **kw)
+
+    def prompt(self, message, on_submit, **kw) -> None:
+        """Single-line text dialog; *on_submit* gets the entered value."""
+        self.modal.prompt(message, on_submit, **kw)
 
     def _maybe_go_online(self) -> None:
         """Announce ourselves to friends, if we have any reason to.

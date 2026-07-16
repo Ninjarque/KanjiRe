@@ -119,6 +119,9 @@ STRINGS: dict[str, dict[str, str]] = {
 
         # --- preset dialog ---------------------------------------- #
         "PRESET_PROMPT":       "Name this custom mode:",
+        "DLG_OK":              "OK",
+        "DLG_CANCEL":          "Cancel",
+        "IMPORT_UNAVAILABLE":  "Text import needs a desktop file dialog, which isn't available in this build.",
         "PRESET_PROMPT_TITLE": "Save preset",
         "DELETE_PRESET_TITLE": "Delete preset",
         "DELETE_PRESET_MSG":   "Delete custom preset '{name}'?",
@@ -433,6 +436,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "LEARN_MANY":          "Beaucoup",
 
         "PRESET_PROMPT":       "Nom de ce mode personnalisé :",
+        "DLG_OK":              "OK",
+        "DLG_CANCEL":          "Annuler",
+        "IMPORT_UNAVAILABLE":  "L'import de texte requiert une fenetre de fichier native, indisponible dans cette version.",
         "PRESET_PROMPT_TITLE": "Enregistrer le préréglage",
         "DELETE_PRESET_TITLE": "Supprimer le préréglage",
         "DELETE_PRESET_MSG":   "Supprimer le préréglage personnalisé '{name}' ?",

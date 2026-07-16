@@ -739,30 +739,20 @@ class StatsScene(Scene):
         return absolute
 
     def _confirm_reset_word(self, expression: str, reading: str) -> None:
-        import tkinter
-        from tkinter import messagebox
-        root = tkinter.Tk()
-        root.withdraw()
-        try:
-            ok = messagebox.askyesno(
-                tr("RESET_WORD_TITLE"),
-                tr("RESET_WORD_MSG", expr=expression, reading=reading),
-                parent=root,
-            )
-        finally:
-            try: root.destroy()
-            except Exception: pass
-        if not ok:
-            return
-        self.app.stats.reset_word(expression, reading)
-        # Refresh in-memory data + redraw
-        self._all_words = self.app.stats.all_rows()
-        for r in self._all_words:
-            r["score"]  = knowledge_score(r)
-            r["bucket"] = classify(r) if r.get("seen") else "unknown"
-        self._all_kanji = _aggregate_kanji(self._all_words)
-        self._apply_sort_and_filter("Words")
-        self._apply_sort_and_filter("Kanji")
+        def apply() -> None:
+            self.app.stats.reset_word(expression, reading)
+            # Refresh in-memory data + redraw
+            self._all_words = self.app.stats.all_rows()
+            for r in self._all_words:
+                r["score"]  = knowledge_score(r)
+                r["bucket"] = classify(r) if r.get("seen") else "unknown"
+            self._all_kanji = _aggregate_kanji(self._all_words)
+            self._apply_sort_and_filter("Words")
+            self._apply_sort_and_filter("Kanji")
+
+        self.app.confirm(
+            tr("RESET_WORD_MSG", expr=expression, reading=reading), apply,
+            danger=True)
 
     def _find_leech_words(self) -> list:
         """Vocab Words for the player's chronic lapsers (bounty-hunt pool)."""
@@ -829,25 +819,13 @@ class StatsScene(Scene):
             return
         if not words:
             return
-        import tkinter
-        from tkinter import messagebox
-        root = tkinter.Tk()
-        root.withdraw()
-        try:
-            ok = messagebox.askyesno(
-                tr("KNOW_CONFIRM_TITLE"),
-                tr("KNOW_CONFIRM_MSG", n=len(words), level=f"N{level}"),
-                parent=root,
-            )
-        finally:
-            try:
-                root.destroy()
-            except Exception:
-                pass
-        if not ok:
-            return
-        self.app.stats.mark_known(words)
-        self.app.go_stats()   # rebuild: every number on this screen changed
+
+        def apply() -> None:
+            self.app.stats.mark_known(words)
+            self.app.go_stats()   # rebuild: every number on this screen changed
+
+        self.app.confirm(
+            tr("KNOW_CONFIRM_MSG", n=len(words), level=f"N{level}"), apply)
 
     def _column_at_x(self, x: float) -> int | None:
         cols = self._columns_for(self.active_tab)

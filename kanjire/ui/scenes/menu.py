@@ -556,40 +556,32 @@ class MenuScene(Scene):
         return None
 
     def _save_preset_dialog(self) -> None:
-        import tkinter
-        from tkinter import simpledialog
+        def save(name: str) -> None:
+            name = name.strip()
+            if not name or name in PRESETS:
+                return  # don't allow shadowing built-in modes
+            cfg = self._current_config()
+            cfg_dict = _config_to_dict(cfg)
+            cfg_dict["name"] = name
+            self.app.state.save_preset(cfg_dict)
+            # Rebuild the menu so the new preset shows up as a mode button.
+            self.mode = name
+            self.app.go_menu()
 
-        root = tkinter.Tk()
-        root.withdraw()
-        try:
-            name = simpledialog.askstring(
-                tr("PRESET_PROMPT_TITLE"),
-                tr("PRESET_PROMPT"),
-                initialvalue=f"My {_mode_label(self.mode)}",
-                parent=root,
-            )
-        finally:
-            try:
-                root.destroy()
-            except Exception:
-                pass
-        if not name:
-            return
-        name = name.strip()
-        if not name or name in PRESETS:
-            return  # don't allow shadowing built-in modes
-        cfg = self._current_config()
-        cfg_dict = _config_to_dict(cfg)
-        cfg_dict["name"] = name
-        self.app.state.save_preset(cfg_dict)
-        # Rebuild the menu so the new preset shows up as a mode button.
-        self.mode = name
-        self.app.go_menu()
+        self.app.prompt(tr("PRESET_PROMPT"), save,
+                        initial=f"My {_mode_label(self.mode)}")
 
     def _open_import(self) -> None:
         from kanjire.ui.scenes.import_text import open_file_dialog
 
-        path = open_file_dialog()
+        try:
+            path = open_file_dialog()
+        except ImportError:
+            # tkinter is absent (e.g. a frozen Linux build): don't crash - the
+            # file/paste dialogs are the one place we still need a native widget.
+            self.app.confirm(tr("IMPORT_UNAVAILABLE"), lambda: None,
+                             confirm_label=tr("DLG_OK"), cancel_label=" ")
+            return
         if path is None:
             return
         self.app.go_import(path, path.stem)
@@ -597,7 +589,12 @@ class MenuScene(Scene):
     def _open_paste(self) -> None:
         from kanjire.ui.scenes.import_text import open_paste_dialog
 
-        result = open_paste_dialog()
+        try:
+            result = open_paste_dialog()
+        except ImportError:
+            self.app.confirm(tr("IMPORT_UNAVAILABLE"), lambda: None,
+                             confirm_label=tr("DLG_OK"), cancel_label=" ")
+            return
         if result is None:
             return
         text, name = result
@@ -862,29 +859,14 @@ class MenuScene(Scene):
                 break
 
     def _confirm_delete_preset(self, name: str) -> None:
-        import tkinter
-        from tkinter import messagebox
+        def apply() -> None:
+            self.app.state.delete_preset(name)
+            if self.mode == name:
+                self.mode = "Time Attack"
+                self.app.state.set_last_mode(self.mode)
+            self.app.go_menu()
 
-        root = tkinter.Tk()
-        root.withdraw()
-        try:
-            ok = messagebox.askyesno(
-                tr("DELETE_PRESET_TITLE"),
-                tr("DELETE_PRESET_MSG", name=name),
-                parent=root,
-            )
-        finally:
-            try:
-                root.destroy()
-            except Exception:
-                pass
-        if not ok:
-            return
-        self.app.state.delete_preset(name)
-        if self.mode == name:
-            self.mode = "Time Attack"
-            self.app.state.set_last_mode(self.mode)
-        self.app.go_menu()
+        self.app.confirm(tr("DELETE_PRESET_MSG", name=name), apply, danger=True)
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
         self.nav.on_mouse_motion(x, y)

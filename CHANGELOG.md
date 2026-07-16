@@ -11,6 +11,11 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+- **Fixed a Linux crash** when clicking "mark a JLPT level as known", deleting a
+  preset, or naming a saved preset. Those used a desktop dialog toolkit that
+  isn't part of the packaged app, so on Linux the app crashed the moment you
+  clicked one. They're now in-app dialogs that work everywhere and match the
+  rest of the UI.
 
 ## 0.19.0 — 2026-07-15
 - **New mode: Recall.** The type-the-reading drill that used to only appear at
