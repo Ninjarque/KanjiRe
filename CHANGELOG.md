@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.20.0 — 2026-07-16
 - **Fixed a Linux crash** when clicking "mark a JLPT level as known", deleting a
   preset, or naming a saved preset. Those used a desktop dialog toolkit that
   isn't part of the packaged app, so on Linux the app crashed the moment you
