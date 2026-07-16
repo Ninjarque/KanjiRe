@@ -40,7 +40,13 @@ def _debug(msg: str) -> None:
 
 
 def current_platform() -> str:
-    """Normalised OS key matching the manifest's ``platforms`` map."""
+    """Normalised OS key matching the manifest's ``platforms`` map.
+
+    Android must be checked before linux: ``sys.platform`` IS ``"linux"``
+    inside a python-for-android app, and downloading the Linux tar.gz onto a
+    phone would be a silent, useless "update"."""
+    if "ANDROID_ARGUMENT" in os.environ:
+        return "android"
     if sys.platform.startswith("win"):
         return "windows"
     if sys.platform.startswith("linux"):

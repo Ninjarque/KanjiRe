@@ -38,12 +38,15 @@ class UpdateController:
 
     # -- gating ---------------------------------------------------------- #
     def self_update_capable(self) -> bool:
-        """True only for standalone frozen bundles (or the dev test override).
+        """True for standalone frozen bundles and Android APK installs (or
+        the dev test override).
 
         pip / distro-package installs are updated by their package manager, so
         the in-app updater must stay inert there — even on a manual check, which
         would otherwise try to swap a manager-owned install."""
-        return bool(applier.is_frozen() or os.environ.get("KANJIRE_UPDATE_TEST"))
+        from kanjire.update.android import is_android
+        return bool(applier.is_frozen() or is_android()
+                    or os.environ.get("KANJIRE_UPDATE_TEST"))
 
     def _allowed(self, force: bool) -> bool:
         """Gate every check on (updates configured) AND (self-update capable).
@@ -97,7 +100,11 @@ class UpdateController:
         return self.status == READY and self.info is not None and not self._dismissed
 
     def can_apply(self) -> bool:
-        return self.status == READY and self.staged is not None and applier.can_self_update()
+        if self.status != READY or self.staged is None:
+            return False
+        if str(self.staged).lower().endswith(".apk"):
+            return True   # the system installer applies it, no folder swap
+        return applier.can_self_update()
 
     def apply(self) -> bool:
         """Launch the swap helper. Returns True if the app should now exit."""

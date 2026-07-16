@@ -104,8 +104,10 @@ def platform_tag() -> str:
 
 
 #: Archive format per platform. Linux/mac use tar.gz so the launcher keeps its
-#: executable bit (a plain zip would strip it).
-_ARTIFACT_EXT = {"windows": "zip", "linux": "tar.gz", "macos": "tar.gz"}
+#: executable bit (a plain zip would strip it). Android ships the APK itself
+#: (the system installer applies it — no archive, no folder swap).
+_ARTIFACT_EXT = {"windows": "zip", "linux": "tar.gz", "macos": "tar.gz",
+                 "android": "apk"}
 
 
 def artifact_name(tag: str | None = None) -> str:

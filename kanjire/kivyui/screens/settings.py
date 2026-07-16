@@ -83,12 +83,48 @@ class SettingsScreen(Screen):
             text=tr("ABOUT_VERSION", version=__version__) + "  ·  Kivy",
             color=rgba(theme.MUTED), font_size=sp(13), halign="left",
             size_hint_y=None, height=dp(24)))
+        check_btn = ThemedButton(text=tr("UPDATE_CHECK"), height=dp(44),
+                                 font_size=sp(13))
+        check_btn.bind(on_release=lambda *_: self._check_updates())
+        body.add_widget(check_btn)
+        self._upd_status = JPLabel(text="", color=rgba(theme.MUTED),
+                                   font_size=sp(12), halign="left",
+                                   size_hint_y=None, height=dp(22))
+        self._upd_status.bind(size=self._upd_status.setter("text_size"))
+        body.add_widget(self._upd_status)
 
         scroller.add_widget(body)
         root.add_widget(scroller)
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
+    def _check_updates(self) -> None:
+        from kivy.clock import Clock
+
+        from kanjire import __version__
+        from kanjire.update import controller as uc
+        upd = self._app.updates
+        if not upd.self_update_capable():
+            self._upd_status.text = tr("UPDATE_MANAGED")
+            return
+        self._upd_status.text = tr("UPDATE_CHECKING")
+        upd.maybe_start(force=True)
+
+        def poll(_dt):
+            if upd.status in (uc.CHECKING, uc.DOWNLOADING):
+                return  # keep polling
+            if upd.status == uc.READY and upd.info:
+                self._upd_status.text = tr("UPDATE_READY",
+                                           version=upd.info.version)
+            elif upd.status == uc.UP_TO_DATE:
+                self._upd_status.text = tr("UPDATE_UPTODATE",
+                                           version=__version__)
+            elif upd.status == uc.ERROR:
+                self._upd_status.text = tr("UPDATE_ERROR")
+            return False  # unschedule
+
+        Clock.schedule_interval(poll, 0.5)
+
     def _set_locale(self, loc: str) -> None:
         self._app.state.set_locale(loc)
         i18n.set_locale(loc)

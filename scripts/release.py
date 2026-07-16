@@ -150,6 +150,33 @@ def build_linux_via_wsl(linux_artifact_name: str) -> Path | None:
     return out
 
 
+def build_android_via_wsl(version: str) -> Path | None:
+    """Build the Android APK inside WSL; return its Windows-side path.
+
+    Unlike Linux (an established channel), a missing Android toolchain is
+    reported but doesn't abort the release — callers decide what to do.
+    """
+    if shutil.which("wsl") is None:
+        print("Android: 'wsl' not found — skipping the APK.")
+        return None
+    repo = _wsl_path(PROJECT_ROOT)
+    script = _wsl_path(PROJECT_ROOT / "scripts" / "build_android.sh")
+    print(f"Building Android APK in WSL ({WSL_DISTRO})… "
+          "(the first build downloads the SDK/NDK — very long)")
+    rc = subprocess.run(["wsl", "-d", WSL_DISTRO, "--", "sh", script,
+                         repo, version]).returncode
+    if rc != 0:
+        print("Android build failed (see scripts/build_android.sh header "
+              "for the one-time WSL setup).")
+        return None
+    out = PROJECT_ROOT / "dist" / f"KanjiRe-{version}-android.apk"
+    if not out.exists():
+        print(f"ERROR: expected Android artifact not found: {out}")
+        return None
+    print(f"✓ Android artifact: {out.name}")
+    return out
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -158,6 +185,10 @@ def main(argv=None) -> int:
                    help="build + sign locally but don't upload")
     p.add_argument("--skip-linux", action="store_true",
                    help="build Windows only this release")
+    p.add_argument("--skip-android", action="store_true",
+                   help="don't build the Android APK this release")
+    p.add_argument("--require-android", action="store_true",
+                   help="abort if the Android APK can't be built")
     p.add_argument("--dry-run", action="store_true",
                    help="print the planned bump + notes, change nothing")
     p.add_argument("--rebuild", action="store_true",
@@ -219,6 +250,19 @@ def main(argv=None) -> int:
             print("Linux build failed — aborting so we don't ship a half release.")
             return 1
         artifacts["linux"] = linux_art
+
+    # 2b) Android APK (WSL buildozer). A missing toolchain skips the platform
+    # (with --require-android promoting that to a hard failure) so desktop
+    # releases keep flowing while the Android channel is being established.
+    if not args.skip_android:
+        apk = build_android_via_wsl(new_s)
+        if apk is not None:
+            artifacts["android"] = apk
+        elif args.require_android:
+            print("Android build required but failed — aborting.")
+            return 1
+        else:
+            print("Continuing without an Android build for this release.")
 
     # 3) One signed manifest covering every platform built.
     manifest = build_release.build_combined_manifest(artifacts, notes)

@@ -98,10 +98,18 @@ class KanjiReApp(App):
         self.root_box.add_widget(self.nav)
         self.nav.set_active("play")
 
+        from kanjire.kivyui.update_banner import UpdateBanner
+        from kanjire.update.controller import UpdateController
+
+        self.updates = UpdateController(self.state)
+        self.updates.maybe_start()
+
         root = FloatLayout()
         root.add_widget(self.root_box)
         self.toast = InviteToast(self)
         root.add_widget(self.toast)
+        self.banner = UpdateBanner(self)
+        root.add_widget(self.banner)
         Window.bind(size=lambda *_: self._place_toast())
         self._place_toast()
 
@@ -119,11 +127,15 @@ class KanjiReApp(App):
         self.toast.width = w
         self.toast.x = (Window.width - w) / 2
         self.toast.y = dp(66)
+        self.banner.width = w
+        self.banner.x = (Window.width - w) / 2
+        self.banner.top = Window.height - dp(8)
 
     def _net_tick(self, _dt) -> None:
         self.friends.tick()
         for msg in self.friends.poll():
             self.toast.push(msg)
+        self.banner.sync()
 
     def maybe_go_online(self) -> None:
         """Announce ourselves to friends, if we have any reason to.

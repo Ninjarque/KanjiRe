@@ -116,6 +116,14 @@ def stage(
     The returned path is the extracted ``KanjiRe/`` folder, ready to be moved
     into place by :func:`apply_and_restart`.
     """
+    # Android: the payload is the APK itself — download + verify, no extract.
+    # The system installer applies it (see kanjire.update.android).
+    if info.url.lower().endswith(".apk"):
+        from kanjire.update import android as _android
+        apk = _android.apk_staging_dir() / f"KanjiRe-{info.version}.apk"
+        download(info, apk, progress=progress)
+        return apk
+
     target = target or install_dir()
     # Match the artifact's archive type (Windows .zip / Linux .tar.gz) so the
     # extractor and on-disk perms come out right.
@@ -310,6 +318,13 @@ def apply_and_restart(
     ``pid``/``exe`` exist so the swap can be driven end-to-end by a test
     against a throwaway install; the app never passes them.
     """
+    # Android: no swap — hand the verified APK to the system installer and
+    # keep running (Android replaces the app itself).
+    if str(new_bundle).lower().endswith(".apk"):
+        from kanjire.update import android as _android
+        _android.install_apk(new_bundle)
+        return
+
     target = target or install_dir()
     exe = exe or (target / Path(sys.executable).name)
     staging = _staging_dir()
