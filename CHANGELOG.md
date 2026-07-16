@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.23.0 — 2026-07-16
 - **More reading examples for under-covered words.** Added ~900 real,
   human-translated sentences (from Tatoeba, same free licence as before), chosen
   specifically for words that had fewer than three examples — so the Reading
