@@ -19,7 +19,10 @@ from kivy.config import Config  # noqa: E402  (must precede Window import)
 Config.set("input", "mouse", "mouse,disable_multitouch")
 Config.set("kivy", "exit_on_escape", "0")
 
+import threading  # noqa: E402
+
 from kivy.app import App  # noqa: E402
+from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
 from kivy.uix.screenmanager import FadeTransition, ScreenManager  # noqa: E402
 
@@ -71,18 +74,71 @@ class KanjiReApp(App):
         Window.clearcolor = rgba(theme.BG)
 
         from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.floatlayout import FloatLayout
 
         from kanjire.i18n import tr
+        from kanjire.kivyui.toast import InviteToast
         from kanjire.kivyui.widgets import NavBar
+        from kanjire.net.friends import FriendService
+
+        # Friends: presence + invites, app-level so a friend can reach you on
+        # any tab. Stays fully offline for players who never used multiplayer.
+        self.friends = FriendService(self.state)
+        self.maybe_go_online()
 
         self.root_box = BoxLayout(orientation="vertical")
         self.sm = ScreenManager(transition=FadeTransition(duration=0.12))
+        # Collapsing the nav moves/resizes the manager, but ScreenManager only
+        # positions screens when they're added or switched to — screens added
+        # earlier keep a stale pos and render 56dp too high. Keep them synced.
+        self.sm.bind(pos=self._sync_screens, size=self._sync_screens)
         self._build_tabs()
         self.nav = NavBar(self.switch_tab, tr)
         self.root_box.add_widget(self.sm)
         self.root_box.add_widget(self.nav)
         self.nav.set_active("play")
-        return self.root_box
+
+        root = FloatLayout()
+        root.add_widget(self.root_box)
+        self.toast = InviteToast(self)
+        root.add_widget(self.toast)
+        Window.bind(size=lambda *_: self._place_toast())
+        self._place_toast()
+
+        Clock.schedule_interval(self._net_tick, 0.5)
+        return root
+
+    def _sync_screens(self, *_) -> None:
+        for s in self.sm.screens:
+            s.pos = self.sm.pos
+            s.size = self.sm.size
+
+    def _place_toast(self) -> None:
+        from kivy.metrics import dp
+        w = min(Window.width - dp(20), dp(440))
+        self.toast.width = w
+        self.toast.x = (Window.width - w) / 2
+        self.toast.y = dp(66)
+
+    def _net_tick(self, _dt) -> None:
+        self.friends.tick()
+        for msg in self.friends.poll():
+            self.toast.push(msg)
+
+    def maybe_go_online(self) -> None:
+        """Announce ourselves to friends, if we have any reason to.
+
+        A player who has never touched multiplayer gets no network connection
+        at all — going online is not something to do to someone silently.
+        """
+        if os.environ.get("KANJIRE_NO_NETWORK"):
+            return
+        if not (self.state.friends or self.state.setting("mp_name", "")):
+            return
+        if getattr(self.friends, "connected", False):
+            return
+        threading.Thread(target=self.friends.connect, daemon=True,
+                         name="kanjire-friends").start()
 
     def _build_tabs(self) -> None:
         """(Re)create every tab screen. Call after theme/locale changes."""
@@ -94,13 +150,14 @@ class KanjiReApp(App):
 
         for name in [s.name for s in list(self.sm.screens)]:
             self.sm.remove_widget(self.sm.get_screen(name))
+        from kanjire.kivyui.screens.friends import FriendsScreen
+
         self.sm.add_widget(PlayScreen(self, name="play"))
         self.sm.add_widget(PlaceholderScreen("旅", tr("NAV_JOURNEY"),
                                              name="journey"))
         self.sm.add_widget(PlaceholderScreen("読", tr("NAV_READ"),
                                              name="read"))
-        self.sm.add_widget(PlaceholderScreen("友", tr("NAV_FRIENDS"),
-                                             name="friends"))
+        self.sm.add_widget(FriendsScreen(self, name="friends"))
         self.sm.add_widget(StatsScreen(self, name="stats"))
         self.sm.add_widget(SettingsScreen(self, name="settings"))
 
@@ -117,6 +174,12 @@ class KanjiReApp(App):
         self.switch_tab(keep if self.sm.has_screen(keep) else "play")
 
     def on_stop(self):
+        try:
+            # Clear our retained presence: friends must not keep seeing us
+            # online after the app is gone.
+            self.friends.close()
+        except Exception:
+            pass
         try:
             self.audio.shutdown()
             self.state.save()
@@ -147,6 +210,34 @@ class KanjiReApp(App):
         screen.start(self, config or PRESETS["Time Attack"](), pool=pool)
         self._show_nav(False)
         self.sm.current = "game"
+
+    def go_multiplayer(self, join_room: str = ""):
+        if not self.sm.has_screen("multiplayer"):
+            from kanjire.kivyui.screens.multiplayer import MultiplayerScreen
+            self.sm.add_widget(MultiplayerScreen(self, name="multiplayer"))
+        screen = self.sm.get_screen("multiplayer")
+        self._show_nav(False)
+        self.sm.current = "multiplayer"
+        screen.open(join_room)
+
+    def current_room_code(self) -> str:
+        """The room we're hosting right now, if any (to answer a join ask)."""
+        if self.sm.has_screen("multiplayer"):
+            mp = self.sm.get_screen("multiplayer")
+            if mp.room and mp.me == 0 and self.sm.current == "multiplayer":
+                return mp.room
+        return ""
+
+    # ------------------------------------------------------------------ #
+    # Dialogs — same contract as the pyglet app
+    # ------------------------------------------------------------------ #
+    def confirm(self, message, on_confirm, **kw) -> None:
+        from kanjire.kivyui import modal
+        modal.confirm(message, on_confirm, **kw)
+
+    def prompt(self, message, on_submit, **kw) -> None:
+        from kanjire.kivyui import modal
+        modal.prompt(message, on_submit, **kw)
 
     def _show_nav(self, visible: bool) -> None:
         from kivy.metrics import dp

@@ -143,7 +143,30 @@ def main() -> None:
             check("kept on settings tab", app.sm.current == "settings")
             snap(app, "08-settings-paper")
             app.sm.get_screen("settings")._set_palette("Charcoal")
-            later(0.3, lambda: app.stop())
+            later(0.3, step_friends)
+
+        def step_friends():
+            # Offline friends tab: inject a pending request + a live friend.
+            fr = app.friends
+            fr.pending_in["ABC123"] = "Testo"
+            app.state.add_friend("DEF456", "Amigo")
+            fr.presence["DEF456"] = {"name": "Amigo", "status": "lobby",
+                                     "room": "XYZAB", "seen": fr._now or 1}
+            app.switch_tab("friends")
+            later(0.5, step_friends_check)
+
+        def step_friends_check():
+            fs = app.sm.get_screen("friends")
+            rows = len(fs._body.children)
+            check("friends tab shows rows", rows >= 3)
+            listed = app.friends.friends()
+            check("friend presence merged",
+                  any(f["code"] == "DEF456" and f["status"] == "lobby"
+                      for f in listed))
+            snap(app, "09-friends")
+            app.state.remove_friend("DEF456")
+            app.friends.pending_in.clear()
+            app.stop()
 
         later(0.4, step_complete_group)  # let the fade transition finish
 

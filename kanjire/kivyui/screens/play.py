@@ -143,6 +143,11 @@ class PlayScreen(Screen):
                             font_size=sp(19), bold=True, height=dp(54))
         play.bind(on_release=lambda *_: self._play())
         root.add_widget(play)
+        # 対戦 = "versus"; ⚡ has no glyph in the bundled JP fonts.
+        mp = ThemedButton(text="対戦 · " + tr("MP_TITLE"), font_size=sp(14),
+                          height=dp(44))
+        mp.bind(on_release=lambda *_: self._app.go_multiplayer())
+        root.add_widget(mp)
         self.add_widget(root)
 
     def _chips(self, options, selected, key, *, multi=False) -> ChipRow:
