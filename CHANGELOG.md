@@ -11,6 +11,8 @@ Notes under the current version are what friends see in the in-app "update
 ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
+
+## 0.22.0 — 2026-07-16
 - **The Reading Room now has difficulty controls.** Two dials at the top: how
   many new words a sentence may have (known-only / +1 / +2), and how hard it
   should be (Easy / Comfortable / Challenging). Every sentence is rated by the
