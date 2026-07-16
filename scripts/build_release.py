@@ -200,6 +200,59 @@ def _check_bundle(folder: Path) -> int:
     return 0
 
 
+#: Data files that MUST be in every bundle. The auto-updater swaps the whole
+#: install folder (including _internal/), so whatever is bundled here is exactly
+#: what a player gets on their next update - which is how the vocabulary and the
+#: reading corpus ride the updater. This guard makes that a guarantee: the build
+#: fails if a data file is missing or is not byte-for-byte the current source,
+#: so we can never silently ship stale or absent data.
+_REQUIRED_DATA = ("kanjire.db",)
+_OPTIONAL_DATA = ("sentences.db", "kanjidata.db", "glosses.db")
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _check_data_bundled(folder: Path) -> int:
+    """Fail the build unless every data file is bundled and matches the source.
+
+    So the data (vocab + reading corpus) provably rides the auto-updater's
+    folder swap - a missing --add-data or a stale rebuild is caught here, not by
+    a player whose Reading Room comes up empty after an update.
+    """
+    if not folder.exists():
+        return 0
+    problems: list[str] = []
+    for name in _REQUIRED_DATA + _OPTIONAL_DATA:
+        src = DATA_DIR / name
+        if name in _OPTIONAL_DATA and not src.exists():
+            continue                       # sidecar not built: legitimately absent
+        if not src.exists():
+            problems.append(f"{name}: source missing (run setup_data.py)")
+            continue
+        matches = list(folder.rglob(name))
+        if not matches:
+            problems.append(f"{name}: NOT bundled - it won't reach players")
+            continue
+        if _sha256(matches[0]) != _sha256(src):
+            problems.append(
+                f"{name}: bundled copy differs from source (stale build?)")
+    if problems:
+        _log("ERROR: data files would not ride the updater correctly:")
+        for p in problems:
+            _log(f"    {p}")
+        return 1
+    _log(f"✓ data files bundled and current "
+         f"({len(_REQUIRED_DATA + _OPTIONAL_DATA)} checked)")
+    return 0
+
+
 def _exclude_modules() -> list[str]:
     """Modules that must NOT be bundled.
 
@@ -414,6 +467,9 @@ def build_artifact(force: bool = False) -> Path | None:
         return None
 
     if _check_bundle(dist / NAME):
+        return None
+
+    if _check_data_bundled(dist / NAME):
         return None
 
     src = dist / NAME
