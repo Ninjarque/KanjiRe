@@ -36,10 +36,15 @@ def _user_dir() -> Path:
     """Return a writable per-user data directory.
 
     Frozen builds *must* write outside the (temp) bundle; dev runs keep things
-    inside ``kanjire/data/`` for easy inspection."""
-    if _IS_FROZEN or os.environ.get("KANJIRE_USER_DIR"):
-        if env := os.environ.get("KANJIRE_USER_DIR"):
-            return Path(env)
+    inside ``kanjire/data/`` for easy inspection. On Android the app bundle is
+    re-extracted (wiped) on every APK update, so user state must live in the
+    app's persistent private dir instead."""
+    if env := os.environ.get("KANJIRE_USER_DIR"):
+        return Path(env)
+    if "ANDROID_ARGUMENT" in os.environ:  # python-for-android runtime
+        base = os.environ.get("ANDROID_PRIVATE") or os.environ["ANDROID_ARGUMENT"]
+        return Path(base) / "kanjire_user"
+    if _IS_FROZEN:
         if appdata := os.environ.get("APPDATA"):
             return Path(appdata) / "KanjiRe"
         return Path.home() / ".kanjire"
