@@ -281,6 +281,12 @@ def sample(
     no two cards on the board ever look identical.
     """
     rng = rng or random
+    # The settings layer speaks "hiragana"/"katakana"/"mixed"; this module
+    # historically spoke "hira"/"kata"/"both". The mismatch silently fell
+    # back to "both" — the script selector did NOTHING for anyone. Accept
+    # both vocabularies.
+    script = {"hiragana": "hira", "katakana": "kata",
+              "mixed": "both"}.get(script, script)
     if script not in SCRIPTS:
         script = "both"
     length = max(1, min(3, int(length)))

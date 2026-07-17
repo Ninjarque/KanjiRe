@@ -15,6 +15,16 @@ WRITING_OPTIONS = (("off", "WRITE_HORIZ"), ("random", "WRITE_MIX"),
                    ("all", "WRITE_VERT"))
 REPEAT_OPTIONS = (1, 2, 3, 5)
 KANA_LENGTHS = (1, 2, 3)
+#: Kana deck scripts — the values kana.sample() speaks natively.
+#: "hira" = hiragana-only pairs, "kata" = katakana-only, "both" = one word
+#: shown in hiragana AND katakana (match them across scripts).
+KANA_SCRIPTS = (("hira", "KANA_SCRIPT_HIRA"),
+                ("kata", "KANA_SCRIPT_KATA"),
+                ("both", "KANA_SCRIPT_BOTH"))
+#: The Kivy UI shipped long names that kana.sample() never understood (it
+#: silently fell back to "both") — translate them on read forever.
+KANA_SCRIPT_ALIASES = {"hiragana": "hira", "katakana": "kata",
+                       "mixed": "both"}
 LEARN_STEPS = (0, 1, 2, 3)
 HEARTS_OPTIONS = (2, 3, 5)
 HEARTS_MAX = {2: 4, 3: 5, 5: 6}
@@ -22,15 +32,70 @@ BOUNTY_OPTIONS = (("none", "BOUNTY_NONE"), ("low", "BOUNTY_LOW"),
                   ("med", "BOUNTY_MED"), ("high", "BOUNTY_HIGH"))
 BOUNTY_CHANCE = {"none": 0.0, "low": 0.35, "med": 0.6, "high": 0.9}
 
-#: Stable preset keys → translation keys for their displayed labels.
+#: Stable mode keys → translation keys for their displayed labels.
 MODE_TR = {
     "Time Attack": "MODE_TIME",
     "Survival": "MODE_SURVIVAL",
     "Zen": "MODE_ZEN",
-    "Familiarize": "MODE_FAMILIAR",
-    "Learn": "MODE_LEARN",
     "Recall": "MODE_RECALL",
 }
+
+#: Labels for the built-in presets (still localised like modes were).
+PRESET_TR = {
+    "Familiarize": "MODE_FAMILIAR",
+    "Learn": "MODE_LEARN",
+}
+
+#: The former Familiarize/Learn modes, reborn honestly: one-tap
+#: configurations of the Zen ruleset, listed beside user-saved presets.
+#: Same dict shape as a saved preset (PRESET_FIELDS subset + name).
+BUILTIN_PRESETS: list[dict] = [
+    {
+        "name": "Familiarize",
+        "duration": None, "max_mistakes": None, "mismatch_penalty": 0,
+        "words_per_round": 5, "repetitions": 3,
+        "random_fonts": True, "vertical_writing": "random",
+        "learn_known": 0, "learn_less_known": 0, "learn_unknown": 0,
+    },
+    {
+        "name": "Learn",
+        "duration": None, "max_mistakes": None, "mismatch_penalty": 0,
+        "words_per_round": 6,
+        "learn_known": 1, "learn_less_known": 2, "learn_unknown": 3,
+    },
+]
+
+
+def all_presets(state) -> list[dict]:
+    """Built-in presets first, then the user's saved ones."""
+    try:
+        user = list(state.presets)
+    except Exception:
+        user = []
+    return [dict(p) for p in BUILTIN_PRESETS] + user
+
+
+def preset_overlay(preset: dict) -> dict:
+    """The per-mode settings-dict overlay a preset implies (for seeding the
+    option rows when a preset is first selected)."""
+    out: dict = {}
+    for key in ("board_size", "repetitions", "random_fonts",
+                "vertical_writing", "learn_known", "learn_less_known",
+                "learn_unknown", "kana_length", "kana_script",
+                "recall_prompt", "recall_preview"):
+        if key in preset:
+            out[key] = preset[key]
+    if "words_per_round" in preset:
+        out["board_size"] = preset["words_per_round"]
+    if isinstance(preset.get("faces"), (list, tuple)):
+        faces = normalize_faces(preset["faces"])
+        if faces:
+            out["faces"] = faces
+    if isinstance(preset.get("decks"), (list, tuple)) and preset["decks"]:
+        out["deck"] = preset["decks"][0]
+    if isinstance(preset.get("levels"), (list, tuple)) and preset["levels"]:
+        out["levels"] = list(preset["levels"])
+    return out
 
 #: Canonical face order; selections are stored as ordered subsets of this.
 FACE_ORDER = ("kanji", "reading", "romaji", "meaning")
@@ -80,7 +145,7 @@ DEFAULT_SETTINGS = {
     "learn_less_known": 2,
     "learn_unknown": 1,
     "kana_length": 1,
-    "kana_script": "hiragana",
+    "kana_script": "both",
     "start_hearts": 3,
     "bounty_freq": "med",
     "recall_prompt": "mixed",
@@ -117,8 +182,10 @@ def normalized_settings(d: dict | None) -> dict:
             s[k] = int(d[k])
     if d.get("kana_length") in KANA_LENGTHS:
         s["kana_length"] = int(d["kana_length"])
-    if d.get("kana_script") in ("hiragana", "katakana", "mixed"):
-        s["kana_script"] = d["kana_script"]
+    ks = d.get("kana_script")
+    ks = KANA_SCRIPT_ALIASES.get(ks, ks)
+    if ks in {v for v, _ in KANA_SCRIPTS}:
+        s["kana_script"] = ks
     if d.get("start_hearts") in HEARTS_MAX:
         s["start_hearts"] = int(d["start_hearts"])
     if d.get("bounty_freq") in BOUNTY_CHANCE:
@@ -138,14 +205,23 @@ def config_for(mode: str, settings: dict, *,
     *mode* is a PRESETS key or the name of a saved preset in *user_presets*.
     """
     s = normalized_settings(settings)
-    faces = tuple(s["faces"]) or DEFAULT_FACES
+    from kanjire.kana import KANA_DECK
+    if s["deck"] == KANA_DECK:
+        # Kana mode decides its own faces from the script choice:
+        #   hira / kata -> 2-face board (script + romaji)
+        #   both        -> 3-face board (hira + kata + romaji)
+        faces = (("kanji", "reading", "meaning")
+                 if s["kana_script"] == "both" else ("kanji", "meaning"))
+    else:
+        faces = tuple(s["faces"]) or DEFAULT_FACES
     levels = tuple(s["levels"]) if s["deck"] == "jlpt" else ()
 
     if mode in PRESETS:
         base = PRESETS[mode]()
     else:
-        data = next((p for p in (user_presets or []) if p.get("name") == mode),
-                    None)
+        # Built-in presets first (they can't be shadowed), then the user's.
+        pool = BUILTIN_PRESETS + list(user_presets or [])
+        data = next((p for p in pool if p.get("name") == mode), None)
         base = GameConfig()
         if data:
             for f in PRESET_FIELDS:

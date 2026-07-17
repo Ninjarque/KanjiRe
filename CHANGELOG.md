@@ -12,6 +12,23 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Android: buttons and cards now respond wherever you tap.** Taps used
+  to land offset from what you saw (a known Android quirk when the status
+  bar is visible), so buttons only worked near their edges — worst at the
+  bottom of the screen and on foldables. The game now runs true
+  fullscreen, which removes the offset entirely.
+- **Simpler modes.** There are now four real modes — Time Attack,
+  Survival, Zen, Recall — and the old Familiarize and Learn live on as
+  one-tap presets right beside them (gold buttons), since they were
+  really just configurations. Every setting they carried (passes, fonts,
+  vertical writing, and the known/less-known/unknown word mix) is now
+  visible and adjustable in EVERY mode, on desktop and Android alike.
+- **The Kana deck's script choice actually works now.** Hiragana-only and
+  Katakana-only always quietly fell back to the mixed deck — pick
+  Hiragana, Katakana, or Both and that's genuinely what you'll drill.
+  On Android the kana options (length + script) now appear too, and the
+  deck list shows clean names ("Wikipedia", not "corpus:wikipedia").
+
 ## 0.27.0 — 2026-07-17
 
 - **Pick your card faces directly.** "Cards per word" is now four toggle

@@ -23,9 +23,7 @@ WRITING_OPTIONS = (("off", "WRITE_HORIZ"), ("random", "WRITE_MIX"), ("all", "WRI
 REPEAT_OPTIONS = (1, 2, 3, 5)
 #: Kana-mode controls (visible only when the "kana" deck is selected).
 KANA_LENGTHS = (1, 2, 3)
-KANA_SCRIPTS = (("hira", "KANA_SCRIPT_HIRA"),
-                ("kata", "KANA_SCRIPT_KATA"),
-                ("both", "KANA_SCRIPT_BOTH"))
+from kanjire.game.menuconfig import KANA_SCRIPTS
 #: Discrete Learn-mode bucket selector values (None / Few / Some / Many).
 LEARN_STEPS = (0, 1, 2, 3)
 _LEARN_LABEL_KEYS = {0: "LEARN_NONE", 1: "LEARN_FEW", 2: "LEARN_SOME", 3: "LEARN_MANY"}
@@ -38,19 +36,13 @@ BOUNTY_OPTIONS = (("none", "BOUNTY_NONE"), ("low", "BOUNTY_LOW"),
 _BOUNTY_CHANCE = {"none": 0.0, "low": 0.35, "med": 0.6, "high": 0.9}
 
 #: Stable English preset keys → translation keys for their displayed labels.
-_MODE_TR = {
-    "Time Attack": "MODE_TIME",
-    "Survival":    "MODE_SURVIVAL",
-    "Zen":         "MODE_ZEN",
-    "Familiarize": "MODE_FAMILIAR",
-    "Learn":       "MODE_LEARN",
-    "Recall":      "MODE_RECALL",
-}
+from kanjire.game.menuconfig import MODE_TR as _MODE_TR
+from kanjire.game.menuconfig import PRESET_TR as _PRESET_TR
 
 
 def _mode_label(name: str) -> str:
     """Display label for a mode (built-in localised, custom presets verbatim)."""
-    key = _MODE_TR.get(name)
+    key = _MODE_TR.get(name) or _PRESET_TR.get(name)
     return tr(key) if key else name
 
 
@@ -148,6 +140,9 @@ class MenuScene(Scene):
         # Snapshot of currently-saved presets (names of those are user-deletable).
         self._user_presets = list(app.state.presets)
         self._user_preset_names = {p["name"] for p in self._user_presets}
+        # Built-in presets (Familiarize/Learn — ex-modes) + the user's.
+        from kanjire.game.menuconfig import all_presets
+        self._all_presets = all_presets(app.state)
 
         # Today's Training plan (due reviews + new-word trickle). Computed
         # lazily and invalidated when the deck/level scope changes.
@@ -226,11 +221,13 @@ class MenuScene(Scene):
         self.mode_btns: list[tuple[str, Button]] = [
             (m, self._btn(_mode_label(m), lambda m=m: self._set_mode(m))) for m in PRESETS
         ]
-        # Append any saved custom presets.
-        for p in self._user_presets:
+        # Presets ride alongside: the built-ins (ex-modes Familiarize/Learn)
+        # then any the player saved. Gold = "this is a configuration".
+        for p in self._all_presets:
             n = p["name"]
             self.mode_btns.append(
-                (n, self._btn(n, lambda n=n: self._set_mode(n), accent=theme.GOLD))
+                (n, self._btn(_mode_label(n), lambda n=n: self._set_mode(n),
+                              accent=theme.GOLD))
             )
         self.lbl_deck = self._section(tr("SEC_DECK"))
         self.deck_btns = [
@@ -568,8 +565,9 @@ class MenuScene(Scene):
         self.learn_less_known = int(cfg.get("learn_less_known", 0))
         self.learn_unknown = int(cfg.get("learn_unknown", 0))
         self.recall_prompt = cfg.get("recall_prompt", "mixed")
-        # Saved presets also restore deck / levels / faces / board size.
-        if name in self._user_preset_names:
+        # Presets (built-in or saved) also restore deck / levels / faces /
+        # board size when they carry them.
+        if name not in PRESETS:
             decks = tuple(cfg.get("decks", ()))
             if decks and decks[0] in {r["name"] for r in self.deck_rows}:
                 self.deck = decks[0]
@@ -587,10 +585,22 @@ class MenuScene(Scene):
         if name in PRESETS:
             cfg = PRESETS[name]()
             return _config_to_dict(cfg)
-        for p in self._user_presets:
+        for p in self._all_presets:
             if p["name"] == name:
                 return p
         return None
+
+    def _ruleset(self) -> str:
+        """The effective ruleset behind the selected mode/preset — a preset
+        saved from Survival or Recall keeps that ruleset's option rows."""
+        if self.mode in PRESETS:
+            return self.mode
+        cfg = self._resolve_mode(self.mode) or {}
+        if cfg.get("recall_mode"):
+            return "Recall"
+        if cfg.get("lives_mode"):
+            return "Survival"
+        return "Zen"
 
     def _save_preset_dialog(self) -> None:
         def save(name: str) -> None:
@@ -696,7 +706,10 @@ class MenuScene(Scene):
                 b.set_selected(n == self.repetitions)
             # Word-difficulty bucket selectors: shown for Learn AND Recall,
             # which both draw a tuned known/less-known/unknown mix.
-            showing_learn = self.mode in ("Learn", "Recall")
+            # Unified settings: the knowledge-mix dials shape word sampling
+            # in EVERY mode (they always silently did — now they're visible
+            # and steerable everywhere instead of hidden outside Learn).
+            showing_learn = True
             for n, b in self.known_btns:
                 b.set_visible(showing_learn)
                 if showing_learn:
@@ -714,7 +727,7 @@ class MenuScene(Scene):
             self.lbl_less_known.opacity = op
             self.lbl_unknown.opacity = op
             # Survival difficulty selectors: visible only in Survival mode.
-            showing_survival = self.mode == "Survival"
+            showing_survival = self._ruleset() == "Survival"
             for n, b in self.hearts_btns:
                 b.set_visible(showing_survival)
                 if showing_survival:
@@ -727,7 +740,7 @@ class MenuScene(Scene):
             self.lbl_hearts.opacity = sop
             self.lbl_bounty.opacity = sop
             # Recall prompt-style selector: visible only in Recall mode.
-            showing_recall = self.mode == "Recall"
+            showing_recall = self._ruleset() == "Recall"
             for v, b in self.recall_prompt_btns:
                 b.set_visible(showing_recall)
                 if showing_recall:
@@ -812,7 +825,8 @@ class MenuScene(Scene):
             base = PRESETS[self.mode]()
         else:
             # Saved preset: rehydrate every preserved field.
-            data = next((p for p in self._user_presets if p["name"] == self.mode), None)
+            data = next((p for p in self._all_presets
+                         if p["name"] == self.mode), None)
             base = GameConfig()
             if data:
                 for f in _PRESET_FIELDS:
@@ -1071,7 +1085,8 @@ class MenuScene(Scene):
         # Recall is a typing drill: cards / fonts / writing / passes make no
         # sense, so hide them and show only what shapes a recall session - the
         # prompt style, and (shared with Learn) the word-difficulty mix.
-        if self.mode == "Recall":
+        ruleset = self._ruleset()
+        if ruleset == "Recall":
             self._set_group_visible(*board_widgets, False)
             self._set_group_visible(*survival_widgets, False)
             section(self.lbl_recall_prompt, dy=10)
@@ -1106,33 +1121,35 @@ class MenuScene(Scene):
         section(self.lbl_repeat)
         y -= 28 * s
         self._row(self.repeat_btns, y, 76 * s, 32 * s, gap=12 * s)
-        if self.mode == "Learn":
-            # Compact inline rows (label left, buttons right) — the stacked
-            # version was ~180px taller and collided with the footer on
-            # short windows.
-            bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
-            row_w = 4 * bw2 + 3 * gap2
-            for lbl, btns in ((self.lbl_known, self.known_btns),
-                              (self.lbl_less_known, self.less_known_btns),
-                              (self.lbl_unknown, self.unknown_btns)):
+        # Survival's extra ruleset rows, inline (label left, buttons right)
+        # to spend as little height as possible above the dials.
+        if ruleset == "Survival":
+            bwS, bhS, gapS = 74 * s, 30 * s, 10 * s
+            for lbl, btns, bw in ((self.lbl_hearts, self.hearts_btns, 74 * s),
+                                  (self.lbl_bounty, self.bounty_btns, 92 * s)):
+                row_w = len(btns) * bw + (len(btns) - 1) * gapS
                 y -= 40 * s
                 lbl.anchor_x = "right"
                 lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
                 x0 = cx - row_w / 2
                 for i, (_v, b) in enumerate(btns):
-                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
-            self._set_group_visible(*survival_widgets, False)
-        elif self.mode == "Survival":
-            section(self.lbl_hearts)
-            y -= 28 * s
-            self._row(self.hearts_btns, y, 74 * s, 30 * s, gap=12 * s)
-            section(self.lbl_bounty, dy=38)
-            y -= 28 * s
-            self._row(self.bounty_btns, y, 92 * s, 30 * s, gap=10 * s)
-            self._set_group_visible(*learn_widgets, False)
+                    b.set_rect(x0 + i * (bw + gapS), y - bhS / 2, bw, bhS)
+            del bwS
         else:
-            self._set_group_visible(*learn_widgets, False)
             self._set_group_visible(*survival_widgets, False)
+        # Knowledge-mix dials: unified across every board mode. Compact
+        # inline rows — the stacked version collided with the footer.
+        bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
+        row_w = 4 * bw2 + 3 * gap2
+        for lbl, btns in ((self.lbl_known, self.known_btns),
+                          (self.lbl_less_known, self.less_known_btns),
+                          (self.lbl_unknown, self.unknown_btns)):
+            y -= 40 * s
+            lbl.anchor_x = "right"
+            lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
+            x0 = cx - row_w / 2
+            for i, (_v, b) in enumerate(btns):
+                b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
 
     def _layout_footer(self, cx, s) -> None:
         # Persistent footer, bottom-anchored so the buttons sit in the same

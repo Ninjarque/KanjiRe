@@ -174,33 +174,11 @@ def _zen() -> GameConfig:
     )
 
 
-def _familiarize() -> GameConfig:
-    """Recognition drill: same words three times, new fonts/direction each pass."""
-    return GameConfig(
-        name="Familiarize",
-        duration=None,
-        max_mistakes=None,
-        words_per_round=5,
-        repetitions=3,
-        random_fonts=True,
-        vertical_writing="random",
-        mismatch_penalty=0,
-    )
-
-
-def _learn() -> GameConfig:
-    """Pulls a curated mix of known / less-known / unknown words from the
-    cross-deck stats so each round is tuned to where the player actually is."""
-    return GameConfig(
-        name="Learn",
-        duration=None,
-        max_mistakes=None,
-        words_per_round=6,
-        mismatch_penalty=0,
-        learn_known=1,        # a light anchor of familiar words
-        learn_less_known=2,   # the struggle words
-        learn_unknown=3,      # plenty of fresh growth - the point of Learn
-    )
+# "Familiarize" and "Learn" used to live here as modes, but they carried no
+# mechanics of their own — every one of their traits (passes, fonts, writing,
+# the knowledge-mix dials) is a generic setting. They are now BUILT-IN
+# PRESETS (kanjire.game.menuconfig.BUILTIN_PRESETS): same one-tap behaviour,
+# honest structure. Modes are rulesets; presets are configurations.
 
 
 def _recall() -> GameConfig:
@@ -221,11 +199,11 @@ def _recall() -> GameConfig:
     )
 
 
+#: The true MODES — each one a distinct ruleset. Everything else that used
+#: to be a "mode" is a built-in preset over these.
 PRESETS: dict[str, "callable[[], GameConfig]"] = {
     "Time Attack": _time_attack,
     "Survival": _survival,
     "Zen": _zen,
-    "Familiarize": _familiarize,
-    "Learn": _learn,
     "Recall": _recall,
 }

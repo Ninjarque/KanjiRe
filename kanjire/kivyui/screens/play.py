@@ -27,11 +27,12 @@ class PlayScreen(Screen):
     def __init__(self, app, **kw):
         super().__init__(**kw)
         self._app = app
+        self._presets = mc.all_presets(app.state)
+        self._preset_names = {p["name"] for p in self._presets}
         self.mode = app.state.last_mode or "Time Attack"
-        if self.mode not in mc.MODE_TR:
+        if self.mode not in mc.MODE_TR and self.mode not in self._preset_names:
             self.mode = "Time Attack"
-        self.settings = mc.normalized_settings(
-            app.state.last_for_mode(self.mode))
+        self.settings = self._settings_for(self.mode)
         try:
             deck_rows = db.list_decks(app.con)
         except Exception:
@@ -74,7 +75,7 @@ class PlayScreen(Screen):
                           padding=[0, 0, 0, dp(8)])
         body.bind(minimum_height=body.setter("height"))
 
-        # ---- mode ----------------------------------------------------- #
+        # ---- modes (rulesets), then presets (configurations) ----------- #
         body.add_widget(SectionLabel(text=tr("SEC_MODE")))
         grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
@@ -84,15 +85,32 @@ class PlayScreen(Screen):
                 fill=theme.ACCENT if key == self.mode else theme.PANEL_HI)
             b.bind(on_release=lambda w, k=key: self._set_mode(k))
             grid.add_widget(b)
+        for p in self._presets:
+            n = p["name"]
+            label = mc.PRESET_TR.get(n)
+            b = ThemedButton(
+                text=tr(label) if label else n, font_size=sp(15),
+                height=dp(46),
+                fill=theme.GOLD if n == self.mode else theme.PANEL_HI,
+                text_color=None if n == self.mode else theme.GOLD)
+            b.bind(on_release=lambda w, k=n: self._set_mode(k))
+            grid.add_widget(b)
         body.add_widget(grid)
 
         s = self.settings
 
         # ---- deck ------------------------------------------------------ #
+        def deck_label(d: str) -> str:
+            if d == kana.KANA_DECK:
+                return tr("DECK_KANA")
+            if d == "jlpt":
+                return "JLPT"
+            if d.startswith("corpus:"):
+                return d[len("corpus:"):].replace("-", " ").title()
+            return d
         body.add_widget(SectionLabel(text=tr("SEC_DECK")))
         body.add_widget(self._chips(
-            [(d, tr("DECK_KANA") if d == kana.KANA_DECK else d)
-             for d in self._decks],
+            [(d, deck_label(d)) for d in self._decks],
             s["deck"], "deck"))
 
         # ---- levels (jlpt only) ---------------------------------------- #
@@ -107,31 +125,45 @@ class PlayScreen(Screen):
         body.add_widget(self._chips(
             [(n, str(n)) for n in mc.SIZES], s["board_size"], "board_size"))
 
-        # ---- faces: one colour-coded toggle per card face --------------- #
-        from kanjire.kivyui.widgets import ChipGrid
-        body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
-        body.add_widget(ChipGrid(
-            [(f, tr(k)) for f, k in mc.FACE_OPTIONS],
-            s["faces"], cols=2, multi=True, min_selected=2,
-            colors={f: theme.FACE_COLORS[f] for f, _ in mc.FACE_OPTIONS},
-            on_change=lambda v: self._set(
-                "faces", [f for f in mc.FACE_ORDER if f in v])))
+        ruleset = self._ruleset()
+        is_recall = ruleset == "Recall"
 
-        # ---- mode-specific rows ----------------------------------------- #
-        if self.mode == "Familiarize":
+        # ---- faces: one colour-coded toggle per card face --------------- #
+        # (board modes only — recall has no cards to split into faces, and
+        # the kana deck derives its faces from the script choice instead)
+        from kanjire.kivyui.widgets import ChipGrid
+        if not is_recall and s["deck"] != kana.KANA_DECK:
+            body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
+            body.add_widget(ChipGrid(
+                [(f, tr(k)) for f, k in mc.FACE_OPTIONS],
+                s["faces"], cols=2, multi=True, min_selected=2,
+                colors={f: theme.FACE_COLORS[f] for f, _ in mc.FACE_OPTIONS},
+                on_change=lambda v: self._set(
+                    "faces", [f for f in mc.FACE_ORDER if f in v])))
+
+        # ---- unified board rows (every board mode, desktop parity) ------ #
+        if not is_recall:
+            body.add_widget(SectionLabel(text=tr("SEC_FONTS")))
+            body.add_widget(self._chips(
+                [(False, tr("FONT_SINGLE")), (True, tr("FONT_RANDOM"))],
+                s["random_fonts"], "random_fonts"))
+            body.add_widget(SectionLabel(text=tr("SEC_WRITING")))
+            body.add_widget(self._chips(
+                [(v, tr(k)) for v, k in mc.WRITING_OPTIONS],
+                s["vertical_writing"], "vertical_writing"))
             body.add_widget(SectionLabel(text=tr("SEC_PASSES")))
             body.add_widget(self._chips(
                 [(n, f"×{n}") for n in mc.REPEAT_OPTIONS],
                 s["repetitions"], "repetitions"))
-        if self.mode == "Learn":
-            for skey, tkey in (("learn_known", "SEC_KNOWN"),
-                               ("learn_less_known", "SEC_LESS_KNOWN"),
-                               ("learn_unknown", "SEC_UNKNOWN")):
-                body.add_widget(SectionLabel(text=tr(tkey)))
-                body.add_widget(self._chips(
-                    [(n, "○" if n == 0 else "●" * n) for n in mc.LEARN_STEPS],
-                    s[skey], skey))
-        if self.mode == "Survival":
+        # Knowledge-mix dials: they shape sampling in every mode.
+        for skey, tkey in (("learn_known", "SEC_KNOWN"),
+                           ("learn_less_known", "SEC_LESS_KNOWN"),
+                           ("learn_unknown", "SEC_UNKNOWN")):
+            body.add_widget(SectionLabel(text=tr(tkey)))
+            body.add_widget(self._chips(
+                [(n, "○" if n == 0 else "●" * n) for n in mc.LEARN_STEPS],
+                s[skey], skey))
+        if ruleset == "Survival":
             body.add_widget(SectionLabel(text=tr("SEC_HEARTS")))
             body.add_widget(self._chips(
                 [(n, "♥" * n) for n in mc.HEARTS_OPTIONS],
@@ -140,8 +172,7 @@ class PlayScreen(Screen):
             body.add_widget(self._chips(
                 [(v, tr(k)) for v, k in mc.BOUNTY_OPTIONS],
                 s["bounty_freq"], "bounty_freq"))
-        if self.mode == "Recall":
-            from kanjire.kivyui.widgets import ChipGrid
+        if is_recall:
             body.add_widget(SectionLabel(text=tr("SEC_RECALL_PROMPT")))
             # Five options: wrap over two rows (one row clips at phone width).
             body.add_widget(ChipGrid(
@@ -163,9 +194,7 @@ class PlayScreen(Screen):
                 s["kana_length"], "kana_length"))
             body.add_widget(SectionLabel(text=tr("SEC_KANA_SCRIPT")))
             body.add_widget(self._chips(
-                [("hiragana", tr("KANA_SCRIPT_HIRA")),
-                 ("katakana", tr("KANA_SCRIPT_KATA")),
-                 ("mixed", tr("KANA_SCRIPT_BOTH"))],
+                [(v, tr(k)) for v, k in mc.KANA_SCRIPTS],
                 s["kana_script"], "kana_script"))
 
         scroller.add_widget(body)
@@ -187,11 +216,36 @@ class PlayScreen(Screen):
                        on_change=lambda v, k=key: self._set(k, v))
 
     # ------------------------------------------------------------------ #
+    def _preset_for(self, name: str) -> dict | None:
+        return next((p for p in self._presets if p["name"] == name), None)
+
+    def _ruleset(self) -> str:
+        """The effective ruleset behind the selected mode/preset — a preset
+        saved from Survival or Recall keeps that ruleset's option rows."""
+        if self.mode in mc.MODE_TR:
+            return self.mode
+        p = self._preset_for(self.mode) or {}
+        if p.get("recall_mode"):
+            return "Recall"
+        if p.get("lives_mode"):
+            return "Survival"
+        return "Zen"
+
+    def _settings_for(self, mode: str) -> dict:
+        """The mode's saved settings — seeded from the preset's own values
+        the first time a preset is selected (so its rows show its identity,
+        not the defaults)."""
+        saved = self._app.state.last_for_mode(mode)
+        if saved is None and mode not in mc.MODE_TR:
+            p = self._preset_for(mode)
+            if p:
+                saved = mc.preset_overlay(p)
+        return mc.normalized_settings(saved)
+
     def _set_mode(self, mode: str) -> None:
         self.mode = mode
         self._app.state.set_last_mode(mode)
-        self.settings = mc.normalized_settings(
-            self._app.state.last_for_mode(mode))
+        self.settings = self._settings_for(mode)
         self._build()
 
     def _set(self, key: str, value) -> None:

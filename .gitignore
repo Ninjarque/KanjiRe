@@ -9,10 +9,14 @@ venv/
 build/
 dist/
 *.spec
+# ...but the Android build config is source, not a build artifact
+!android/buildozer.spec
 
 # KanjiRe runtime / generated artifacts
 kanjire/data/user_state.json
 kanjire/data/stats.db
+kanjire/data/stats.db-wal
+kanjire/data/stats.db-shm
 kanjire/data/kanjire.db-wal
 kanjire/data/kanjire.db-shm
 tests/_shots/
