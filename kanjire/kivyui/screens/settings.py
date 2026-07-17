@@ -109,9 +109,16 @@ class SettingsScreen(Screen):
             texture_size=lambda w, ts: setattr(w, "height",
                                                max(dp(22), ts[1] + dp(4))))
         body.add_widget(self._sync_status)
-        self._sync_code = JPLabel(text="", bold=True, font_size=sp(30),
-                                  color=rgba(theme.GOLD), size_hint_y=None,
-                                  height=0)
+        # Wrapped + autoheight: instruction on one line, the code alone on
+        # the next — a fixed-height single line clipped after "7G…" on
+        # phone-width screens.
+        self._sync_code = JPLabel(text="", bold=True, font_size=sp(26),
+                                  color=rgba(theme.GOLD), halign="center",
+                                  size_hint_y=None, height=0)
+        self._sync_code.bind(
+            width=lambda w, v: setattr(w, "text_size", (v, None)),
+            texture_size=lambda w, ts: setattr(
+                w, "height", ts[1] + dp(8) if w.text else 0))
         body.add_widget(self._sync_code)
         row = BoxLayout(orientation="horizontal", spacing=dp(8),
                         size_hint_y=None, height=dp(44))
@@ -168,13 +175,13 @@ class SettingsScreen(Screen):
     def _sync_refresh(self, *_) -> None:
         sync = self._app.sync
         if sync._pair_code and not sync._join_waiting:
-            self._sync_code.text = (tr("SYNC_CODE_IS") + "  "
+            # Instruction and code on separate lines — the code must never
+            # be the part that gets clipped on a narrow screen.
+            self._sync_code.text = (tr("SYNC_CODE_IS") + "\n"
                                     + sync._pair_code)
-            self._sync_code.height = dp(44)
             self._sync_host.text = tr("SYNC_CANCEL_CODE")
         else:
             self._sync_code.text = ""
-            self._sync_code.height = 0
             self._sync_host.text = tr("SYNC_SHOW_CODE")
         if sync.linked:
             last = self._app.state.setting("sync_last", "")

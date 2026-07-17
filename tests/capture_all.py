@@ -299,6 +299,13 @@ def main() -> int:
         app.go_settings()
         render(8)
         shot("settings", size)
+        # …and scrolled to the bottom (the page overflows small windows —
+        # the DEVICE SYNC panel must be reachable, v0.25.1 regression).
+        app.scene.on_mouse_scroll(0, 0, 0, -50)
+        render(4)
+        shot("settings_bottom", size)
+        app.scene.on_mouse_scroll(0, 0, 0, 50)   # back to the top
+        render(2)
         # Seed a broad known set so the Reading Room actually has sentences to
         # show (and the difficulty controls have a pool to order).
         try:

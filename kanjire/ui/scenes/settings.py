@@ -36,6 +36,10 @@ class SettingsScene(Scene):
         self.g_bg = OrderedGroup(1)
         self.g_text = OrderedGroup(2)
 
+        # The nav lives in its OWN batch, drawn over a backdrop AFTER the
+        # content: the page scrolls (wheel) and content must slide neatly
+        # under the bar rather than colliding with it.
+        self.nav_batch = pyglet.graphics.Batch()
         self.nav = TabBar(
             [(tr("NAV_PLAY"),     lambda: self.app.go_menu()),
              (tr("NAV_JOURNEY"),  lambda: self.app.go_journey()),
@@ -43,7 +47,7 @@ class SettingsScene(Scene):
              (tr("NAV_STATS"),    lambda: self.app.go_stats()),
              (tr("NAV_FRIENDS"),  lambda: self.app.go_friends()),
              (tr("NAV_SETTINGS"), lambda: None)],
-            self.batch, self.g_bg, self.g_text,
+            self.nav_batch, self.g_bg, self.g_text,
             accent=theme.ACCENT, font_size=14,
         )
         self.nav.set_active(tr("NAV_SETTINGS"))
@@ -366,10 +370,22 @@ class SettingsScene(Scene):
                 b.set_selected(x == muted)
 
     # ------------------------------------------------------------------ #
+    def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
+        """The page grew past one screen (DEVICE SYNC panel): wheel-scroll."""
+        max_off = getattr(self, "_scroll_max", 0)
+        if max_off <= 0:
+            return
+        self._scroll = max(0.0, min(max_off,
+                                    getattr(self, "_scroll", 0.0)
+                                    - scroll_y * 60 * self._s))
+        self.on_resize(self.width, self.height)
+
     def on_resize(self, width, height) -> None:
         s = scale_for(width, height)
         self._s = s
         cx = width / 2
+        #: Content shifts up by the wheel offset; the nav stays fixed.
+        off = getattr(self, "_scroll", 0.0)
         # Scale fonts from their bases.
         self.nav.set_scale(s)
         for p in self.panels:
@@ -388,7 +404,7 @@ class SettingsScene(Scene):
         row_h = 44 * s
 
         # --- AUDIO panel --- #
-        audio_top = height - 96 * s
+        audio_top = height - 96 * s + off
         audio_h = 52 * s + len(self._audio_rows) * row_h
         self.audio_panel.set_rect(margin, audio_top - audio_h, pw, audio_h)
         ry = audio_top - 50 * s
@@ -460,12 +476,21 @@ class SettingsScene(Scene):
         self.hint.y = y4
         self.hint.width = pw - 48 * s
 
+        # How far the content overflows the window bottom (scroll range).
+        content_bottom = y4 - 30 * s - off   # at zero offset
+        self._scroll_max = max(0.0, -(content_bottom - 16 * s))
+        if off > self._scroll_max:           # window grew: clamp + re-lay
+            self._scroll = self._scroll_max
+            self.on_resize(width, height)
+
     def draw(self) -> None:
-        # Flat background painted by window.clear() (glClearColor).
+        # Content first; then the nav strip's backdrop OVER it (the page
+        # scrolls under the bar); then the nav itself.
+        self.batch.draw()
         h = round(64 * getattr(self, "_s", 1.0))
         fill_quad(0, self.height - h, self.width, h, theme.PANEL)
         fill_quad(0, self.height - h - 2, self.width, 2, theme.PANEL_HI)
-        self.batch.draw()
+        self.nav_batch.draw()
 
     def on_exit(self) -> None:
         self.nav.delete()
