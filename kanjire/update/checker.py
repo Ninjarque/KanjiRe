@@ -159,8 +159,15 @@ def check_for_update(
         return None
 
     # Authenticity FIRST: never trust the version/url/hash in an unverified
-    # manifest.
-    if not verify.verify_manifest(manifest, config.PUBLIC_KEY_HEX):
+    # manifest. A crypto-stack failure (e.g. PyNaCl missing from a bundle)
+    # must read as "cannot verify" — benign None — never as a crash.
+    try:
+        verified = verify.verify_manifest(manifest, config.PUBLIC_KEY_HEX)
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"manifest verification unavailable: "
+               f"{type(exc).__name__}: {exc}")
+        return None
+    if not verified:
         _debug("manifest signature did NOT verify")
         return None
 

@@ -72,22 +72,26 @@ class UpdateController:
 
     # -- the worker ------------------------------------------------------ #
     def _run(self) -> None:
-        self.status = CHECKING
-        self.error = None
-        checker._debug(f"frozen={applier.is_frozen()} "
-                       f"capable={self.self_update_capable()}")
-        info = checker.check_for_update(__version__)
-        self.state.set_update_last_check(time.time())
-        if info is None:
-            self.status = UP_TO_DATE
-            return
-        self.info = info
-        self.status = DOWNLOADING
-        self.progress = (0, info.size)
+        # NOTHING may escape this thread: an uncaught exception here used to
+        # kill it silently and leave the UI on "Checking…" forever (exactly
+        # what happened on Android when PyNaCl was missing from the bundle).
         try:
+            self.status = CHECKING
+            self.error = None
+            checker._debug(f"frozen={applier.is_frozen()} "
+                           f"capable={self.self_update_capable()}")
+            info = checker.check_for_update(__version__)
+            self.state.set_update_last_check(time.time())
+            if info is None:
+                self.status = UP_TO_DATE
+                return
+            self.info = info
+            self.status = DOWNLOADING
+            self.progress = (0, info.size)
             self.staged = applier.stage(info, progress=self._on_progress)
             self.status = READY
         except Exception as exc:  # noqa: BLE001 — surface as a benign banner state
+            checker._debug(f"update check crashed: {type(exc).__name__}: {exc}")
             self.error = str(exc)
             self.status = ERROR
 

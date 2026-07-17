@@ -22,7 +22,20 @@ set -e
 
 REPO="$1"
 VERSION="$2"
-[ -n "$REPO" ] && [ -n "$VERSION" ] || { echo "usage: build_android.sh <repo> <version>"; exit 2; }
+[ -n "$REPO" ] || { echo "usage: build_android.sh <repo> [version]"; exit 2; }
+
+# The APK's INTERNAL version always comes from kanjire/__init__.py (buildozer
+# reads it via version.regex). A mismatched filename once shipped a stack of
+# "0.23.1..4" APKs that were all really 0.23.0 — so the source is now the
+# only truth, and an explicit arg must agree with it.
+REAL_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$REPO/kanjire/__init__.py")
+[ -n "$REAL_VERSION" ] || { echo "ERROR: no __version__ in kanjire/__init__.py"; exit 2; }
+if [ -n "$VERSION" ] && [ "$VERSION" != "$REAL_VERSION" ]; then
+    echo "ERROR: asked for $VERSION but kanjire/__init__.py says $REAL_VERSION."
+    echo "       The filename must match what the app believes it is."
+    exit 5
+fi
+VERSION="$REAL_VERSION"
 
 VENV="$HOME/kanjire-buildozer-venv"
 WORK="$HOME/kanjire-android"
