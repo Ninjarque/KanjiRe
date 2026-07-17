@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.26.1 — 2026-07-17
+
 - Fixed overlapping buttons on the Recall screens: the typing box hid
   behind the Start button on the study list (and behind the answer
   choices), and big drills now shrink their study list to fit any window.
