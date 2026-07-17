@@ -28,7 +28,9 @@ VERSION="$2"
 # reads it via version.regex). A mismatched filename once shipped a stack of
 # "0.23.1..4" APKs that were all really 0.23.0 — so the source is now the
 # only truth, and an explicit arg must agree with it.
-REAL_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$REPO/kanjire/__init__.py")
+# tr -d '\r': the repo lives on Windows (CRLF) — without it the version
+# captures a trailing CR and the APK gets a literal \r in its filename.
+REAL_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$REPO/kanjire/__init__.py" | tr -d '\r')
 [ -n "$REAL_VERSION" ] || { echo "ERROR: no __version__ in kanjire/__init__.py"; exit 2; }
 if [ -n "$VERSION" ] && [ "$VERSION" != "$REAL_VERSION" ]; then
     echo "ERROR: asked for $VERSION but kanjire/__init__.py says $REAL_VERSION."
