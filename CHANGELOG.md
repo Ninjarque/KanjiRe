@@ -12,6 +12,15 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Pick your card faces directly.** "Cards per word" is now four toggle
+  buttons — 漢字 Kanji, かな Kana, abc Romaji, Meaning — each in the same
+  colour as its cards on the board. Turn any combination on or off (at
+  least two), in the solo menu and the multiplayer lobby alike. New
+  combos like kana ↔ meaning without kanji are now possible.
+- **The Journey tab no longer freezes when scrolling fast** — the road's
+  ~540 station buttons are now drawn through a recycled list that keeps
+  only a screenful alive at once.
+
 ## 0.26.1 — 2026-07-17
 
 - Fixed overlapping buttons on the Recall screens: the typing box hid

@@ -418,8 +418,18 @@ class MultiplayerScreen(Screen):
         body.add_widget(chips([(n, str(n)) for n in BOARD_CHOICES],
                               int(s.get("board_size", 6)), "board_size"))
         body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
-        body.add_widget(chips([(n, str(n)) for n in CARDS_CHOICES],
-                              int(s.get("cards", 4)), "cards"))
+        from kanjire.game.menuconfig import FACE_OPTIONS, FACE_ORDER
+        from kanjire.kivyui.widgets import ChipGrid
+        faces_now = s.get("faces_sel") or FACES_FOR.get(
+            int(s.get("cards", 4)), FACES_FOR[4])
+        fgrid = ChipGrid(
+            [(f, tr(k)) for f, k in FACE_OPTIONS],
+            list(faces_now), cols=2, multi=True, min_selected=2,
+            colors={f: theme.FACE_COLORS[f] for f, _ in FACE_OPTIONS},
+            on_change=lambda v: self._set_setting(
+                "faces_sel", [f for f in FACE_ORDER if f in v]))
+        fgrid.disabled = not is_host
+        body.add_widget(fgrid)
         body.add_widget(SectionLabel(text=tr("MP_TURNS")))
         body.add_widget(chips([(n, str(n)) for n in TURNS_CHOICES],
                               int(s.get("turns_each", 10)), "turns_each"))
@@ -494,10 +504,11 @@ class MultiplayerScreen(Screen):
             self.status = tr("MP_ERR_POOL")
             self._sync_status()
             return
+        faces = list(s.get("faces_sel")
+                     or FACES_FOR.get(int(s.get("cards", 4)), FACES_FOR[4]))
         self.client.send({
             "t": "start", "pool": pool,
-            "faces": list(FACES_FOR.get(int(s.get("cards", 4)),
-                                        FACES_FOR[4])),
+            "faces": faces,
             "board_size": int(s.get("board_size", 6)),
             "turns_each": int(s.get("turns_each", 10)),
         })

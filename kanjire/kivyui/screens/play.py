@@ -107,10 +107,15 @@ class PlayScreen(Screen):
         body.add_widget(self._chips(
             [(n, str(n)) for n in mc.SIZES], s["board_size"], "board_size"))
 
-        # ---- faces ------------------------------------------------------ #
+        # ---- faces: one colour-coded toggle per card face --------------- #
+        from kanjire.kivyui.widgets import ChipGrid
         body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
-        body.add_widget(self._chips(
-            [(2, "2"), (3, "3"), (4, "4")], s["face_mode"], "face_mode"))
+        body.add_widget(ChipGrid(
+            [(f, tr(k)) for f, k in mc.FACE_OPTIONS],
+            s["faces"], cols=2, multi=True, min_selected=2,
+            colors={f: theme.FACE_COLORS[f] for f, _ in mc.FACE_OPTIONS},
+            on_change=lambda v: self._set(
+                "faces", [f for f in mc.FACE_ORDER if f in v])))
 
         # ---- mode-specific rows ----------------------------------------- #
         if self.mode == "Familiarize":

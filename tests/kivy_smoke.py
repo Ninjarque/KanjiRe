@@ -184,8 +184,14 @@ def main() -> None:
         def step_journey():
             js = app.sm.get_screen("journey")
             check("journey stations built", len(js.stations) > 100)
-            check("journey grid rendered", len(js._grid.children)
+            check("journey road recycled", len(js._rv.data)
                   == len(js.stations))
+            # The freeze report: ~540 live buttons; recycled cells must keep
+            # only a screenful of widgets alive however far the road goes.
+            live = len(js._rv.layout_manager.children)
+            check("journey keeps few live widgets", 0 < live < 80)
+            js._rv.scroll_y = 0.0   # fling to the far end
+            js._rv.scroll_y = 1.0
             snap(app, "10-journey")
             app.switch_tab("read")
             later(0.6, step_reading)

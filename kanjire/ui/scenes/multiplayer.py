@@ -210,17 +210,15 @@ class MultiplayerScene(Scene):
                        accent=theme.SUCCESS, font_size=13))
             for n in BOARD_CHOICES
         ]
-        # Same labels as the single-player Advanced tab, so "cards per word"
-        # reads identically in both places.
-        _CARD_LABELS = {2: "FACES_TWO", 3: "FACES_THREE", 4: "FACES_FOUR"}
+        # Same per-face colour toggles as the single-player menu, so "cards
+        # per word" reads identically in both places (any subset, min two).
+        from kanjire.game.menuconfig import FACE_OPTIONS
         self.cards_btns = [
-            (n, Button(tr(_CARD_LABELS[n]),
-                       lambda n=n: self._set_setting("cards", n),
-                       self.batch, self.g_bg, self.g_text,
-                       accent=(theme.FACE_COLORS["romaji"] if n == 4
-                               else theme.FACE_COLORS["meaning"]),
-                       font_size=12))
-            for n in CARDS_CHOICES
+            (face, Button(tr(key),
+                          lambda f=face: self._toggle_lobby_face(f),
+                          self.batch, self.g_bg, self.g_text,
+                          accent=theme.FACE_COLORS[face], font_size=12))
+            for face, key in FACE_OPTIONS
         ]
         self.lturns_btns = [
             (n, Button(str(n), lambda n=n: self._set_setting("turns_each", n),
@@ -472,8 +470,10 @@ class MultiplayerScene(Scene):
             b.set_enabled(self.phase == "lobby" and self.me == 0 and is_jlpt)
         for n, b in self.words_btns:
             b.set_selected(n == s.get("board_size"))
-        for n, b in self.cards_btns:
-            b.set_selected(n == s.get("cards"))
+        faces_now = s.get("faces_sel") or FACES_FOR.get(
+            int(s.get("cards", 4)), FACES_FOR[4])
+        for face, b in self.cards_btns:
+            b.set_selected(face in faces_now)
         for n, b in self.lturns_btns:
             b.set_selected(n == s.get("turns_each"))
         for v, b in self.writing_btns:
@@ -605,10 +605,25 @@ class MultiplayerScene(Scene):
             return
         self.client.send({
             "t": "start", "pool": pool,
-            "faces": list(FACES_FOR.get(int(s.get("cards", 3)), FACES_FOR[3])),
+            "faces": list(s.get("faces_sel") or FACES_FOR.get(
+                int(s.get("cards", 3)), FACES_FOR[3])),
             "board_size": int(s.get("board_size", 6)),
             "turns_each": int(s.get("turns_each", 10)),
         })
+
+    def _toggle_lobby_face(self, face: str) -> None:
+        """Host-only: flip one card face in the room settings (min two)."""
+        from kanjire.game.menuconfig import FACE_ORDER
+        s = self._settings()
+        faces = list(s.get("faces_sel") or FACES_FOR.get(
+            int(s.get("cards", 4)), FACES_FOR[4]))
+        if face in faces:
+            if len(faces) <= 2:
+                return
+            faces.remove(face)
+        else:
+            faces = [f for f in FACE_ORDER if f in faces or f == face]
+        self._set_setting("faces_sel", faces)
 
     def _set_setting(self, key: str, value) -> None:
         """Host-only: push one setting change; everyone sees it immediately."""
@@ -1110,7 +1125,7 @@ class MultiplayerScene(Scene):
                 (self.lbl_s_deck, self.deck_btns, 148 * s),
                 (self.lbl_s_level, self.level_btns, 62 * s),
                 (self.lbl_s_words, self.words_btns, 62 * s),
-                (self.lbl_s_cards, self.cards_btns, 210 * s),
+                (self.lbl_s_cards, self.cards_btns, 128 * s),
                 (self.lbl_s_turns, self.lturns_btns, 62 * s),
                 (self.lbl_s_writing, self.writing_btns, 92 * s),
                 (self.lbl_s_fonts, self.fonts_btns, 108 * s),

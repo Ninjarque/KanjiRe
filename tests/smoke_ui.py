@@ -1052,16 +1052,33 @@ def run() -> int:
         assert mp2.state["players"] == ["hosty", "friend"]
 
         # Lobby settings: the host tunes the game and the friend sees it live.
-        mp2._set_setting("cards", 4)
         mp2._set_setting("board_size", 4)
+        # Card faces are now per-face toggles: drop romaji, watch it
+        # broadcast (with the legacy "cards" mirror for old clients).
+        mp2._toggle_lobby_face("romaji")
         frames2(4)
         fset = [m["state"] for m in friend.poll()
                 if m.get("t") == "state"][-1]["settings"]
-        assert fset["cards"] == 4 and fset["board_size"] == 4, fset
-        assert mp2._settings()["cards"] == 4
+        assert fset["board_size"] == 4, fset
+        assert fset["faces_sel"] == ["kanji", "reading", "meaning"], fset
+        assert fset["cards"] == 3, fset            # legacy mirror
+        frames2(2)
         # ...and the settings buttons everyone sees reflect it.
-        assert next(b for n, b in mp2.cards_btns if n == 4).selected
-        assert not next(b for n, b in mp2.cards_btns if n == 3).selected
+        assert not next(b for f, b in mp2.cards_btns if f == "romaji").selected
+        assert next(b for f, b in mp2.cards_btns if f == "kanji").selected
+        # The floor: a board needs at least two faces. (A frame gap between
+        # toggles: each reads the server's echoed settings, not local state.)
+        mp2._toggle_lobby_face("kanji")
+        frames2(4)
+        mp2._toggle_lobby_face("reading")
+        frames2(4)
+        assert len(mp2._settings()["faces_sel"]) >= 2
+        mp2._toggle_lobby_face("romaji")           # restore all four
+        frames2(4)
+        mp2._toggle_lobby_face("kanji")
+        frames2(4)
+        assert mp2._settings()["faces_sel"] == [
+            "kanji", "reading", "romaji", "meaning"]
 
         # Presentation settings (writing direction + fonts), shared with the
         # single-player Advanced tab. Every row must SHOW its selection - a row

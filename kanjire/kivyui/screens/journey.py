@@ -2,28 +2,65 @@
 
 Same rules as desktop: a station clears at 12/15 known (however you learned
 them), every fifth is a 鬼 boss (hearts over the last five stations' hardest
-words), everything stays clickable. The whole road scrolls; the view opens
-at the frontier.
+words), everything stays clickable. The road renders through a RecycleView —
+building ~540 live buttons made fast scrolling freeze on phones; recycled
+cells keep only a screenful of widgets alive.
 """
 from __future__ import annotations
 
 from kivy.clock import Clock
+from kivy.factory import Factory
+from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp, sp
+from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
+from kivy.uix.recycleview import RecycleView
 from kivy.uix.screenmanager import Screen
-from kivy.uix.scrollview import ScrollView
 
 from kanjire.data import db
 from kanjire.data.stats import classify, knowledge_score
 from kanjire.game.config import GameConfig
 from kanjire.i18n import tr
+from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
-from kanjire.kivyui.widgets import JPLabel, ThemedButton
+from kanjire.kivyui.widgets import JPLabel
 
 STATION_SIZE = 15
 CLEAR_AT = 12
 BOSS_EVERY = 5
+COLS = 4
+
+
+class JourneyCell(ButtonBehavior, JPLabel):
+    """One recycled station button: rounded fill + label, data-driven."""
+
+    def __init__(self, **kw):
+        kw.setdefault("font_name", UI_FONT)
+        kw.setdefault("font_size", sp(14))
+        super().__init__(**kw)
+        self.station = -1
+        with self.canvas.before:
+            self._col = Color(*rgba(theme.PANEL_HI))
+            self._rect = RoundedRectangle(pos=self.pos, size=self.size,
+                                          radius=[dp(10)])
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *_):
+        self._rect.pos = self.pos
+        self._rect.size = self.size
+
+    # RecycleView data adapters
+    fill = property(fset=lambda self, v: setattr(self._col, "rgba", v))
+
+    def on_release(self):
+        if self.station < 0:
+            return
+        from kivy.app import App
+        App.get_running_app().sm.get_screen("journey") \
+            ._play_station(self.station)
+
+
+Factory.register("JourneyCell", cls=JourneyCell)
 
 
 class JourneyScreen(Screen):
@@ -61,65 +98,69 @@ class JourneyScreen(Screen):
             (i for i, n in enumerate(self._known_counts) if n < CLEAR_AT),
             max(0, len(self.stations) - 1),
         )
-        self._build()
+        if not self._built:
+            self._build()
+        self._refill()
 
     def _build(self) -> None:
-        self.clear_widgets()
+        self._built = True
         root = BoxLayout(orientation="vertical", padding=[dp(14), dp(10)],
                          spacing=dp(8))
         root.add_widget(JPLabel(text=tr("JOURNEY_TITLE"), bold=True,
                                 font_size=sp(20), size_hint_y=None,
                                 height=dp(30)))
-        cleared = sum(1 for n in self._known_counts if n >= CLEAR_AT)
-        prog = JPLabel(
-            text=tr("JOURNEY_PROGRESS", cleared=cleared,
-                    total=len(self.stations),
-                    words=sum(self._known_counts)),
-            color=rgba(theme.DIM), font_size=sp(11.5), halign="left",
-            size_hint_y=None, height=dp(20))
-        prog.bind(size=prog.setter("text_size"))
-        root.add_widget(prog)
+        self._prog = JPLabel(text="", color=rgba(theme.DIM),
+                             font_size=sp(11.5), halign="left",
+                             size_hint_y=None, height=dp(20))
+        self._prog.bind(size=self._prog.setter("text_size"))
+        root.add_widget(self._prog)
 
-        self._scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
-        grid = GridLayout(cols=4, spacing=dp(8), size_hint_y=None,
-                          padding=[0, dp(4)])
-        grid.bind(minimum_height=grid.setter("height"))
-        self._frontier_btn = None
+        self._rv = RecycleView(bar_width=dp(3))
+        from kivy.uix.recyclegridlayout import RecycleGridLayout
+        layout = RecycleGridLayout(cols=COLS, default_size=(None, dp(52)),
+                                   default_size_hint=(1, None),
+                                   spacing=dp(8), size_hint_y=None,
+                                   padding=[0, dp(4)])
+        layout.bind(minimum_height=layout.setter("height"))
+        self._rv.add_widget(layout)
+        self._rv.viewclass = "JourneyCell"   # AFTER the layout manager
+        root.add_widget(self._rv)
+        self.add_widget(root)
+
+    def _refill(self) -> None:
+        cleared = sum(1 for n in self._known_counts if n >= CLEAR_AT)
+        self._prog.text = tr("JOURNEY_PROGRESS", cleared=cleared,
+                             total=len(self.stations),
+                             words=sum(self._known_counts))
+        data = []
         for i in range(len(self.stations)):
-            n_known = self._known_counts[i]
-            done = n_known >= CLEAR_AT
+            done = self._known_counts[i] >= CLEAR_AT
             boss = self._is_boss(i)
             if done:
-                fill, text = theme.SUCCESS, f"★ {i + 1}"
+                fill, text, fg = theme.SUCCESS, f"★ {i + 1}", None
             elif boss:
-                fill, text = theme.DANGER, f"鬼 {i + 1}"
+                fill, text, fg = theme.DANGER, f"鬼 {i + 1}", None
             elif i == self.frontier:
-                fill, text = theme.GOLD, f"● {i + 1}"
+                fill, text, fg = theme.GOLD, f"● {i + 1}", None
             else:
-                fill, text = theme.PANEL_HI, str(i + 1)
-            b = ThemedButton(text=text, fill=fill, height=dp(52),
-                             font_size=sp(14),
-                             text_color=None if (done or boss
-                                                 or i == self.frontier)
-                             else theme.MUTED)
-            b.bind(on_release=lambda w, i=i: self._play_station(i))
-            grid.add_widget(b)
-            if i == self.frontier:
-                self._frontier_btn = b
-        self._scroll.add_widget(grid)
-        self._grid = grid
-        root.add_widget(self._scroll)
-        self.add_widget(root)
-        # Open the view at the frontier (after layout settles).
+                fill, text, fg = theme.PANEL_HI, str(i + 1), theme.MUTED
+            data.append({
+                "text": text,
+                "fill": rgba(fill),
+                "color": rgba(fg if fg is not None
+                              else theme.readable_on(fill)),
+                "station": i,
+            })
+        self._rv.data = data
+        # Open the view at the frontier (after the layout settles).
         Clock.schedule_once(lambda *_: self._scroll_to_frontier(), 0)
 
     def _scroll_to_frontier(self) -> None:
-        if self._frontier_btn is not None and self._grid.height > 0:
-            try:
-                self._scroll.scroll_to(self._frontier_btn, padding=dp(60),
-                                       animate=False)
-            except Exception:
-                pass
+        total_rows = max(1, (len(self.stations) + COLS - 1) // COLS)
+        row = self.frontier // COLS
+        # scroll_y: 1 = top. Aim a bit above the frontier row.
+        frac = max(0, row - 1) / max(1, total_rows - 1)
+        self._rv.scroll_y = max(0.0, min(1.0, 1.0 - frac))
 
     # ------------------------------------------------------------------ #
     def _is_boss(self, i: int) -> bool:

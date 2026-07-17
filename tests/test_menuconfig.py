@@ -33,9 +33,29 @@ def test_levels_only_apply_to_jlpt_deck():
 
 def test_legacy_faces3_key():
     s = normalized_settings({"faces3": True})
-    assert s["face_mode"] == 3
+    assert s["faces"] == ["kanji", "reading", "meaning"]
     s = normalized_settings({"faces3": False})
-    assert s["face_mode"] == 2
+    assert s["faces"] == ["kanji", "meaning"]
+
+
+def test_legacy_face_mode_maps_to_faces():
+    s = normalized_settings({"face_mode": 2})
+    assert s["faces"] == ["kanji", "meaning"]
+    s = normalized_settings({"face_mode": 4})
+    assert s["faces"] == ["kanji", "reading", "romaji", "meaning"]
+
+
+def test_faces_subset_and_minimum():
+    # Arbitrary subsets are allowed (reading↔meaning without kanji!),
+    # order is canonicalised, and fewer than 2 falls back to the default.
+    s = normalized_settings({"faces": ["meaning", "reading"]})
+    assert s["faces"] == ["reading", "meaning"]
+    cfg = config_for("Zen", {"faces": ["romaji", "kanji"]})
+    assert cfg.faces == ("kanji", "romaji")
+    s = normalized_settings({"faces": ["kanji"]})
+    assert len(s["faces"]) == 4     # default kept
+    s = normalized_settings({"faces": ["kanji", "bogus", "meaning"]})
+    assert s["faces"] == ["kanji", "meaning"]
 
 
 def test_invalid_values_fall_back_to_defaults():

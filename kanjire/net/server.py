@@ -62,7 +62,8 @@ DEFAULT_SETTINGS = {
     "deck": "jlpt",
     "levels": [5],
     "board_size": 6,
-    "cards": 4,          # cards per word: 2 | 3 | 4 (4 adds the romaji face)
+    "cards": 4,          # LEGACY mirror of len(faces_sel), for old clients
+    "faces_sel": ["kanji", "reading", "romaji", "meaning"],
     "turns_each": 10,
     "writing": "off",    # horizontal | mixed | vertical  ("off" == horizontal)
     "fonts": "fixed",    # fixed | random
@@ -138,8 +139,14 @@ class Room:
                 s["levels"] = sorted(set(lv)) or [5]
             if d.get("board_size") in (4, 6, 8, 12):
                 s["board_size"] = int(d["board_size"])
-            if d.get("cards") in (2, 3, 4):
+            from kanjire.game.menuconfig import FACES_BY_MODE, normalize_faces
+            faces = normalize_faces(d.get("faces_sel"))
+            if faces is not None:
+                s["faces_sel"] = faces
+                s["cards"] = len(faces)          # keep old clients coherent
+            elif d.get("cards") in (2, 3, 4):    # legacy host
                 s["cards"] = int(d["cards"])
+                s["faces_sel"] = list(FACES_BY_MODE[int(d["cards"])])
             if d.get("turns_each") in (5, 10, 15):
                 s["turns_each"] = int(d["turns_each"])
             if d.get("writing") in _WRITING_VALUES:

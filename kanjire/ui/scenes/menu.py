@@ -122,7 +122,8 @@ class MenuScene(Scene):
         )
         self.levels: set[int] = {5}
         self.board_size = 6
-        self.face_mode = 4   # 2 | 3 | 4 cards per word (4 = with romaji)
+        #: The card faces in play — any subset of FACE_ORDER, minimum two.
+        self.faces_sel = list(DEFAULT_FACES)
         # Visual toggles (also part of saved presets)
         self.random_fonts = False
         self.vertical_writing = "off"
@@ -256,14 +257,14 @@ class MenuScene(Scene):
             (s, self._btn(str(s), lambda s=s: self._set_size(s), accent=theme.SUCCESS))
             for s in SIZES
         ]
+        # One toggle per card face, in its own face colour (user request:
+        # explicit AND customizable — any subset, minimum two).
+        from kanjire.game.menuconfig import FACE_OPTIONS
         self.lbl_faces = self._section(tr("SEC_CARDS"))
         self.faces_btns = [
-            (2, self._btn(tr("FACES_TWO"), lambda: self._set_faces(2),
-                          accent=theme.FACE_COLORS["meaning"], font_size=12)),
-            (3, self._btn(tr("FACES_THREE"), lambda: self._set_faces(3),
-                          accent=theme.FACE_COLORS["meaning"], font_size=12)),
-            (4, self._btn(tr("FACES_FOUR"), lambda: self._set_faces(4),
-                          accent=theme.FACE_COLORS["romaji"], font_size=12)),
+            (face, self._btn(tr(key), lambda f=face: self._toggle_face(f),
+                             accent=theme.FACE_COLORS[face], font_size=12))
+            for face, key in FACE_OPTIONS
         ]
 
         # --- visual / familiarization toggles --- #
@@ -441,7 +442,16 @@ class MenuScene(Scene):
         # Selecting / leaving Kana changes which rows take space.
         self.on_resize(self.width, self.height)
     def _set_size(self, s):       self.board_size = s;           self._after_change()
-    def _set_faces(self, mode):   self.face_mode = int(mode);    self._after_change()
+    def _toggle_face(self, face: str) -> None:
+        from kanjire.game.menuconfig import FACE_ORDER
+        if face in self.faces_sel:
+            if len(self.faces_sel) <= 2:
+                return                      # a board needs at least two faces
+            self.faces_sel.remove(face)
+        else:
+            self.faces_sel = [f for f in FACE_ORDER
+                              if f in self.faces_sel or f == face]
+        self._after_change()
     def _set_random_fonts(self, v): self.random_fonts = bool(v); self._after_change()
     def _set_writing(self, v):    self.vertical_writing = v;     self._after_change()
     def _set_repeat(self, n):     self.repetitions = int(n);     self._after_change()
@@ -486,7 +496,10 @@ class MenuScene(Scene):
             "deck": self.deck,
             "levels": sorted(self.levels),
             "board_size": self.board_size,
-            "face_mode": self.face_mode,
+            "faces": list(self.faces_sel),
+            # Mirror the legacy key so pre-toggle builds (and their synced
+            # settings) still read something sensible.
+            "face_mode": len(self.faces_sel),
             "random_fonts": self.random_fonts,
             "vertical_writing": self.vertical_writing,
             "repetitions": self.repetitions,
@@ -510,10 +523,14 @@ class MenuScene(Scene):
             self.levels = set(levels)
         if d.get("board_size") in SIZES:
             self.board_size = d["board_size"]
-        if d.get("face_mode") in (2, 3, 4):
-            self.face_mode = int(d["face_mode"])
-        elif "faces3" in d:   # settings saved before the 4-card option
-            self.face_mode = 3 if d["faces3"] else 2
+        from kanjire.game.menuconfig import FACES_BY_MODE, normalize_faces
+        faces = normalize_faces(d.get("faces"))
+        if faces is None and d.get("face_mode") in (2, 3, 4):
+            faces = list(FACES_BY_MODE[int(d["face_mode"])])
+        if faces is None and "faces3" in d:   # pre-4-card settings
+            faces = list(FACES_BY_MODE[3 if d["faces3"] else 2])
+        if faces is not None:
+            self.faces_sel = faces
         if "random_fonts" in d:
             self.random_fonts = bool(d["random_fonts"])
         if d.get("vertical_writing") in {v for v, _ in WRITING_OPTIONS}:
@@ -559,8 +576,9 @@ class MenuScene(Scene):
             lv = list(cfg.get("levels") or ())
             if lv:
                 self.levels = set(lv)
-            faces = tuple(cfg.get("faces", DEFAULT_FACES))
-            self.face_mode = 4 if "romaji" in faces else min(3, len(faces))
+            from kanjire.game.menuconfig import normalize_faces
+            self.faces_sel = (normalize_faces(cfg.get("faces"))
+                              or list(DEFAULT_FACES))
             wpr = cfg.get("words_per_round")
             if wpr in SIZES:
                 self.board_size = wpr
@@ -667,9 +685,9 @@ class MenuScene(Scene):
                 self.paste_btn.set_visible(False)
         else:
             # CARDS PER WORD is decided by KANA SCRIPT in Kana mode, so disable.
-            for mode, b in self.faces_btns:
+            for face, b in self.faces_btns:
                 b.enabled = not kana_deck
-                b.set_selected((mode == self.face_mode) and b.enabled)
+                b.set_selected((face in self.faces_sel) and b.enabled)
             for val, b in self.font_btns:
                 b.set_selected(val == self.random_fonts)
             for val, b in self.writing_btns:
@@ -788,11 +806,7 @@ class MenuScene(Scene):
                      else ("kanji", "meaning"))
             levels = ()
         else:
-            faces = {
-                2: ("kanji", "meaning"),
-                3: DEFAULT_FACES,
-                4: ("kanji", "reading", "romaji", "meaning"),
-            }.get(self.face_mode, DEFAULT_FACES)
+            faces = tuple(self.faces_sel) or DEFAULT_FACES
             levels = tuple(sorted(self.levels)) if self.deck == "jlpt" else ()
         if self.mode in PRESETS:
             base = PRESETS[self.mode]()
@@ -1082,7 +1096,7 @@ class MenuScene(Scene):
         self._set_group_visible(*recall_widgets, False)
         section(self.lbl_faces, dy=10)
         y -= 30 * s
-        self._row(self.faces_btns, y, 200 * s, 40 * s, gap=12 * s)
+        self._row(self.faces_btns, y, 150 * s, 40 * s, gap=10 * s)
         section(self.lbl_fonts)
         y -= 28 * s
         self._row(self.font_btns, y, 120 * s, 32 * s, gap=12 * s)

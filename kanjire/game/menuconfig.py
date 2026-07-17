@@ -32,11 +32,29 @@ MODE_TR = {
     "Recall": "MODE_RECALL",
 }
 
+#: Canonical face order; selections are stored as ordered subsets of this.
+FACE_ORDER = ("kanji", "reading", "romaji", "meaning")
+
+#: (face, translation key, FACE_COLORS key) for the toggle buttons.
+FACE_OPTIONS = (("kanji", "FACE_BTN_KANJI"),
+                ("reading", "FACE_BTN_READING"),
+                ("romaji", "FACE_BTN_ROMAJI"),
+                ("meaning", "FACE_BTN_MEANING"))
+
+#: Legacy 2/3/4 "cards per word" → face subsets (pre-toggle settings).
 FACES_BY_MODE = {
     2: ("kanji", "meaning"),
     3: ("kanji", "reading", "meaning"),
     4: ("kanji", "reading", "romaji", "meaning"),
 }
+
+
+def normalize_faces(value) -> list[str] | None:
+    """An ordered, valid faces subset (>= 2 faces), or None if unusable."""
+    if not isinstance(value, (list, tuple)):
+        return None
+    picked = [f for f in FACE_ORDER if f in value]
+    return picked if len(picked) >= 2 else None
 
 #: GameConfig fields a saved user preset preserves.
 PRESET_FIELDS = (
@@ -54,7 +72,7 @@ DEFAULT_SETTINGS = {
     "deck": "jlpt",
     "levels": [5],
     "board_size": 6,
-    "face_mode": 4,
+    "faces": ["kanji", "reading", "romaji", "meaning"],
     "random_fonts": False,
     "vertical_writing": "off",
     "repetitions": 1,
@@ -81,10 +99,13 @@ def normalized_settings(d: dict | None) -> dict:
         s["levels"] = sorted(levels)
     if d.get("board_size") in SIZES:
         s["board_size"] = int(d["board_size"])
-    if d.get("face_mode") in (2, 3, 4):
-        s["face_mode"] = int(d["face_mode"])
-    elif "faces3" in d:  # settings saved before the 4-card option
-        s["face_mode"] = 3 if d["faces3"] else 2
+    faces = normalize_faces(d.get("faces"))
+    if faces is None and d.get("face_mode") in (2, 3, 4):
+        faces = list(FACES_BY_MODE[int(d["face_mode"])])   # legacy 2/3/4
+    if faces is None and "faces3" in d:  # even older: pre-4-card settings
+        faces = list(FACES_BY_MODE[3 if d["faces3"] else 2])
+    if faces is not None:
+        s["faces"] = faces
     if "random_fonts" in d:
         s["random_fonts"] = bool(d["random_fonts"])
     if d.get("vertical_writing") in {v for v, _ in WRITING_OPTIONS}:
@@ -117,7 +138,7 @@ def config_for(mode: str, settings: dict, *,
     *mode* is a PRESETS key or the name of a saved preset in *user_presets*.
     """
     s = normalized_settings(settings)
-    faces = FACES_BY_MODE.get(s["face_mode"], DEFAULT_FACES)
+    faces = tuple(s["faces"]) or DEFAULT_FACES
     levels = tuple(s["levels"]) if s["deck"] == "jlpt" else ()
 
     if mode in PRESETS:

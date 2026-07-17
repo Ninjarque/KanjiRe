@@ -104,10 +104,15 @@ class ThemedButton(ButtonBehavior, JPLabel):
 
 
 class Chip(ThemedButton):
-    """Small selectable pill (JLPT levels, theme names, option values)."""
+    """Small selectable pill (JLPT levels, theme names, option values).
 
-    def __init__(self, value, *, selected=False, **kw):
+    *selected_fill* overrides the selected colour (the face toggles use
+    their FACE_COLORS hue instead of the accent).
+    """
+
+    def __init__(self, value, *, selected=False, selected_fill=None, **kw):
         self.value = value
+        self._selected_fill = selected_fill
         kw.setdefault("height", dp(38))
         kw.setdefault("font_size", sp(14))
         kw.setdefault("radius", dp(19))
@@ -116,33 +121,40 @@ class Chip(ThemedButton):
 
     def set_selected(self, selected: bool) -> None:
         self.selected = selected
-        self.set_fill(theme.ACCENT if selected else theme.PANEL_HI)
+        on = self._selected_fill if self._selected_fill is not None \
+            else theme.ACCENT
+        self.set_fill(on if selected else theme.PANEL_HI)
 
 
 class ChipRow(BoxLayout):
     """A row of chips; single- or multi-select. Calls on_change(values)."""
 
-    def __init__(self, options, selected, *, multi=False, on_change=None, **kw):
-        """*options* is a list of (value, label) pairs."""
+    def __init__(self, options, selected, *, multi=False, on_change=None,
+                 colors=None, min_selected=1, **kw):
+        """*options* is a list of (value, label) pairs. *colors* maps a
+        value to its selected fill; *min_selected* floors multi-select."""
         kw.setdefault("orientation", "horizontal")
         kw.setdefault("spacing", dp(6))
         kw.setdefault("size_hint_y", None)
         kw.setdefault("height", dp(38))
         super().__init__(**kw)
         self._multi = multi
+        self._min = max(1, min_selected)
         self._on_change = on_change
         self._chips: list[Chip] = []
         selected = set(selected if multi else [selected])
         for value, label in options:
-            chip = Chip(value, text=str(label), selected=value in selected)
+            chip = Chip(value, text=str(label), selected=value in selected,
+                        selected_fill=(colors or {}).get(value))
             chip.bind(on_release=self._tapped)
             self._chips.append(chip)
             self.add_widget(chip)
 
     def _tapped(self, chip: Chip) -> None:
         if self._multi:
-            if chip.selected and sum(c.selected for c in self._chips) <= 1:
-                return  # never allow an empty multi-selection
+            if chip.selected and \
+                    sum(c.selected for c in self._chips) <= self._min:
+                return  # keep the floor (a board needs >= 2 faces, etc.)
             chip.set_selected(not chip.selected)
         else:
             for c in self._chips:
@@ -159,18 +171,20 @@ class ChipGrid(GridLayout):
     """ChipRow's wrapping sibling: same API, chips flow over N columns."""
 
     def __init__(self, options, selected, *, cols=3, multi=False,
-                 on_change=None, **kw):
+                 on_change=None, colors=None, min_selected=1, **kw):
         kw.setdefault("cols", cols)
         kw.setdefault("spacing", dp(6))
         kw.setdefault("size_hint_y", None)
         super().__init__(**kw)
         self.bind(minimum_height=self.setter("height"))
         self._multi = multi
+        self._min = max(1, min_selected)
         self._on_change = on_change
         self._chips: list[Chip] = []
         selected = set(selected if multi else [selected])
         for value, label in options:
             chip = Chip(value, text=str(label), selected=value in selected,
+                        selected_fill=(colors or {}).get(value),
                         size_hint_y=None)
             chip.bind(on_release=self._tapped)
             self._chips.append(chip)
@@ -178,7 +192,8 @@ class ChipGrid(GridLayout):
 
     def _tapped(self, chip: Chip) -> None:
         if self._multi:
-            if chip.selected and sum(c.selected for c in self._chips) <= 1:
+            if chip.selected and \
+                    sum(c.selected for c in self._chips) <= self._min:
                 return
             chip.set_selected(not chip.selected)
         else:
