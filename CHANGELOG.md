@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.26.0 — 2026-07-17
+
 - **Recall got a big upgrade** (thanks to a friend's suggestions!):
   - Words with several correct readings (like 何 = なん or なに) now accept
     any of them — a handful were literally impossible to answer before.
