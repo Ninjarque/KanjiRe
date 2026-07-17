@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.24.0 — 2026-07-17
+
 - **KanjiRe is now on Android!** The whole game on your phone: every mode
   (Time Attack, Survival with hearts, Zen, Familiarize, Learn, Recall),
   Today's Training with your streak, the Journey road, the Reading Room
