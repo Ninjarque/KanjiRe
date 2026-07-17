@@ -53,3 +53,23 @@ def test_healthy_path_reaches_up_to_date(monkeypatch):
     c = UpdateController(_State())
     _run_to_completion(c)
     assert c.status == UP_TO_DATE
+
+
+def test_wedged_network_hits_the_deadline(monkeypatch):
+    # The on-device symptom: the checker blocks forever somewhere none of
+    # the socket timeouts cover. The watchdog must conclude with ERROR and
+    # leave the controller restartable (the zombie may linger; the UI must
+    # not care).
+    def wedge(*a, **kw):
+        time.sleep(60)
+
+    monkeypatch.setattr(checker, "check_for_update", wedge)
+    c = UpdateController(_State())
+    c.CHECK_DEADLINE = 0.5
+    t0 = time.time()
+    _run_to_completion(c)
+    assert c.status == ERROR
+    assert "timed out" in (c.error or "")
+    assert time.time() - t0 < 5
+    # A fresh manual check must be able to start (no live-thread block).
+    assert c._thread is None or not c._thread.is_alive()

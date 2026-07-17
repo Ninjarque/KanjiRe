@@ -106,7 +106,11 @@ class SettingsScreen(Screen):
         self._upd_status = JPLabel(text="", color=rgba(theme.MUTED),
                                    font_size=sp(12), halign="left",
                                    size_hint_y=None, height=dp(22))
-        self._upd_status.bind(size=self._upd_status.setter("text_size"))
+        # Autoheight: error diagnostics can be several lines.
+        self._upd_status.bind(
+            width=lambda w, v: setattr(w, "text_size", (v, None)),
+            texture_size=lambda w, ts: setattr(w, "height",
+                                               max(dp(22), ts[1] + dp(4))))
         body.add_widget(self._upd_status)
 
         scroller.add_widget(body)
@@ -118,6 +122,7 @@ class SettingsScreen(Screen):
         from kivy.clock import Clock
 
         from kanjire import __version__
+        from kanjire.update import checker
         from kanjire.update import controller as uc
         upd = self._app.updates
         if not upd.self_update_capable():
@@ -125,10 +130,21 @@ class SettingsScreen(Screen):
             return
         self._upd_status.text = tr("UPDATE_CHECKING")
         upd.maybe_start(force=True)
+        self._upd_waited = 0.0
+
+        def diag() -> str:
+            # The user can't read the app-private update.log on Android —
+            # show the checker's last breadcrumbs right here instead.
+            lines = list(checker.RECENT)[-2:]
+            return ("\n" + "\n".join(lines)) if lines else ""
 
         def poll(_dt):
+            self._upd_waited += 0.5
             if upd.status in (uc.CHECKING, uc.DOWNLOADING):
-                return  # keep polling
+                if self._upd_waited < 60:
+                    return  # keep polling
+                self._upd_status.text = tr("UPDATE_ERROR") + diag()
+                return False
             if upd.status == uc.READY and upd.info:
                 self._upd_status.text = tr("UPDATE_READY",
                                            version=upd.info.version)
@@ -136,7 +152,8 @@ class SettingsScreen(Screen):
                 self._upd_status.text = tr("UPDATE_UPTODATE",
                                            version=__version__)
             elif upd.status == uc.ERROR:
-                self._upd_status.text = tr("UPDATE_ERROR")
+                self._upd_status.text = (tr("UPDATE_ERROR")
+                                         + f"\n{upd.error or ''}" + diag())
             return False  # unschedule
 
         Clock.schedule_interval(poll, 0.5)

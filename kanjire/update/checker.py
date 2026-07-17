@@ -15,8 +15,15 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from collections import deque
+
 from kanjire import __version__
 from kanjire.update import config, verify
+
+#: The last few debug lines, for surfacing IN the UI — on Android the
+#: user can't read the app-private update.log, so "why is it stuck" must
+#: be visible on the Settings screen itself.
+RECENT: deque[str] = deque(maxlen=6)
 
 
 def _debug(msg: str) -> None:
@@ -28,6 +35,7 @@ def _debug(msg: str) -> None:
     The reason now always lands in ``<user dir>/update.log`` (and on stderr with
     KANJIRE_UPDATE_DEBUG=1), so a friend can just send the file.
     """
+    RECENT.append(msg)
     if os.environ.get("KANJIRE_UPDATE_DEBUG"):
         print(f"[update] {msg}", file=sys.stderr, flush=True)
     try:
@@ -150,6 +158,7 @@ def check_for_update(
     current = (os.environ.get("KANJIRE_UPDATE_PRETEND_VERSION")
                or current_version or __version__)
     _debug(f"current={current} platform={current_platform()}")
+    _debug("fetching manifest…")
     try:
         manifest = fetch_manifest(manifest_url)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -161,6 +170,7 @@ def check_for_update(
     # Authenticity FIRST: never trust the version/url/hash in an unverified
     # manifest. A crypto-stack failure (e.g. PyNaCl missing from a bundle)
     # must read as "cannot verify" — benign None — never as a crash.
+    _debug("manifest fetched; verifying signature…")
     try:
         verified = verify.verify_manifest(manifest, config.PUBLIC_KEY_HEX)
     except Exception as exc:  # noqa: BLE001

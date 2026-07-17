@@ -71,6 +71,39 @@ class UpdateController:
         self._thread.start()
 
     # -- the worker ------------------------------------------------------ #
+    #: Give the network check this long, total. Sockets have their own
+    #: timeouts, but on Android the whole stack has been seen to wedge in
+    #: ways none of them cover — the UI must still conclude.
+    CHECK_DEADLINE = 25.0
+
+    def _checked_with_deadline(self):
+        """Run the checker in a disposable thread with a hard deadline.
+
+        If it wedges (seen on-device: 'Checking…' forever), we abandon the
+        zombie — self._thread is THIS watchdog, which exits, so the player's
+        next manual check starts fresh instead of being blocked by a corpse.
+        """
+        box = {}
+
+        def work():
+            try:
+                box["info"] = checker.check_for_update(__version__)
+            except Exception as exc:  # noqa: BLE001
+                box["exc"] = exc
+
+        t = threading.Thread(target=work, daemon=True,
+                             name="kanjire-update-check")
+        t.start()
+        t.join(self.CHECK_DEADLINE)
+        if t.is_alive():
+            checker._debug(f"check STILL RUNNING after "
+                           f"{self.CHECK_DEADLINE:.0f}s — abandoned")
+            raise TimeoutError(
+                f"update check timed out after {self.CHECK_DEADLINE:.0f}s")
+        if "exc" in box:
+            raise box["exc"]
+        return box.get("info")
+
     def _run(self) -> None:
         # NOTHING may escape this thread: an uncaught exception here used to
         # kill it silently and leave the UI on "Checking…" forever (exactly
@@ -80,7 +113,7 @@ class UpdateController:
             self.error = None
             checker._debug(f"frozen={applier.is_frozen()} "
                            f"capable={self.self_update_capable()}")
-            info = checker.check_for_update(__version__)
+            info = self._checked_with_deadline()
             self.state.set_update_last_check(time.time())
             if info is None:
                 self.status = UP_TO_DATE
