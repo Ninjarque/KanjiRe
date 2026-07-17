@@ -123,7 +123,17 @@ class KanjiReApp(App):
         from kanjire.update.controller import UpdateController
 
         self.updates = UpdateController(self.state)
-        self.updates.maybe_start()
+        # Pre-warm the checker's call-time imports ON THE MAIN THREAD. The
+        # boot check used to import ssl/PyNaCl(cffi dlopen) from its worker
+        # while the main thread was still importing Kivy screens — a
+        # threaded-import deadlock wedges the check forever on Android.
+        try:
+            import ssl  # noqa: F401
+            from nacl import signing  # noqa: F401
+        except Exception:
+            pass
+        # And start the boot check only once the app is settled.
+        Clock.schedule_once(lambda dt: self.updates.maybe_start(), 3.0)
 
         root = FloatLayout()
         root.add_widget(self.root_box)
