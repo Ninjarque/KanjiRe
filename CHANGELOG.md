@@ -12,6 +12,16 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Recall got a big upgrade** (thanks to a friend's suggestions!):
+  - Words with several correct readings (like 何 = なん or なに) now accept
+    any of them — a handful were literally impossible to answer before.
+  - **Study first**: the drill shows its words once — kanji, every
+    reading, meaning — before quizzing you (on by default, toggleable).
+  - New prompt style, **Pick the reading**: choose among lookalike
+    options instead of typing — great for telling similar readings apart.
+    Tap on the phone, click or press 1–4 on the computer.
+- Fixed: the "Read + hear" prompt on the computer behaved like "Mixed".
+
 ## 0.25.1 — 2026-07-17
 
 - The pairing code now wraps onto its own line on phone screens — it was
