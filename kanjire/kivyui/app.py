@@ -107,6 +107,15 @@ class KanjiReApp(App):
         self.friends = FriendService(self.state)
         self.maybe_go_online()
 
+        # Device sync: serverless, E2E-encrypted progress exchange between
+        # the player's own devices. Connects only if this device is linked
+        # (pairing connects on demand from Settings).
+        from kanjire.net.syncsvc import SyncService
+        self.sync = SyncService(self.state, self._stats_con)
+        if self.sync.linked and not os.environ.get("KANJIRE_NO_NETWORK"):
+            threading.Thread(target=self.sync.connect, daemon=True,
+                             name="kanjire-sync").start()
+
         self.root_box = BoxLayout(orientation="vertical")
         self.sm = ScreenManager(transition=FadeTransition(duration=0.12))
         # Collapsing the nav moves/resizes the manager, but ScreenManager only
@@ -167,6 +176,10 @@ class KanjiReApp(App):
         for msg in self.friends.poll():
             self.toast.push(msg)
         self.banner.sync()
+        try:
+            self.sync.tick()
+        except Exception:
+            pass
 
     def maybe_go_online(self) -> None:
         """Announce ourselves to friends, if we have any reason to.

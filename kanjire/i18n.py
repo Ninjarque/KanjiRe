@@ -180,6 +180,25 @@ STRINGS: dict[str, dict[str, str]] = {
         "SENT_OFF":            "Off",
         "SENT_DEFAULT":        "Default",
         "SENT_BIG":            "Big",
+        "SEC_SYNC":            "DEVICE SYNC",
+        "SYNC_INTRO":          ("Carry your progress across phone and "
+                                "computer. No account, no server: your "
+                                "devices talk to each other directly, "
+                                "encrypted end-to-end."),
+        "SYNC_SHOW_CODE":      "Link a new device",
+        "SYNC_ENTER_CODE":     "Enter a pairing code",
+        "SYNC_CODE_IS":        "On the other device, enter:",
+        "SYNC_CODE_HINT":      "code valid for 10 minutes",
+        "SYNC_PROMPT_CODE":    "Pairing code shown on the other device:",
+        "SYNC_NOW":            "Sync now",
+        "SYNC_UNLINK":         "Unlink this device",
+        "SYNC_UNLINK_ASK":     ("Forget the sync link on this device? "
+                                "Your local progress stays; other devices "
+                                "keep theirs."),
+        "SYNC_LINKED":         "Linked · last sync {when}",
+        "SYNC_LINKED_NEVER":   "Linked · waiting for another device",
+        "SYNC_NOT_LINKED":     "Not linked",
+        "SYNC_CANCEL_CODE":    "Stop pairing",
 
         # --- multiplayer ------------------------------------------ #
         "BTN_MULTIPLAYER":     "★ Multiplayer…",
@@ -514,6 +533,25 @@ STRINGS: dict[str, dict[str, str]] = {
         "SENT_OFF":            "Non",
         "SENT_DEFAULT":        "Normal",
         "SENT_BIG":            "Grand",
+        "SEC_SYNC":            "SYNCHRONISATION",
+        "SYNC_INTRO":          ("Retrouvez votre progression sur téléphone "
+                                "et ordinateur. Ni compte, ni serveur : vos "
+                                "appareils se parlent directement, chiffré "
+                                "de bout en bout."),
+        "SYNC_SHOW_CODE":      "Lier un nouvel appareil",
+        "SYNC_ENTER_CODE":     "Saisir un code d'appairage",
+        "SYNC_CODE_IS":        "Sur l'autre appareil, saisissez :",
+        "SYNC_CODE_HINT":      "code valable 10 minutes",
+        "SYNC_PROMPT_CODE":    "Code affiché sur l'autre appareil :",
+        "SYNC_NOW":            "Synchroniser",
+        "SYNC_UNLINK":         "Délier cet appareil",
+        "SYNC_UNLINK_ASK":     ("Oublier le lien sur cet appareil ? Votre "
+                                "progression locale reste ; les autres "
+                                "appareils gardent la leur."),
+        "SYNC_LINKED":         "Lié · dernière synchro {when}",
+        "SYNC_LINKED_NEVER":   "Lié · en attente d'un autre appareil",
+        "SYNC_NOT_LINKED":     "Non lié",
+        "SYNC_CANCEL_CODE":    "Arrêter l'appairage",
 
         # --- multijoueur ------------------------------------------- #
         "BTN_MULTIPLAYER":     "★ Multijoueur…",

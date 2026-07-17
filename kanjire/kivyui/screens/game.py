@@ -429,6 +429,10 @@ class GameScreen(Screen):
         """High score + history + streak, mirroring the pyglet ResultsScene."""
         e, cfg, sess = self.engine, self.session.config, self.session
         self.is_record = self._app.state.record_score(cfg.name, e.score)
+        try:
+            self._app.sync.push_soon()   # fresh progress worth syncing
+        except Exception:
+            pass
         # Completing the daily Today session stamps the streak (freeze mercy
         # is applied inside stamp_streak).
         if cfg.session_mode and e.session_left == 0 and cfg.name == "Today":

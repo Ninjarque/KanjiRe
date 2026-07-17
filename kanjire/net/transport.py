@@ -18,13 +18,16 @@ import threading
 
 
 def topic_matches(pattern: str, topic: str) -> bool:
-    """MQTT topic match supporting the '+' single-level wildcard."""
+    """MQTT topic match: '+' single-level and trailing '#' multi-level."""
     if pattern == topic:
         return True
     p, t = pattern.split("/"), topic.split("/")
-    if len(p) != len(t):
-        return False
-    return all(a == "+" or a == b for a, b in zip(p, t))
+    for i, seg in enumerate(p):
+        if seg == "#":          # matches the remainder (MQTT: must be last)
+            return True
+        if i >= len(t) or (seg != "+" and seg != t[i]):
+            return False
+    return len(p) == len(t)
 
 
 class _BaseTransport:

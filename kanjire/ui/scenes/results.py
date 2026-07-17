@@ -22,6 +22,10 @@ class ResultsScene(Scene):
         self.config = config
         self.session = session
         self.is_record = app.state.record_score(config.name, engine.score)
+        try:
+            app.sync.push_soon()   # fresh progress worth syncing
+        except Exception:
+            pass
         # Completing the daily Today session stamps the streak (with freeze
         # mercy applied inside stamp_streak).
         self.session_won = bool(config.session_mode and engine.session_left == 0)

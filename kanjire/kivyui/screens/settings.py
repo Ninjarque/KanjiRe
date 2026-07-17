@@ -93,6 +93,51 @@ class SettingsScreen(Screen):
                   texture_size=lambda w, ts: setattr(w, "height", ts[1] + dp(8)))
         body.add_widget(hint)
 
+        # ---- device sync ------------------------------------------------- #
+        body.add_widget(SectionLabel(text=tr("SEC_SYNC")))
+        intro = JPLabel(text=tr("SYNC_INTRO"), color=rgba(theme.DIM),
+                        font_size=sp(12), halign="left", size_hint_y=None)
+        intro.bind(width=lambda w, v: setattr(w, "text_size", (v, None)),
+                   texture_size=lambda w, ts: setattr(w, "height",
+                                                      ts[1] + dp(6)))
+        body.add_widget(intro)
+        self._sync_status = JPLabel(text="", color=rgba(theme.MUTED),
+                                    font_size=sp(13), halign="left",
+                                    size_hint_y=None, height=dp(22))
+        self._sync_status.bind(
+            width=lambda w, v: setattr(w, "text_size", (v, None)),
+            texture_size=lambda w, ts: setattr(w, "height",
+                                               max(dp(22), ts[1] + dp(4))))
+        body.add_widget(self._sync_status)
+        self._sync_code = JPLabel(text="", bold=True, font_size=sp(30),
+                                  color=rgba(theme.GOLD), size_hint_y=None,
+                                  height=0)
+        body.add_widget(self._sync_code)
+        row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                        size_hint_y=None, height=dp(44))
+        self._sync_host = ThemedButton(text=tr("SYNC_SHOW_CODE"),
+                                       fill=theme.ACCENT, font_size=sp(12.5))
+        self._sync_host.bind(on_release=lambda *_: self._sync_show_code())
+        self._sync_join = ThemedButton(text=tr("SYNC_ENTER_CODE"),
+                                       font_size=sp(12.5))
+        self._sync_join.bind(on_release=lambda *_: self._sync_enter_code())
+        row.add_widget(self._sync_host)
+        row.add_widget(self._sync_join)
+        body.add_widget(row)
+        row2 = BoxLayout(orientation="horizontal", spacing=dp(8),
+                         size_hint_y=None, height=dp(40))
+        self._sync_now = ThemedButton(text=tr("SYNC_NOW"), height=dp(40),
+                                      font_size=sp(12.5))
+        self._sync_now.bind(on_release=lambda *_: self._sync_push())
+        self._sync_unlink = ThemedButton(text=tr("SYNC_UNLINK"),
+                                         height=dp(40), font_size=sp(12.5),
+                                         text_color=theme.DANGER)
+        self._sync_unlink.bind(on_release=lambda *_: self._sync_unlink_ask())
+        row2.add_widget(self._sync_now)
+        row2.add_widget(self._sync_unlink)
+        body.add_widget(row2)
+        self._sync_refresh()
+
         # ---- about ------------------------------------------------------ #
         body.add_widget(SectionLabel(text=tr("SEC_ABOUT")))
         body.add_widget(JPLabel(
@@ -118,6 +163,85 @@ class SettingsScreen(Screen):
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
+    # Device sync
+    # ------------------------------------------------------------------ #
+    def _sync_refresh(self, *_) -> None:
+        sync = self._app.sync
+        if sync._pair_code and not sync._join_waiting:
+            self._sync_code.text = (tr("SYNC_CODE_IS") + "  "
+                                    + sync._pair_code)
+            self._sync_code.height = dp(44)
+            self._sync_host.text = tr("SYNC_CANCEL_CODE")
+        else:
+            self._sync_code.text = ""
+            self._sync_code.height = 0
+            self._sync_host.text = tr("SYNC_SHOW_CODE")
+        if sync.linked:
+            last = self._app.state.setting("sync_last", "")
+            base = (tr("SYNC_LINKED", when=last) if last
+                    else tr("SYNC_LINKED_NEVER"))
+            if sync.status:
+                base += f"\n{sync.status}"
+            self._sync_status.text = base
+        else:
+            self._sync_status.text = (tr("SYNC_NOT_LINKED")
+                                      + (f"\n{sync.status}"
+                                         if sync.status else ""))
+        self._sync_now.disabled = not sync.linked
+        self._sync_unlink.disabled = not sync.linked
+
+    def _sync_watch(self) -> None:
+        """Refresh the section while pairing/merging is in flight."""
+        from kivy.clock import Clock
+        self._sync_ticks = 0
+
+        def poll(_dt):
+            self._sync_ticks += 1
+            self._sync_refresh()
+            if self._sync_ticks > 600:   # pairing window is 10 min
+                return False
+
+        Clock.schedule_interval(poll, 1.0)
+
+    def _sync_show_code(self) -> None:
+        sync = self._app.sync
+        if sync._pair_code and not sync._join_waiting:
+            sync.cancel_pairing()
+            self._sync_refresh()
+            return
+        try:
+            sync.start_pairing()
+        except Exception as exc:
+            sync.status = str(exc)
+        self._sync_refresh()
+        self._sync_watch()
+
+    def _sync_enter_code(self) -> None:
+        from kanjire.kivyui import modal
+
+        def submit(code):
+            err = self._app.sync.join(code)
+            if err:
+                self._app.sync.status = err
+            self._sync_refresh()
+            self._sync_watch()
+
+        modal.prompt(tr("SYNC_PROMPT_CODE"), submit)
+
+    def _sync_push(self) -> None:
+        sync = self._app.sync
+        if not sync.connected:
+            sync.connect()
+        sync.push_soon()
+        self._sync_watch()
+
+    def _sync_unlink_ask(self) -> None:
+        from kanjire.kivyui import modal
+        modal.confirm(tr("SYNC_UNLINK_ASK"),
+                      lambda: (self._app.sync.unlink(),
+                               self._sync_refresh()),
+                      danger=True)
+
     def _check_updates(self) -> None:
         from kivy.clock import Clock
 

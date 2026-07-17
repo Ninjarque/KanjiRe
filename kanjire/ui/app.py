@@ -213,6 +213,15 @@ class GameApp:
         from kanjire.ui.widgets.invite_toast import InviteToast
 
         self.friends = FriendService(self.state)
+        # Device sync: serverless, E2E-encrypted progress exchange between
+        # the player's own devices (see kanjire.net.syncsvc). Connects only
+        # if this device is linked; pairing connects on demand in Settings.
+        from kanjire.net.syncsvc import SyncService
+
+        self.sync = SyncService(self.state, self._stats_con)
+        if self.sync.linked and not os.environ.get("KANJIRE_NO_NETWORK"):
+            threading.Thread(target=self.sync.connect, daemon=True,
+                             name="kanjire-sync").start()
         self.invites = InviteToast(self)
         self.window.overlays = [self.banner, self.invites]
         # In-app confirm / prompt dialogs. Replaces tkinter, which isn't in a
@@ -347,6 +356,10 @@ class GameApp:
         self.friends.tick()
         for msg in self.friends.poll():
             self.invites.push(msg)
+        try:
+            self.sync.tick()
+        except Exception:
+            pass
         if self.banner.sync():
             self.on_banner_changed()
         if self._update_selftest:

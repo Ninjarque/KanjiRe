@@ -326,7 +326,70 @@ def main() -> None:
             moved = [cid for cid, pos in others.items()
                      if tuple(gs._cards[cid].pos) != pos]
             check("matching never moves other cards", not moved)
-            step_sentence_modes(gs)
+            step_sync(gs)
+
+        def step_sync(gs):
+            # Device sync: pair the app with a headless second "device"
+            # over an in-process broker, via the real Settings actions.
+            import sqlite3
+
+            from kanjire.data import db as _db
+            from kanjire.net.syncsvc import SyncService
+            from kanjire.net.transport import LoopbackBroker, LoopbackTransport
+            gs._quit()
+            broker = LoopbackBroker()
+            app.sync.transport = LoopbackTransport(broker)
+
+            class _PeerState:
+                def __init__(self):
+                    self._s = {}
+                    self.data = {"high_scores": {"Zen": 7777},
+                                 "settings": {}, "presets": []}
+
+                def setting(self, k, d=""):
+                    return self._s.get(k, d)
+
+                def set_setting(self, k, v):
+                    self._s[k] = v
+
+                def save(self):
+                    pass
+
+            pcon = sqlite3.connect(":memory:")
+            pcon.row_factory = sqlite3.Row
+            pcon.executescript(_db.STATS_SCHEMA)
+            peer = SyncService(_PeerState(), pcon,
+                               transport=LoopbackTransport(broker))
+            peer.connect()
+
+            app.switch_tab("settings")
+            later(0.5, lambda: step_sync_pair(peer))
+
+        def step_sync_pair(peer):
+            ss = app.sm.get_screen("settings")
+            ss._sync_show_code()
+            code = app.sync._pair_code
+            check("pairing code shown", bool(code)
+                  and code in ss._sync_code.text)
+            check("peer joins with the code", peer.join(code) is None)
+            for _ in range(8):
+                app.sync.tick()
+                peer.tick()
+            check("devices linked", peer.linked
+                  and peer.key == app.sync.key)
+            check("peer progress merged in",
+                  app.state.data.get("high_scores", {}).get("Zen") == 7777)
+            snap(app, "17-sync-linked")
+            # cleanup so reruns start unlinked
+            app.sync.unlink()
+            app.state.data.get("high_scores", {}).pop("Zen", None)
+            app.state.save()
+            step_sentence_modes_entry()
+
+        def step_sentence_modes_entry():
+            app.go_game()
+            later(0.6, lambda: step_sentence_modes(
+                app.sm.get_screen("game")))
 
         def step_sentence_modes(gs):
             from kanjire.kivyui.sentence_toast import BIG_SECONDS

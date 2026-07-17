@@ -205,6 +205,40 @@ class SettingsScene(Scene):
             batch=self.batch, group=self.g_text,
         )
 
+        # DEVICE SYNC panel — pair devices, sync now, unlink.
+        self.sync_panel = self._panel(tr("SEC_SYNC"), accent=theme.SUCCESS)
+        self.lbl_sync_status = self._row_label(tr("SYNC_NOT_LINKED"))
+        self.lbl_sync_code = Label(
+            "", font_name=JP_FONT, font_size=22, bold=True,
+            color=theme.with_alpha(theme.GOLD, 255),
+            anchor_x="left", anchor_y="center",
+            batch=self.batch, group=self.g_text,
+        )
+        self.sync_host_btn = Button(
+            tr("SYNC_SHOW_CODE"), self._sync_show_code,
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.ACCENT, font_size=12,
+        )
+        self.sync_join_btn = Button(
+            tr("SYNC_ENTER_CODE"), self._sync_enter_code,
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.ACCENT, font_size=12,
+        )
+        self.sync_now_btn = Button(
+            tr("SYNC_NOW"), self._sync_push,
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.SUCCESS, font_size=12,
+        )
+        self.sync_unlink_btn = Button(
+            tr("SYNC_UNLINK"), self._sync_unlink,
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.DANGER, font_size=12,
+        )
+        self.sync_btns = [self.sync_host_btn, self.sync_join_btn,
+                          self.sync_now_btn, self.sync_unlink_btn]
+        self.buttons.extend(self.sync_btns)
+        self._sync_refresh()
+
         # Help text
         self.hint = Label(
             tr("SET_HINT"),
@@ -219,6 +253,61 @@ class SettingsScene(Scene):
             self.app.toggle_mute()
 
     # ------------------------------------------------------------------ #
+    # -- device sync ---------------------------------------------------- #
+    def _sync_refresh(self) -> None:
+        sync = self.app.sync
+        if sync._pair_code and not sync._join_waiting:
+            self.lbl_sync_code.text = (tr("SYNC_CODE_IS") + "  "
+                                       + sync._pair_code)
+            self.sync_host_btn.set_text(tr("SYNC_CANCEL_CODE"))
+        else:
+            self.lbl_sync_code.text = ""
+            self.sync_host_btn.set_text(tr("SYNC_SHOW_CODE"))
+        if sync.linked:
+            last = self.app.state.setting("sync_last", "")
+            text = (tr("SYNC_LINKED", when=last) if last
+                    else tr("SYNC_LINKED_NEVER"))
+        else:
+            text = tr("SYNC_NOT_LINKED")
+        if sync.status:
+            text += f"   ·   {sync.status}"
+        self.lbl_sync_status.text = text
+        for b in (self.sync_now_btn, self.sync_unlink_btn):
+            b.enabled = sync.linked
+            b._refresh()
+
+    def _sync_show_code(self) -> None:
+        sync = self.app.sync
+        if sync._pair_code and not sync._join_waiting:
+            sync.cancel_pairing()
+        else:
+            try:
+                sync.start_pairing()
+            except Exception as exc:  # noqa: BLE001 — surfaced in the row
+                sync.status = str(exc)
+        self._sync_refresh()
+
+    def _sync_enter_code(self) -> None:
+        def submit(code: str) -> None:
+            err = self.app.sync.join(code)
+            if err:
+                self.app.sync.status = err
+            self._sync_refresh()
+
+        self.app.prompt(tr("SYNC_PROMPT_CODE"), submit)
+
+    def _sync_push(self) -> None:
+        sync = self.app.sync
+        if not sync.connected:
+            sync.connect()
+        sync.push_soon()
+
+    def _sync_unlink(self) -> None:
+        self.app.confirm(
+            tr("SYNC_UNLINK_ASK"),
+            lambda: (self.app.sync.unlink(), self._sync_refresh()),
+            danger=True)
+
     def _check_updates(self) -> None:
         self.app.updater.maybe_start(force=True)
 
@@ -246,6 +335,11 @@ class SettingsScene(Scene):
         # Reflect the background updater's progress in the status line.
         if hasattr(self, "lbl_update_status"):
             self.lbl_update_status.text = self._status_text()
+        # And the sync section (pairing / merge results arrive async).
+        self._sync_wait = getattr(self, "_sync_wait", 0.0) + dt
+        if self._sync_wait >= 1.0 and hasattr(self, "lbl_sync_status"):
+            self._sync_wait = 0.0
+            self._sync_refresh()
 
     # ------------------------------------------------------------------ #
     def on_mouse_press(self, x, y, button, modifiers) -> None:
@@ -345,8 +439,23 @@ class SettingsScene(Scene):
         self.lbl_update_status.x = label_x
         self.lbl_update_status.y = ar - row_h
 
+        # --- DEVICE SYNC panel --- #
+        ys = ya - about_h - 24 * s
+        sync_h = 52 * s + 2 * row_h + 20 * s
+        self.sync_panel.set_rect(margin, ys - sync_h, pw, sync_h)
+        sr = ys - 50 * s
+        self.lbl_sync_status.x, self.lbl_sync_status.y = label_x, sr
+        self.lbl_sync_code.font_size = max(11, round(20 * s))
+        self.lbl_sync_code.x = label_x
+        self.lbl_sync_code.y = sr - row_h
+        sbw, sgap = 168 * s, 10 * s
+        bx = margin + pw - 24 * s - 4 * sbw - 3 * sgap
+        for i, b in enumerate(self.sync_btns):
+            b.set_rect(bx + i * (sbw + sgap), sr - row_h - 14 * s,
+                       sbw, 28 * s)
+
         # --- hint --- #
-        y4 = ya - about_h - 26 * s
+        y4 = ys - sync_h - 26 * s
         self.hint.x = label_x
         self.hint.y = y4
         self.hint.width = pw - 48 * s
