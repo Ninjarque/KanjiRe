@@ -140,6 +140,9 @@ class RecallScreen(Screen):
                                    font_size=sp(46), size_hint_y=None,
                                    height=dp(72))
         root.add_widget(self._kanji)
+        # Short windows (phone landscape): shrink the prompt and drop the
+        # hint so the header row never gets pushed off the top.
+        self.bind(height=self._adapt_height)
         self._meaning = JPLabel(text="", color=rgba(theme.MUTED),
                                 font_size=sp(14), halign="center",
                                 size_hint_y=None)
@@ -292,6 +295,13 @@ class RecallScreen(Screen):
         self._input.text = ""
         self._preview.text = ""
         self._input.focus = True
+
+    def _adapt_height(self, *_) -> None:
+        short = self.height < dp(480)
+        self._kanji.height = dp(48) if short else dp(72)
+        self._kanji.font_size = sp(30) if short else sp(46)
+        self._hint.height = 0 if short else dp(18)
+        self._hint.opacity = 0 if short else 1
 
     def _replay(self) -> None:
         if self.mode in ("listen", "both") and self.word is not None:

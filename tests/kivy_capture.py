@@ -27,7 +27,8 @@ SIZES = {
 #: (label, action) pairs the walker performs, screenshotting after each.
 #: action is an app method name to call (None = already on that screen).
 WALK = [("play", None), ("stats", None), ("settings", None),
-        ("friends", None), ("game", "go_game")]
+        ("friends", None), ("game", "go_game"),
+        ("recall-preview", "special"), ("recall-choice", "special")]
 
 
 def _run_one(label: str, size: str, outdir: Path) -> None:
@@ -45,11 +46,27 @@ def _run_one(label: str, size: str, outdir: Path) -> None:
         "app = A.KanjiReApp()\n"
         "prefix = os.environ['KANJIRE_KIVY_CAPTURE']\n"
         "walk = %r\n"
+        "def special(label):\n"
+        "    from kanjire.game.config import PRESETS\n"
+        "    if label == 'recall-preview':\n"
+        "        cfg = PRESETS['Recall']().with_(words_per_round=16,\n"
+        "                                        recall_prompt='choice',\n"
+        "                                        recall_preview=True)\n"
+        "        app.go_game(cfg)\n"
+        "    elif label == 'recall-choice':\n"
+        "        rs = app.sm.get_screen('recall')\n"
+        "        from kanjire.kivyui.widgets import ThemedButton as TB\n"
+        "        if rs._overlay is not None:\n"
+        "            btns = [w for w in rs._overlay.walk()\n"
+        "                    if isinstance(w, TB)]\n"
+        "            btns[0].dispatch('on_release')\n"
         "def step(i):\n"
         "    if i >= len(walk):\n"
         "        app.stop(); return\n"
         "    label, action = walk[i]\n"
-        "    if action:\n"
+        "    if action == 'special':\n"
+        "        special(label)\n"
+        "    elif action:\n"
         "        getattr(app, action)()\n"
         "    else:\n"
         "        app.switch_tab(label)\n"

@@ -1147,7 +1147,12 @@ def run() -> int:
         mp2.on_mouse_motion(cv.cx, cv.cy, 1, 1)
         frames2(2)
         assert mp2.state.get("pointer") is None, "pointed before dwelling"
-        end = time.time() + POINT_DELAY + 3
+        # Deterministic dwell: feed the exact accumulated time instead of
+        # counting on wall-clock frame pacing (under system load the 1/60
+        # frames stretched and the send window drifted — flaky).
+        mp2.update(POINT_DELAY + 0.1)
+        assert mp2._pointed == cv.model.id, "dwell never sent the point"
+        end = time.time() + 5
         while mp2.state.get("pointer") is None and time.time() < end:
             frames2(1)
         assert mp2.state["pointer"] == cv.model.id, "dwelling never pointed"

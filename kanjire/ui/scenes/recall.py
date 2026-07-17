@@ -187,16 +187,30 @@ class RecallScene(Scene):
     # ------------------------------------------------------------------ #
     # Study-first preview
     # ------------------------------------------------------------------ #
+    def _input_visible(self, visible: bool) -> None:
+        """The text box has no hide flag — park it off-screen when a stage
+        doesn't type (preview, multiple choice). It sat behind the Start
+        button otherwise (user screenshot: overlapping purple rectangle)."""
+        self._input_off = not visible
+        if not visible:
+            self.input.set_rect(-4000, -4000, 10, 10)
+        elif getattr(self, "width", 0):
+            self.on_resize(self.width, self.height)   # re-place it
+
     def _build_preview(self) -> None:
         self.title.text = tr("RECALL_PREVIEW_TITLE")
         self.kanji.text = ""
         self.meaning.text = ""
         self.hint.text = ""
+        self._input_visible(False)
         loc = self.app.state.locale
         for w in self.words:
             reading = "・".join(acceptable_readings(w.reading))
+            meaning = w.get_meaning(loc)
+            if len(meaning) > 38:
+                meaning = meaning[:37] + "…"
             out = Label(
-                f"{w.expression}   {reading}   — {w.get_meaning(loc)[:40]}",
+                f"{w.expression}   {reading}   — {meaning}",
                 font_name=JP_FONT, font_size=15,
                 color=theme.with_alpha(theme.TEXT, 255),
                 anchor_x="left", anchor_y="center",
@@ -240,6 +254,9 @@ class RecallScene(Scene):
         self.attempts = 0
         self._advancing = False
         self._clear_choices()
+        self._input_visible(self.mode != "choice")
+        # The typing hint is wrong for multiple choice.
+        self.hint.text = "" if self.mode == "choice" else tr("RECALL_HINT")
         if self.mode == "choice":
             # Multiple choice: kanji + meaning shown, pick the reading among
             # lookalike distractors — forces real discrimination.
@@ -408,13 +425,21 @@ class RecallScene(Scene):
             self._finish()
 
     def on_text(self, text) -> None:
+        # No typing during the study-first preview or multiple choice —
+        # keystrokes fed the hidden input and left a ghost kana preview.
+        if self.previewing or self.mode == "choice":
+            return
         if text not in ("\r", "\n"):
             self.input.on_text(text)
 
     def on_text_motion(self, motion) -> None:
+        if self.previewing or self.mode == "choice":
+            return
         self.input.on_text_motion(motion)
 
     def on_text_motion_select(self, motion) -> None:
+        if self.previewing or self.mode == "choice":
+            return
         self.input.on_text_motion_select(motion)
 
     def on_mouse_press(self, x, y, button, modifiers) -> None:
@@ -451,25 +476,30 @@ class RecallScene(Scene):
         self.progress.x, self.progress.y = width - 40 * s, height - 60 * s
         self.kanji.x, self.kanji.y = cx, height - 200 * s
         self.meaning.x, self.meaning.y = cx, height - 280 * s
-        in_w = 340 * s
-        self.input.set_rect(cx - in_w / 2, height - 360 * s, in_w, 40 * s)
+        if not getattr(self, "_input_off", False):
+            in_w = 340 * s
+            self.input.set_rect(cx - in_w / 2, height - 360 * s,
+                                in_w, 40 * s)
         self.preview.x, self.preview.y = cx, height - 420 * s
         self.feedback.x, self.feedback.y = cx, height - 480 * s
         self.hint.x, self.hint.y = cx, 40 * s
-        # Study-first list: one row per word, centred column.
+        # Study-first list: one row per word, row height shrinking so even a
+        # 24-word drill fits above the Start button at any window size.
         if self._preview_labels:
-            row_h = 34 * s
+            n = len(self._preview_labels)
+            avail = height - 240 * s
+            row_h = min(34 * s, avail / max(1, n))
             y0 = height - 130 * s
             for i, lab in enumerate(self._preview_labels):
-                lab.font_size = max(9, round(15 * s))
+                lab.font_size = max(8, round(min(15 * s, row_h * 0.55)))
                 lab.x = cx - 260 * s
                 lab.y = y0 - i * row_h
             if self.preview_btn is not None:
                 self.preview_btn.set_scale(s)
-                self.preview_btn.set_rect(cx - 110 * s,
-                                          y0 - len(self._preview_labels)
-                                          * row_h - 30 * s,
-                                          220 * s, 40 * s)
+                self.preview_btn.set_rect(
+                    cx - 110 * s,
+                    max(60 * s, y0 - n * row_h - 30 * s),
+                    220 * s, 40 * s)
         # Multiple-choice options: 2×2 grid below the meaning.
         if self.choice_btns:
             bw, bh, gap = 220 * s, 44 * s, 14 * s

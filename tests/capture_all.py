@@ -320,9 +320,23 @@ def main() -> int:
         app.go_journey()
         render(8)
         shot("journey", size)
+
+        # Recall v2 stages: study-first preview (stress it with a big drill)
+        # and the multiple-choice prompt.
+        from kanjire.game.config import PRESETS as _PRESETS
+        rcfg = _PRESETS["Recall"]().with_(words_per_round=16,
+                                          recall_prompt="choice",
+                                          recall_preview=True)
+        app.go_game(rcfg)
+        render(8)
+        shot("recall_preview", size)
+        if getattr(app.scene, "previewing", False):
+            app.scene._end_preview()
+        render(8)
+        shot("recall_choice", size)
         app.go_recall(pool[:4], None,
                       GameConfig(name="Today", session_mode=True,
-                                 duration=None))
+                                 duration=None, recall_preview=False))
         for ch in "tabe":
             app.scene.on_text(ch)
         render(6)

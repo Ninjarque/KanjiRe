@@ -12,6 +12,14 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- Fixed overlapping buttons on the Recall screens: the typing box hid
+  behind the Start button on the study list (and behind the answer
+  choices), and big drills now shrink their study list to fit any window.
+- Phone landscape: the Recall header (back button, progress) no longer
+  gets pushed off the top of the screen.
+- Multiplayer: a friend's name and status no longer run into the Invite
+  button in narrow windows.
+
 ## 0.26.0 — 2026-07-17
 
 - **Recall got a big upgrade** (thanks to a friend's suggestions!):

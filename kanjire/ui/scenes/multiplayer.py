@@ -1202,6 +1202,15 @@ class MultiplayerScene(Scene):
                 bx -= bw + 6 * s
                 b.set_scale(s)
                 b.set_rect(bx, ry - 13 * s, bw, 26 * s)
+            # Elide the name/status so it never runs into the buttons
+            # (at 760px "kenji in a room" collided with Invite).
+            max_w = bx - x - 8 * s
+            full = row.get("full_text")
+            if full is None:
+                full = row["full_text"] = lb.text
+            lb.text = full
+            while lb.content_width > max_w and len(lb.text) > 2:
+                lb.text = lb.text[:-2].rstrip() + "…"
 
         # "+ add" sits next to the player it belongs to in the room roster.
         for row in self._add_btns:
