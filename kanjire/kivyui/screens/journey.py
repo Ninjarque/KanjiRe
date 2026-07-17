@@ -148,4 +148,7 @@ class JourneyScreen(Screen):
                 words_per_round=5, duration=None, max_mistakes=None,
                 mismatch_penalty=0, repetitions=1, session_mode=True,
             )
-        self._app.go_game(cfg, pool=words)
+        # Typed-recall epilogue over the station's trickiest known words.
+        hard = sorted(words, key=lambda w: knowledge_score(
+            self._stats_rows.get((w.expression, w.reading)) or {}))
+        self._app.go_game(cfg, pool=words, recall_words=hard[:5])

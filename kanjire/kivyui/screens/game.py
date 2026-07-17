@@ -182,9 +182,11 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     # Session lifecycle
     # ------------------------------------------------------------------ #
-    def start(self, app, config, pool=None) -> None:
+    def start(self, app, config, pool=None, recall_words=None) -> None:
         self._app = app
         self._clear_overlay()
+        #: Typed-recall epilogue after a *won* session (Journey/Today).
+        self.recall_words = list(recall_words) if recall_words else []
         self.session = build_session(app.con, app.stats, config, pool=pool)
         self.engine = self.session.engine
         if self.session.error:
@@ -434,6 +436,16 @@ class GameScreen(Screen):
             return
         e = self.engine
         self._record_game()
+        # A *won* session with review words queued gets the typed-recall
+        # epilogue instead of the plain results overlay (same as desktop).
+        cfg = self.session.config
+        if (self.recall_words and cfg.session_mode and e.session_left == 0):
+            words = self.recall_words
+            self.recall_words = []
+            self.session = None
+            self.engine = None
+            self._app.go_recall_drill(cfg, words=words)
+            return
         msg = (f"{e.score:,}\n"
                f"{tr('STAT_BEST_COMBO')}  ×{e.best_combo}\n"
                f"{tr('STAT_ACCURACY')}  {int(e.accuracy * 100)}%\n"

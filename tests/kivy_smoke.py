@@ -233,6 +233,38 @@ def main() -> None:
             check("recall all matched", rs.engine.matches == 2)
             snap(app, "13-recall-results")
             rs._quit()
+            later(0.4, step_epilogue)
+
+        def step_epilogue():
+            # A *won* session with recall_words must chain into the
+            # typed-recall epilogue (the Journey/Today flow).
+            from kanjire.data import db as _db
+            from kanjire.game.config import GameConfig
+            pool = _db.load_words(app.con, decks=["jlpt"], levels=[5],
+                                  require_kanji=True)[:2]
+            cfg = GameConfig(name="Journey 1", decks=("jlpt",), levels=(),
+                             words_per_round=2, duration=None,
+                             max_mistakes=None, mismatch_penalty=0,
+                             repetitions=1, session_mode=True)
+            app.go_game(cfg, pool=pool, recall_words=pool[:1])
+            later(0.6, step_epilogue_win)
+
+        def step_epilogue_win():
+            gs = app.sm.get_screen("game")
+            e = gs.engine
+            for ids in list(e.group_cards):
+                for cid in ids:
+                    if not e.cards[cid].matched:
+                        gs._on_card(gs._cards[cid])
+            later(1.2, step_epilogue_check)
+
+        def step_epilogue_check():
+            check("session win chains to recall epilogue",
+                  app.sm.current == "recall")
+            rs = app.sm.get_screen("recall")
+            check("epilogue drills the queued word", len(rs.words) == 1)
+            snap(app, "14-epilogue")
+            rs._quit()
             app.stop()
 
         later(0.4, step_complete_group)  # let the fade transition finish

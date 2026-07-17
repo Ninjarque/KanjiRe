@@ -33,12 +33,15 @@ class RecallScreen(Screen):
         self._build()
 
     # ------------------------------------------------------------------ #
-    def start(self, app, config) -> None:
+    def start(self, app, config, words=None) -> None:
         self._app = app
         self.config = config
         self._clear_overlay()
-        self.words = sample_words(app, config, config.words_per_round,
-                                  rng=random.Random())
+        # Explicit words = an epilogue drill (a won session's hardest
+        # reviews); otherwise the standalone mode samples its own.
+        self.words = (list(words) if words else
+                      sample_words(app, config, config.words_per_round,
+                                   rng=random.Random()))
         self.engine = RecallEngine(self.words)
         self.idx = 0
         self.attempts = 0

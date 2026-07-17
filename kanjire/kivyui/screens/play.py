@@ -237,4 +237,7 @@ class PlayScreen(Screen):
             repetitions=1, session_mode=True,
         )
         self._today_cache = None   # replay rebuilds tomorrow's picture
-        self._app.go_game(cfg, pool=plan.pool)
+        # The hardest few reviews come back as a typed-recall epilogue
+        # (plan.reviews is already most-at-risk-first).
+        self._app.go_game(cfg, pool=plan.pool,
+                          recall_words=plan.reviews[:8])

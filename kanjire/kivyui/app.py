@@ -212,25 +212,30 @@ class KanjiReApp(App):
         self.sm.current = "play"
         self.nav.set_active("play")
 
-    def go_game(self, config=None, pool=None):
+    def go_game(self, config=None, pool=None, recall_words=None):
         config = config or PRESETS["Time Attack"]()
         # Recall has no card board — route it to its own screen (Play again
         # from its results comes back through here too, same as pyglet).
         if getattr(config, "recall_mode", False):
-            if not self.sm.has_screen("recall"):
-                from kanjire.kivyui.screens.recall import RecallScreen
-                self.sm.add_widget(RecallScreen(name="recall"))
-            self._show_nav(False)
-            self.sm.current = "recall"
-            self.sm.get_screen("recall").start(self, config)
+            self.go_recall_drill(config)
             return
         if not self.sm.has_screen("game"):
             from kanjire.kivyui.screens.game import GameScreen
             self.sm.add_widget(GameScreen(name="game"))
         screen = self.sm.get_screen("game")
-        screen.start(self, config, pool=pool)
+        screen.start(self, config, pool=pool, recall_words=recall_words)
         self._show_nav(False)
         self.sm.current = "game"
+
+    def go_recall_drill(self, config, words=None):
+        """The typed-recall screen: standalone mode, or a session epilogue
+        over explicit *words* (Journey stations / Today's hardest reviews)."""
+        if not self.sm.has_screen("recall"):
+            from kanjire.kivyui.screens.recall import RecallScreen
+            self.sm.add_widget(RecallScreen(name="recall"))
+        self._show_nav(False)
+        self.sm.current = "recall"
+        self.sm.get_screen("recall").start(self, config, words=words)
 
     def go_multiplayer(self, join_room: str = ""):
         if not self.sm.has_screen("multiplayer"):
