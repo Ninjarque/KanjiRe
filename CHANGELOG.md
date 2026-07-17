@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.25.0 — 2026-07-17
+
 - **Your progress now follows you across devices.** Link your phone and
   computer once (Settings → Device sync: one shows a short code, the other
   types it) and your words, streak, reviews, reading history, high scores
