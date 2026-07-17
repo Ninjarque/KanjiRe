@@ -255,11 +255,24 @@ class RecallScene(Scene):
         self._advancing = True
         if self.app.state.tts_on_match and self.feedback.color[:3] == theme.SUCCESS:
             self.app.audio.speech.say_jp(self.word.reading)
+        self._speech_wait = 0.0
 
         def nxt():
             self.idx += 1
             self._show_word()
-        self.anim.after(delay, nxt)
+
+        def poll():
+            # Never advance while audio is still playing: the next prompt
+            # purges the current utterance and cut answers short. Wait for
+            # the full playback + 0.5s, capped so TTS can't freeze the drill.
+            self._speech_wait += 0.15
+            if (self.app.audio.speech.is_speaking()
+                    and self._speech_wait < 8.0):
+                self.anim.after(0.15, poll)
+            else:
+                self.anim.after(0.5, nxt)
+
+        self.anim.after(delay, poll)
 
     def _finish(self) -> None:
         # A standalone session with nothing to recall (empty pool, or bailed

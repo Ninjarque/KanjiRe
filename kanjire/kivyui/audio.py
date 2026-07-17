@@ -149,6 +149,15 @@ class Speech:
         if self.enabled and self._impl is not None and text:
             self._impl.say(text, "en")
 
+    def is_speaking(self) -> bool:
+        """True while an utterance is still playing (best effort)."""
+        if self._impl is None:
+            return False
+        try:
+            return bool(self._impl.is_speaking())
+        except Exception:
+            return False
+
     def shutdown(self) -> None:
         if self._impl is not None:
             self._impl.shutdown()
@@ -181,6 +190,12 @@ class _AndroidTTS:
             self._tts.speak(text, self._TextToSpeech.QUEUE_FLUSH, None)
         except Exception:
             pass
+
+    def is_speaking(self) -> bool:
+        try:
+            return bool(self._tts is not None and self._tts.isSpeaking())
+        except Exception:
+            return False
 
     def shutdown(self) -> None:
         try:
@@ -229,6 +244,14 @@ class _SapiTTS:
             self._voice.Speak(text, 3)  # SVSFlagsAsync | SVSFPurgeBeforeSpeak
         except Exception:
             pass
+
+    def is_speaking(self) -> bool:
+        try:
+            # SpeechRunState: 1 = done, 2 = speaking.
+            return (self._voice is not None
+                    and self._voice.Status.RunningState == 2)
+        except Exception:
+            return False
 
     def shutdown(self) -> None:
         try:

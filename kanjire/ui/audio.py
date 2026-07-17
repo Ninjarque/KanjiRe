@@ -174,6 +174,15 @@ class Speech:
     def say_en(self, text: str) -> None:
         self._speak(text, self._en)
 
+    def is_speaking(self) -> bool:
+        """True while an utterance is still playing (best effort)."""
+        try:
+            # SpeechRunState: 1 = done, 2 = speaking.
+            return (self._voice is not None
+                    and self._voice.Status.RunningState == 2)
+        except Exception:
+            return False
+
     def shutdown(self) -> None:
         # Purge any in-flight speech so it doesn't outlive the window.
         try:

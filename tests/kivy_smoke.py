@@ -218,14 +218,15 @@ def main() -> None:
             rs._input.text = rs.word.reading
             rs._submit()
             check("first word scored", rs.engine.score > 0)
-            later(1.0, step_recall_second)
+            # Advancing now waits for the FULL TTS playback + 0.5s.
+            later(3.0, step_recall_second)
 
         def step_recall_second():
             rs = app.sm.get_screen("recall")
             if rs.word is not None:
                 rs._input.text = rs.word.reading
                 rs._submit()
-            later(1.2, step_recall_done)
+            later(3.0, step_recall_done)
 
         def step_recall_done():
             rs = app.sm.get_screen("recall")

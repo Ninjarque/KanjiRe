@@ -747,7 +747,7 @@ def run() -> int:
         w0 = rc.word
         rc.input.set_text(w0.reading)      # kana input passes straight through
         rc._submit()
-        frames2(55)                        # 0.7s auto-advance
+        frames2(240)                       # 0.7s + full TTS playback + 0.5s
         w1 = rc.word
         assert w1 is not None and w1.expression != w0.expression
         rc.input.set_text("zzz")
@@ -755,7 +755,7 @@ def run() -> int:
         assert rc.attempts == 1 and isinstance(app2.scene, RecallScene)
         rc.input.set_text("zzz")
         rc._submit()                       # wrong twice -> answer shown
-        frames2(110)                       # 1.6s auto-advance
+        frames2(300)                       # 1.6s + full TTS playback + 0.5s
         rc.on_key_press(pkey.ESCAPE, 0)    # finish the epilogue early
         rs2 = app2.scene
         assert isinstance(rs2, ResultsScene), f"stuck in {type(rs2).__name__}"

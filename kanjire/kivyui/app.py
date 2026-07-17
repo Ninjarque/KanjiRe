@@ -208,14 +208,43 @@ class KanjiReApp(App):
     # Android back button / desktop Esc
     # ------------------------------------------------------------------ #
     def _on_hard_key(self, window, key, *args) -> bool:
-        if key != 27:  # back / escape
+        # Android back arrives as 27 on most devices, 1001 on some; desktop
+        # Esc is 27. ANY unexpected crash in here must still consume the
+        # key — an exception used to fall through and close the whole app.
+        if key not in (27, 1001):
             return False
+        try:
+            return self._handle_back()
+        except Exception:
+            try:
+                from kanjire import crashlog
+                import sys
+                crashlog.record(*sys.exc_info())
+            except Exception:
+                pass
+            return True
+
+    def _handle_back(self) -> bool:
+        # Typing? Back just closes the keyboard (unfocus), nothing else.
+        from kivy.uix.behaviors.focus import FocusBehavior
+        for widget in list(FocusBehavior._keyboards.values()):
+            # Only widgets actually on screen: an input on a backgrounded
+            # ScreenManager screen can keep stale focus and would hijack
+            # the key.
+            if (widget is not None and getattr(widget, "focus", False)
+                    and widget.get_root_window() is not None):
+                widget.focus = False
+                return True
         current = self.sm.current
         if current == "game":
             self.sm.get_screen("game")._quit()
             return True
         if current == "recall":
-            self.sm.get_screen("recall")._finish()
+            rs = self.sm.get_screen("recall")
+            if rs._overlay is not None:
+                rs._quit()      # on the results: back = leave
+            else:
+                rs._finish()    # mid-drill: back = bail to results
             return True
         if current == "multiplayer":
             self.sm.get_screen("multiplayer").leave()

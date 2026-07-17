@@ -28,6 +28,15 @@ ready" banner, so write them for players, not for the commit log.
   progress carries over.
 - Built for the Fold: the layout re-flows live when you open or close the
   phone, mid-game included.
+- Recall: the answer box now sits right under the kanji and kana preview —
+  never hidden behind the keyboard — and each word's audio always plays to
+  the end (plus a beat) before the next one appears.
+- After a match you can now show the example sentence big in the middle of
+  the screen (Settings → "Sentence after a match": Off / Default / Big) —
+  works in multiplayer too, everyone sees the same sentence.
+- The phone's back button behaves everywhere: closes the keyboard first,
+  backs out of a game to the menu, and asks before closing the app
+  (with an "always close" option).
 
 ## 0.23.0 — 2026-07-16
 - **More reading examples for under-covered words.** Added ~900 real,

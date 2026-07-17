@@ -103,12 +103,14 @@ class RecallScreen(Screen):
         top.add_widget(self._progress)
         root.add_widget(top)
 
-        root.add_widget(Widget(size_hint_y=0.08))
+        # TOP-ANCHORED: prompt → kana preview → input, packed together in
+        # the upper half so the soft keyboard (which overlays the bottom on
+        # devices that ignore resize mode) can never hide any of it.
         # The prompt is a button: tapping ♪ (or the kanji, in 'both' mode)
         # replays the audio — phones have no F1.
         self._kanji = _PromptLabel(self._replay, text="", bold=True,
-                                   font_size=sp(52), size_hint_y=None,
-                                   height=dp(90))
+                                   font_size=sp(46), size_hint_y=None,
+                                   height=dp(72))
         root.add_widget(self._kanji)
         self._meaning = JPLabel(text="", color=rgba(theme.MUTED),
                                 font_size=sp(14), halign="center",
@@ -119,13 +121,8 @@ class RecallScreen(Screen):
         root.add_widget(self._meaning)
         self._preview = JPLabel(text="", color=rgba(theme.ACCENT),
                                 font_size=sp(22), size_hint_y=None,
-                                height=dp(36))
+                                height=dp(34))
         root.add_widget(self._preview)
-        self._feedback = JPLabel(text="", bold=True, font_size=sp(18),
-                                 color=rgba(theme.SUCCESS),
-                                 size_hint_y=None, height=dp(30))
-        root.add_widget(self._feedback)
-        root.add_widget(Widget())
 
         row = BoxLayout(orientation="horizontal", spacing=dp(8),
                         size_hint_y=None, height=dp(48))
@@ -144,10 +141,16 @@ class RecallScreen(Screen):
         row.add_widget(self._input)
         row.add_widget(submit)
         root.add_widget(row)
+
+        self._feedback = JPLabel(text="", bold=True, font_size=sp(18),
+                                 color=rgba(theme.SUCCESS),
+                                 size_hint_y=None, height=dp(30))
+        root.add_widget(self._feedback)
         self._hint = JPLabel(text=tr("RECALL_HINT"), color=rgba(theme.DIM),
                              font_size=sp(10.5), size_hint_y=None,
                              height=dp(18))
         root.add_widget(self._hint)
+        root.add_widget(Widget())   # all free space BELOW the content
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -243,12 +246,29 @@ class RecallScreen(Screen):
                 self._preview.text = ""
 
     def _advance_after(self, delay: float) -> None:
+        """Advance after *delay* — but never while audio is still playing.
+
+        The next word's prompt purges the current utterance (that's right
+        for user actions, wrong here): wait for the full playback, then
+        half a second more, in every mode. Capped so a stuck TTS engine
+        can never freeze the drill.
+        """
         self._advancing = True
+        self._speech_wait = 0.0
 
         def nxt(*_):
             self.idx += 1
             self._show_word()
-        Clock.schedule_once(nxt, delay)
+
+        def poll(_dt):
+            self._speech_wait += 0.15
+            if (self._app.audio.speech.is_speaking()
+                    and self._speech_wait < 8.0):
+                Clock.schedule_once(poll, 0.15)
+            else:
+                Clock.schedule_once(nxt, 0.5)
+
+        Clock.schedule_once(poll, delay)
 
     # ------------------------------------------------------------------ #
     def _finish(self) -> None:
@@ -302,5 +322,6 @@ class RecallScreen(Screen):
             self._overlay = None
 
     def _quit(self) -> None:
+        self._input.focus = False
         self._clear_overlay()
         self._app.go_home()
