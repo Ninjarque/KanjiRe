@@ -183,6 +183,21 @@ class KanjiReApp(App):
         self.root_box.add_widget(self.nav)
         self.switch_tab(keep if self.sm.has_screen(keep) else "play")
 
+    def on_pause(self):
+        # Android: returning True keeps the app alive in the background
+        # (returning None/False lets the OS kill it on focus loss). Save
+        # state now — there may be no clean on_stop if we're reaped later.
+        try:
+            self.state.save()
+        except Exception:
+            pass
+        return True
+
+    def on_resume(self):
+        # MQTT reconnects on its own (paho loop); rooms resync from the
+        # broker's retained snapshot, friends re-announce on _on_connect.
+        pass
+
     def on_stop(self):
         try:
             # Clear our retained presence: friends must not keep seeing us
