@@ -91,6 +91,11 @@ class MultiplayerScreen(Screen):
         self.root_box = BoxLayout(orientation="vertical",
                                   padding=[dp(14), dp(10)], spacing=dp(8))
         self.add_widget(self.root_box)
+        # After-match sentence, per each client's own display setting (the
+        # lookup is deterministic — everyone reads the same sentence).
+        from kanjire.kivyui.sentence_toast import SentenceToast
+        self._sent = SentenceToast(app)
+        self.add_widget(self._sent)
 
     def _reset(self) -> None:
         self.client = None
@@ -186,9 +191,11 @@ class MultiplayerScreen(Screen):
             sfx.play("select")
         elif et == "complete":
             sfx.play("match_hi" if (event.get("combo") or 0) >= 3 else "match")
-            if (self._app.state.tts_on_match
-                    and (event.get("word") or {}).get("reading")):
-                self._app.audio.speech.say_jp(event["word"]["reading"])
+            word = event.get("word") or {}
+            if self._app.state.tts_on_match and word.get("reading"):
+                self._app.audio.speech.say_jp(word["reading"])
+            if word.get("kanji") and self.stage == "play":
+                self._sent.show(word["kanji"], word.get("reading") or "")
             for cid in event.get("cards") or []:
                 w = self.cards.get(cid)
                 if w is not None:

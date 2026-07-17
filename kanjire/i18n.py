@@ -176,6 +176,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "EXIT_ASK":            "Close KanjiRe?",
         "EXIT_ALWAYS":         "Always close",
         "SET_BACK_CONFIRM":    "Ask before closing (back button)",
+        "SET_SENTENCES":       "Sentence after a match",
+        "SENT_OFF":            "Off",
+        "SENT_DEFAULT":        "Default",
+        "SENT_BIG":            "Big",
 
         # --- multiplayer ------------------------------------------ #
         "BTN_MULTIPLAYER":     "★ Multiplayer…",
@@ -506,6 +510,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "EXIT_ASK":            "Quitter KanjiRe ?",
         "EXIT_ALWAYS":         "Toujours quitter",
         "SET_BACK_CONFIRM":    "Demander avant de quitter (bouton retour)",
+        "SET_SENTENCES":       "Phrase après une association",
+        "SENT_OFF":            "Non",
+        "SENT_DEFAULT":        "Normal",
+        "SENT_BIG":            "Grand",
 
         # --- multijoueur ------------------------------------------- #
         "BTN_MULTIPLAYER":     "★ Multijoueur…",

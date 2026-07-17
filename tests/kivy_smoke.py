@@ -325,6 +325,24 @@ def main() -> None:
             moved = [cid for cid, pos in others.items()
                      if tuple(gs._cards[cid].pos) != pos]
             check("matching never moves other cards", not moved)
+            step_sentence_modes(gs)
+
+        def step_sentence_modes(gs):
+            from kanjire.kivyui.sentence_toast import BIG_SECONDS
+            # 'big': centred card with large text, shown 50% longer.
+            app.state.set_setting("sentence_display", "big")
+            gs._sent.show("時間", "じかん")
+            shown_big = gs._sent.opacity == 1
+            centred = abs(gs._sent.center_y - gs.height * 0.5) < gs.height * 0.2
+            check("big sentence toast shows centred",
+                  shown_big and centred and BIG_SECONDS == 7.5)
+            snap(app, "16-sentence-big")
+            gs._sent.dismiss()
+            # 'off': never shows.
+            app.state.set_setting("sentence_display", "off")
+            gs._sent.show("時間", "じかん")
+            check("sentence toast honours off", gs._sent.opacity == 0)
+            app.state.set_setting("sentence_display", "default")
             gs._quit()
             app.stop()
 

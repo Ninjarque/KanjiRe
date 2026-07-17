@@ -165,23 +165,13 @@ class GameScreen(Screen):
         root.add_widget(self.hud)
         root.add_widget(self.board)
         self.add_widget(root)
-        # Example-sentence strip: an OVERLAY pinned to the bottom, never a
-        # layout sibling — resizing the board on every match re-flowed the
-        # whole grid ("cards jump around when I match things").
-        self._sent_box = BoxLayout(orientation="vertical",
-                                   size_hint=(1, None), height=dp(44),
-                                   padding=[dp(10), 0], opacity=0)
-        self._sent_ja = JPLabel(text="", font_size=sp(14), halign="center")
-        self._sent_ja.bind(size=self._sent_ja.setter("text_size"))
-        self._sent_en = JPLabel(text="", font_size=sp(11),
-                                color=rgba(theme.MUTED), halign="center")
-        self._sent_en.bind(size=self._sent_en.setter("text_size"))
-        self._sent_box.add_widget(self._sent_ja)
-        self._sent_box.add_widget(self._sent_en)
-        self._sent_box.pos = (0, 0)
-        self.bind(size=lambda w, v: setattr(self._sent_box, "width", v[0]))
-        self.add_widget(self._sent_box)
-        self._sent_ev = None
+        # Example-sentence toast: an OVERLAY, never a layout sibling —
+        # resizing the board on every match re-flowed the whole grid.
+        from kivy.app import App
+
+        from kanjire.kivyui.sentence_toast import SentenceToast
+        self._sent = SentenceToast(App.get_running_app())
+        self.add_widget(self._sent)
 
     # ------------------------------------------------------------------ #
     # Session lifecycle
@@ -347,28 +337,8 @@ class GameScreen(Screen):
         self.board.add_widget(_FloatText(text, color, center))
 
     def _show_sentence(self, word) -> None:
-        """Flash an example sentence for the just-matched word (context reps
-        for free; replaced by the next match or fading out on its own)."""
-        from kanjire.data import kanjidata
-        try:
-            got = kanjidata.sentences_for(word.expression, word.reading, 1)
-        except Exception:
-            got = []
-        if not got:
-            return
-        ja, en = got[0]
-        self._sent_ja.text = ja
-        self._sent_en.text = en if len(en) <= 90 else en[:89] + "…"
-        self._sent_box.opacity = 1
-        if self._sent_ev is not None:
-            self._sent_ev.cancel()
-        self._sent_ev = Clock.schedule_once(self._hide_sentence, 5.0)
-
-    def _hide_sentence(self, *_) -> None:
-        self._sent_ja.text = ""
-        self._sent_en.text = ""
-        self._sent_box.opacity = 0
-        self._sent_ev = None
+        """Context reps for the just-matched word, per the display setting."""
+        self._sent.show(word.expression, word.reading)
 
     def _speak_selected(self, card_id: int) -> None:
         """Japanese for kanji/reading/romaji cards, English for meanings."""

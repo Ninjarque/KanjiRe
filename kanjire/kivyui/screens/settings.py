@@ -77,6 +77,15 @@ class SettingsScreen(Screen):
             app.state.setting("back_confirm", "on") == "on",
             lambda v: app.state.set_setting("back_confirm",
                                             "on" if v else "off")))
+        # After-match sentence display (all card modes incl. multiplayer).
+        body.add_widget(SectionLabel(text=tr("SET_SENTENCES")))
+        from kanjire.kivyui.sentence_toast import display_mode
+        body.add_widget(ChipRow(
+            [("off", tr("SENT_OFF")), ("default", tr("SENT_DEFAULT")),
+             ("big", tr("SENT_BIG"))],
+            display_mode(app.state),
+            on_change=lambda v: app.state.set_setting("sentence_display",
+                                                      v)))
 
         hint = JPLabel(text=tr("SET_HINT"), color=rgba(theme.DIM),
                        font_size=sp(12), halign="left", size_hint_y=None)

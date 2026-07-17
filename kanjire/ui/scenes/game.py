@@ -525,7 +525,14 @@ class GameScene(Scene):
 
     def _show_sentence(self, word) -> None:
         """Flash an example sentence for the just-matched word (context reps
-        for free; disappears on its own or when the next match replaces it)."""
+        for free; disappears on its own or when the next match replaces it).
+
+        ``sentence_display`` setting: off | default (bottom strip, 5s) |
+        big (centred, larger, 50% longer so there's time to read it).
+        """
+        mode = self.app.state.setting("sentence_display", "default")
+        if mode == "off":
+            return
         try:
             got = kanjidata.sentences_for(word.expression, word.reading, 1)
         except Exception:
@@ -535,7 +542,25 @@ class GameScene(Scene):
         ja, en = got[0]
         self.sentence_ja.text = ja
         self.sentence_en.text = en if len(en) <= 90 else en[:89] + "…"
-        self._sentence_timer = 5.0
+        self._sentence_big = mode == "big"
+        self._sentence_timer = 7.5 if self._sentence_big else 5.0
+        self._place_sentence()
+
+    def _place_sentence(self) -> None:
+        """Position + size the sentence labels for the current display mode."""
+        s = self._s
+        if getattr(self, "_sentence_big", False):
+            self.sentence_ja.font_size = max(12, round(26 * s))
+            self.sentence_en.font_size = max(9, round(14 * s))
+            self.sentence_ja.x = self.width / 2
+            self.sentence_ja.y = self.height / 2 + 16 * s
+            self.sentence_en.x = self.width / 2
+            self.sentence_en.y = self.height / 2 - 18 * s
+        else:
+            self.sentence_ja.font_size = max(9, round(14 * s))
+            self.sentence_en.font_size = max(7, round(10 * s))
+            self.sentence_ja.x, self.sentence_ja.y = self.width / 2, 38 * s
+            self.sentence_en.x, self.sentence_en.y = self.width / 2, 16 * s
 
     def _next_round(self) -> None:
         self.engine.advance()
@@ -673,8 +698,7 @@ class GameScene(Scene):
         self.round_label.x, self.round_label.y = width - 28 * s, cy + 12 * s
         self.hint_label.x, self.hint_label.y = width - 28 * s, cy - 18 * s
 
-        self.sentence_ja.x, self.sentence_ja.y = width / 2, 38 * s
-        self.sentence_en.x, self.sentence_en.y = width / 2, 16 * s
+        self._place_sentence()
 
         bar_w = 220 * s
         self.timer_bg.x = width / 2 - bar_w / 2

@@ -45,6 +45,18 @@ class RecallScreen(Screen):
         self._overlay = None
         self._build()
 
+    def on_enter(self, *_):
+        # 'below_target' pans by the height of the flexible spacer above the
+        # input — the kanji went off-screen. 'resize' shrinks the window so
+        # the layout compacts: kanji + kana preview + input all stay visible
+        # above the keyboard. Restored on leave (panning is right elsewhere).
+        from kivy.core.window import Window
+        Window.softinput_mode = "resize"
+
+    def on_leave(self, *_):
+        from kivy.core.window import Window
+        Window.softinput_mode = "below_target"
+
     # ------------------------------------------------------------------ #
     def start(self, app, config, words=None) -> None:
         self._app = app

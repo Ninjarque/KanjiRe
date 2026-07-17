@@ -119,10 +119,17 @@ class MultiplayerScene(Scene):
         self.turn_lbl = lbl(15, theme.GOLD, bold=True)
         self.turns_left_lbl = lbl(12, theme.MUTED)
         self.hint = lbl(11, theme.DIM)
+        # After-match example sentence (each client resolves it locally from
+        # the matched word — deterministic, so everyone reads the same one).
+        self.sentence_ja = lbl(14, theme.TEXT)
+        self.sentence_en = lbl(10, theme.MUTED)
+        self._sentence_timer = 0.0
+        self._sentence_big = False
         self.labels = [self.title, self.subtitle, self.status_lbl,
                        self.big_code, self.lbl_name, self.lbl_addr,
                        self.lbl_code, self.lbl_turns, self.turn_lbl,
-                       self.turns_left_lbl, self.hint] + self.player_lbls
+                       self.turns_left_lbl, self.hint,
+                       self.sentence_ja, self.sentence_en] + self.player_lbls
 
         self.in_name = TextInput(self.batch, self.g_bg, self.g_text,
                                  self.g_text, font_size=14, placeholder="")
@@ -653,8 +660,56 @@ class MultiplayerScene(Scene):
             self._auto_join = ""
             self._join()
 
+    def _show_sentence(self, word: dict) -> None:
+        """Same after-match sentence as solo, per this client's setting."""
+        mode = self.app.state.setting("sentence_display", "default")
+        if mode == "off" or not word.get("kanji") or self.phase != "play":
+            return
+        from kanjire.data import kanjidata
+        try:
+            got = kanjidata.sentences_for(word["kanji"],
+                                          word.get("reading") or "", 1)
+        except Exception:
+            got = []
+        if not got:
+            return
+        ja, en = got[0]
+        self.sentence_ja.text = ja
+        self.sentence_en.text = en if len(en) <= 90 else en[:89] + "…"
+        self._sentence_big = mode == "big"
+        self._sentence_timer = 7.5 if self._sentence_big else 5.0
+        self._place_sentence()
+
+    def _place_sentence(self) -> None:
+        s = getattr(self, "_s", 1.0)
+        if self._sentence_big:
+            self.sentence_ja.font_size = max(12, round(26 * s))
+            self.sentence_en.font_size = max(9, round(14 * s))
+            self.sentence_ja.x = self.width / 2
+            self.sentence_ja.y = self.height / 2 + 16 * s
+            self.sentence_en.x = self.width / 2
+            self.sentence_en.y = self.height / 2 - 18 * s
+        else:
+            self.sentence_ja.font_size = max(9, round(14 * s))
+            self.sentence_en.font_size = max(7, round(10 * s))
+            self.sentence_ja.x, self.sentence_ja.y = self.width / 2, 34 * s
+            self.sentence_en.x, self.sentence_en.y = self.width / 2, 14 * s
+
+    def _tick_sentence(self, dt: float) -> None:
+        if self._sentence_timer <= 0.0:
+            return
+        self._sentence_timer -= dt
+        fade = max(0.0, min(1.0, self._sentence_timer / 0.8))
+        self.sentence_ja.color = theme.with_alpha(theme.TEXT, fade)
+        self.sentence_en.color = theme.with_alpha(theme.MUTED, fade)
+        if self._sentence_timer <= 0.0 or self.phase != "play":
+            self.sentence_ja.text = ""
+            self.sentence_en.text = ""
+            self._sentence_timer = 0.0
+
     def update(self, dt: float) -> None:
         self.anim.update(dt)
+        self._tick_sentence(dt)
         self._sync_friends()
         self._sync_add_friend_buttons()
         for c in self.cards.values():
@@ -732,6 +787,7 @@ class MultiplayerScene(Scene):
             if (self.app.state.tts_on_match
                     and (event.get("word") or {}).get("reading")):
                 self.app.audio.speech.say_jp(event["word"]["reading"])
+            self._show_sentence(event.get("word") or {})
             # The server holds this group on the board for REVEAL_SECONDS so
             # everyone can see what went together - make it unmissable while
             # it's up, instead of the cards just sitting there.
@@ -998,6 +1054,8 @@ class MultiplayerScene(Scene):
         self._s = s
         for lbl in self.labels:
             lbl.font_size = max(8, round(lbl._base_fs * s))
+        if self._sentence_timer > 0.0:
+            self._place_sentence()
         # The player rows double as the in-game HUD and the final scoreboard;
         # on the results screen they're the headline, so blow them up.
         if self.phase == "done":

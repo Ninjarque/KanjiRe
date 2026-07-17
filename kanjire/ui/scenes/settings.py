@@ -117,11 +117,34 @@ class SettingsScene(Scene):
             lambda v: s.set_audio_setting("tts_on_mismatch", v),
             accent=theme.GOLD,
         )
+        # After-match sentence display: off / default strip / big centred
+        # card shown 50% longer. Applies to every card mode, multiplayer too.
+        self.lbl_sentences = self._row_label(tr("SET_SENTENCES"))
+        self.sent_btns: list[tuple[str, Button]] = []
+
+        def set_sent(v: str) -> None:
+            s.set_setting("sentence_display", v)
+            for val, b in self.sent_btns:
+                b.set_selected(val == v)
+
+        cur_sent = s.setting("sentence_display", "default")
+        for val, key in (("off", "SENT_OFF"), ("default", "SENT_DEFAULT"),
+                         ("big", "SENT_BIG")):
+            b = Button(
+                tr(key), lambda v=val: set_sent(v),
+                self.batch, self.g_bg, self.g_text,
+                accent=theme.GOLD, font_size=12,
+            )
+            b.set_selected(val == cur_sent)
+            self.buttons.append(b)
+            self.sent_btns.append((val, b))
+
         self._audio_rows = [
             (self.lbl_mute, self.mute_btns),
             (self.lbl_select, self.select_btns),
             (self.lbl_match, self.match_btns),
             (self.lbl_mismatch, self.mismatch_btns),
+            (self.lbl_sentences, [b for _v, b in self.sent_btns]),
         ]
 
         # LANGUAGE panel
@@ -274,12 +297,14 @@ class SettingsScene(Scene):
         audio_top = height - 96 * s
         audio_h = 52 * s + len(self._audio_rows) * row_h
         self.audio_panel.set_rect(margin, audio_top - audio_h, pw, audio_h)
-        toggle_x = margin + pw - 24 * s - 144 * s
         ry = audio_top - 50 * s
         for lbl, btns in self._audio_rows:
             lbl.x, lbl.y = label_x, ry
+            # Right-align each row whatever its button count (toggles have
+            # 2, the sentence selector 3).
+            bx0 = margin + pw - 24 * s - (len(btns) * 74 * s - 4 * s)
             for i, b in enumerate(btns):
-                b.set_rect(toggle_x + i * 74 * s, ry - 14 * s, 70 * s, 28 * s)
+                b.set_rect(bx0 + i * 74 * s, ry - 14 * s, 70 * s, 28 * s)
             ry -= row_h
 
         # --- LANGUAGE panel --- #
