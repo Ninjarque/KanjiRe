@@ -90,7 +90,12 @@ class KanjiReApp(App):
         Window.clearcolor = rgba(theme.BG)
         # The soft keyboard must not cover the focused TextInput (it hid the
         # Recall answer bar entirely) — pan the window up instead.
-        Window.softinput_mode = "below_target"
+        # ANDROID ONLY: on desktop Windows, ANY softinput mode makes
+        # Window.size report density-scaled pixels under DPI scaling
+        # (420→525 at 125%), corrupting screenshots and coordinate maths —
+        # and desktop has no overlaying keyboard to work around anyway.
+        if IS_ANDROID:
+            Window.softinput_mode = "below_target"
         # Android back button (and desktop Esc) arrives as key 27.
         Window.bind(on_keyboard=self._on_hard_key)
 

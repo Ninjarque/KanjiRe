@@ -16,6 +16,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# DPI-unaware for dev captures: under Windows display scaling (125%…) SDL's
+# per-monitor DPI mode makes Kivy's logical size diverge from the pixel
+# framebuffer and Window.screenshot shears diagonally.
+os.environ.setdefault("SDL_WINDOWS_DPI_AWARENESS", "unaware")
+os.environ.setdefault("KIVY_METRICS_DENSITY", "1")
+
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else \
     Path(tempfile.gettempdir()) / "kanjire_kivy_smoke"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -205,7 +211,8 @@ def main() -> None:
         def step_recall():
             from kanjire.game.config import PRESETS
             cfg = PRESETS["Recall"]().with_(words_per_round=2,
-                                            recall_prompt="typed")
+                                            recall_prompt="typed",
+                                            recall_preview=False)
             app.go_game(cfg)
             later(0.6, step_recall_answer)
 
@@ -233,6 +240,41 @@ def main() -> None:
             check("recall results shown", rs._overlay is not None)
             check("recall all matched", rs.engine.matches == 2)
             snap(app, "13-recall-results")
+            rs._quit()
+            later(0.4, step_recall_v2)
+
+        def step_recall_v2():
+            # Study-first preview + multiple-choice prompt (friend feedback).
+            from kanjire.game.config import PRESETS
+            cfg = PRESETS["Recall"]().with_(words_per_round=2,
+                                            recall_prompt="choice",
+                                            recall_preview=True)
+            app.go_game(cfg)
+            later(0.6, step_recall_preview)
+
+        def step_recall_preview():
+            rs = app.sm.get_screen("recall")
+            check("study-first preview shown", rs._overlay is not None)
+            snap(app, "18-recall-preview")
+            from kanjire.kivyui.widgets import ThemedButton as _TB
+            start = [w for w in rs._overlay.walk()
+                     if isinstance(w, _TB)][0]
+            start.dispatch("on_release")
+            later(0.4, step_recall_choice)
+
+        def step_recall_choice():
+            from kanjire.game.recall import is_correct_reading
+            rs = app.sm.get_screen("recall")
+            n = len(rs._choices.children)
+            check("choice options offered", n >= 2)
+            check("typing hidden in choice mode",
+                  rs._input_row.opacity == 0)
+            correct = [b for b in rs._choices.children
+                       if is_correct_reading(b.text, rs.word.reading)]
+            check("exactly one option is correct", len(correct) == 1)
+            snap(app, "19-recall-choice")
+            rs._choice_pick(correct[0].text, correct[0])
+            check("choice pick scored", rs.engine.matches == 1)
             rs._quit()
             later(0.4, step_epilogue)
 

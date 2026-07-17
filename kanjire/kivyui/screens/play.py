@@ -136,13 +136,21 @@ class PlayScreen(Screen):
                 [(v, tr(k)) for v, k in mc.BOUNTY_OPTIONS],
                 s["bounty_freq"], "bounty_freq"))
         if self.mode == "Recall":
+            from kanjire.kivyui.widgets import ChipGrid
             body.add_widget(SectionLabel(text=tr("SEC_RECALL_PROMPT")))
-            body.add_widget(self._chips(
+            # Five options: wrap over two rows (one row clips at phone width).
+            body.add_widget(ChipGrid(
                 [("typed", tr("RECALL_P_TYPED")),
                  ("listen", tr("RECALL_P_LISTEN")),
                  ("both", tr("RECALL_P_BOTH")),
+                 ("choice", tr("RECALL_P_CHOICE")),
                  ("mixed", tr("RECALL_P_MIXED"))],
-                s["recall_prompt"], "recall_prompt"))
+                s["recall_prompt"], cols=2,
+                on_change=lambda v: self._set("recall_prompt", v)))
+            body.add_widget(SectionLabel(text=tr("SEC_RECALL_PREVIEW")))
+            body.add_widget(self._chips(
+                [(True, tr("OPT_ON")), (False, tr("OPT_OFF"))],
+                s["recall_preview"], "recall_preview"))
         if s["deck"] == kana.KANA_DECK:
             body.add_widget(SectionLabel(text=tr("SEC_KANA_LENGTH")))
             body.add_widget(self._chips(

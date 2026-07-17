@@ -22,9 +22,9 @@ VERTICAL_MODES = ("off", "random", "all")
 
 #: Allowed values for ``GameConfig.recall_prompt`` (the standalone Recall mode).
 #: 'typed' = see the kanji, type the reading; 'listen' = hear it, type it
-#: (needs Japanese TTS); 'both' = see it AND hear it; 'mixed' = alternate
-#: between typed and listen.
-RECALL_PROMPTS = ("typed", "listen", "both", "mixed")
+#: (needs Japanese TTS); 'both' = see it AND hear it; 'choice' = pick the
+#: reading among lookalike options; 'mixed' = alternate typed and listen.
+RECALL_PROMPTS = ("typed", "listen", "both", "choice", "mixed")
 
 
 @dataclass
@@ -90,8 +90,11 @@ class GameConfig:
     #: controls - deck / levels / word count / learn-bucket mix - so word
     #: selection is as tunable as every other mode.
     recall_mode: bool = False
-    #: 'typed' | 'listen' | 'mixed' - see RECALL_PROMPTS.
+    #: 'typed' | 'listen' | 'both' | 'choice' | 'mixed' - see RECALL_PROMPTS.
     recall_prompt: str = "mixed"
+    #: Show the word list (reading + meaning) once before the drill starts —
+    #: a quick study pass, so the quiz never asks something never shown.
+    recall_preview: bool = True
 
     name: str = "Custom"
 

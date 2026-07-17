@@ -54,16 +54,59 @@ class RecallEngine:
         return self.matches
 
 
+def acceptable_readings(reading: str) -> list[str]:
+    """Every reading that counts as correct.
+
+    ~20 dataset words carry alternatives ("かねもち; おかねもち") — an exact
+    match made them literally unanswerable in Recall (the 何 = なん/なに
+    complaint). The full joined string still counts too.
+    """
+    parts = [p.strip() for p in reading.replace("；", ";").split(";")]
+    out = [p for p in parts if p]
+    if reading.strip() and reading.strip() not in out:
+        out.append(reading.strip())
+    return out or [reading]
+
+
+def is_correct_reading(answer: str, reading: str) -> bool:
+    return answer.strip() in acceptable_readings(reading)
+
+
+def choice_options(word, pool, rng, k: int = 4) -> list[str]:
+    """Readings for a multiple-choice prompt: the right one + distractors.
+
+    Distractors prefer readings of similar length (lookalikes force real
+    discrimination); the caller may put confusion partners in *pool* first.
+    Returns k options in random order; exactly one satisfies
+    :func:`is_correct_reading`.
+    """
+    correct = acceptable_readings(word.reading)[0]
+    good = set(acceptable_readings(word.reading))
+    seen = set(good)
+    cands: list[str] = []
+    for w in pool:
+        r = acceptable_readings(w.reading)[0]
+        if r in seen:
+            continue
+        seen.add(r)
+        cands.append(r)
+    cands.sort(key=lambda r: (abs(len(r) - len(correct)), rng.random()))
+    options = [correct] + cands[:max(0, k - 1)]
+    rng.shuffle(options)
+    return options
+
+
 def prompt_for(i: int, want: str, tts_ok: bool) -> str:
     """Which prompt the *i*-th word uses: typed, listen (dictation) or both.
 
     Audio prompts need Japanese TTS; without it everything falls back to
-    typed. 'mixed' alternates typed and listen.
+    typed. 'mixed' alternates typed and listen. 'choice' (multiple choice)
+    needs nothing special.
     """
     if want == "listen":
         return "listen" if tts_ok else "typed"
     if want == "both":
         return "both" if tts_ok else "typed"
-    if want == "typed":
-        return "typed"
+    if want in ("typed", "choice"):
+        return want
     return "listen" if (tts_ok and i % 2 == 1) else "typed"

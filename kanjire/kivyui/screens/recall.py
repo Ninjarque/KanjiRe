@@ -18,7 +18,14 @@ from kivy.uix.widget import Widget
 
 from kivy.uix.behaviors import ButtonBehavior
 
-from kanjire.game.recall import MAX_ATTEMPTS, RecallEngine, prompt_for
+from kanjire.game.recall import (
+    MAX_ATTEMPTS,
+    RecallEngine,
+    acceptable_readings,
+    choice_options,
+    is_correct_reading,
+    prompt_for,
+)
 from kanjire.i18n import tr
 from kanjire.kana import romaji_to_hira
 from kanjire.kivyui.fonts import UI_FONT
@@ -49,13 +56,20 @@ class RecallScreen(Screen):
         # 'below_target' pans by the height of the flexible spacer above the
         # input — the kanji went off-screen. 'resize' shrinks the window so
         # the layout compacts: kanji + kana preview + input all stay visible
-        # above the keyboard. Restored on leave (panning is right elsewhere).
-        from kivy.core.window import Window
-        Window.softinput_mode = "resize"
+        # above the keyboard. ANDROID ONLY: on desktop Windows, resize mode
+        # re-bases Window.size into density-scaled pixels (420→525 at 125%
+        # display scaling), corrupting screenshots and coordinate spaces —
+        # and desktop has no overlaying keyboard to compensate for anyway.
+        import os
+        if "ANDROID_ARGUMENT" in os.environ:
+            from kivy.core.window import Window
+            Window.softinput_mode = "resize"
 
     def on_leave(self, *_):
-        from kivy.core.window import Window
-        Window.softinput_mode = "below_target"
+        import os
+        if "ANDROID_ARGUMENT" in os.environ:
+            from kivy.core.window import Window
+            Window.softinput_mode = "below_target"
 
     # ------------------------------------------------------------------ #
     def start(self, app, config, words=None) -> None:
@@ -64,9 +78,10 @@ class RecallScreen(Screen):
         self._clear_overlay()
         # Explicit words = an epilogue drill (a won session's hardest
         # reviews); otherwise the standalone mode samples its own.
+        self._rng = random.Random()
         self.words = (list(words) if words else
                       sample_words(app, config, config.words_per_round,
-                                   rng=random.Random()))
+                                   rng=self._rng))
         self.engine = RecallEngine(self.words)
         self.idx = 0
         self.attempts = 0
@@ -76,10 +91,23 @@ class RecallScreen(Screen):
         want = getattr(config, "recall_prompt", "mixed")
         self.modes = [prompt_for(i, want, tts_ok)
                       for i in range(len(self.words))]
+        # Extra readings for multiple-choice distractors.
+        self._distractors = list(self.words)
+        if want == "choice":
+            try:
+                self._distractors += sample_words(app, config, 24,
+                                                  rng=self._rng)
+            except Exception:
+                pass
         if not self.words:
             app.go_home()
             return
-        self._show_word()
+        # Study-first pass (standalone, optional): see the words once
+        # before being quizzed on them.
+        if words is None and getattr(config, "recall_preview", False):
+            self._show_preview()
+        else:
+            self._show_word()
 
     def _build(self) -> None:
         root = BoxLayout(orientation="vertical", padding=[dp(16), dp(10)],
@@ -140,7 +168,14 @@ class RecallScreen(Screen):
         submit.bind(on_release=lambda *_: self._submit())
         row.add_widget(self._input)
         row.add_widget(submit)
+        self._input_row = row
         root.add_widget(row)
+
+        # Multiple-choice options (mode 'choice'): 2×2 tap grid.
+        from kivy.uix.gridlayout import GridLayout
+        self._choices = GridLayout(cols=2, spacing=dp(8), size_hint_y=None,
+                                   height=0)
+        root.add_widget(self._choices)
 
         self._feedback = JPLabel(text="", bold=True, font_size=sp(18),
                                  color=rgba(theme.SUCCESS),
@@ -163,6 +198,46 @@ class RecallScreen(Screen):
         return (self.modes[self.idx]
                 if self.idx < len(self.modes) else "typed")
 
+    def _show_preview(self) -> None:
+        """Study-first: list every word (reading + meaning), then start."""
+        from kivy.uix.floatlayout import FloatLayout
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.scrollview import ScrollView
+        panel = Panel(orientation="vertical", padding=dp(16), spacing=dp(8),
+                      size_hint=(0.92, 0.8),
+                      pos_hint={"center_x": 0.5, "center_y": 0.52})
+        panel.add_widget(JPLabel(text=tr("RECALL_PREVIEW_TITLE"), bold=True,
+                                 font_size=sp(17), size_hint_y=None,
+                                 height=dp(30)))
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
+        grid = GridLayout(cols=1, spacing=dp(6), size_hint_y=None)
+        grid.bind(minimum_height=grid.setter("height"))
+        loc = self._app.state.locale
+        for w in self.words:
+            reading = "・".join(acceptable_readings(w.reading))
+            row = JPLabel(
+                text=f"{w.expression}   {reading}\n"
+                     f"{w.get_meaning(loc)[:60]}",
+                halign="left", font_size=sp(14), size_hint_y=None)
+            row.bind(width=lambda l, v: setattr(l, "text_size", (v, None)),
+                     texture_size=lambda l, ts: setattr(l, "height",
+                                                        ts[1] + dp(8)))
+            grid.add_widget(row)
+        scroll.add_widget(grid)
+        panel.add_widget(scroll)
+        start = ThemedButton(text=tr("RECALL_START"), fill=theme.SUCCESS,
+                             bold=True, height=dp(48))
+        panel.add_widget(start)
+        holder = FloatLayout()
+        holder.add_widget(panel)
+        self._overlay = holder
+        self.add_widget(holder)
+
+        def go(*_):
+            self._clear_overlay()
+            self._show_word()
+        start.bind(on_release=go)
+
     def _show_word(self) -> None:
         w = self.word
         if w is None:
@@ -170,6 +245,32 @@ class RecallScreen(Screen):
             return
         self.attempts = 0
         self._advancing = False
+        self._choices.clear_widgets()
+        self._choices.height = 0
+        self._input_row.opacity = 1
+        self._input_row.disabled = False
+        if self.mode == "choice":
+            # Pick the reading among lookalikes — no typing.
+            self._kanji.text = w.expression
+            self._title.text = tr("RECALL_TITLE")
+            self._meaning.text = w.get_meaning(self._app.state.locale)
+            self._input_row.opacity = 0
+            self._input_row.disabled = True
+            opts = choice_options(w, self._distractors, self._rng)
+            rows = (len(opts) + 1) // 2
+            self._choices.height = rows * dp(48) + (rows - 1) * dp(8)
+            for r in opts:
+                b = ThemedButton(text=r, font_size=sp(16), height=dp(48))
+                b.bind(on_release=lambda btn, rr=r: self._choice_pick(rr, btn))
+                self._choices.add_widget(b)
+            self._kanji.color = rgba(theme.TEXT)
+            self._progress.text = f"{self.idx + 1} / {len(self.words)}"
+            self._feedback.text = ""
+            self._input.text = ""
+            self._preview.text = ""
+            self._hint.text = ""      # the typing hint is wrong here
+            return
+        self._hint.text = tr("RECALL_HINT")
         if self.mode == "listen":
             self._kanji.text = "♪"
             self._title.text = tr("RECALL_LISTEN_TITLE")
@@ -199,6 +300,17 @@ class RecallScreen(Screen):
     def _on_type(self, text: str) -> None:
         self._preview.text = romaji_to_hira(text) if text else ""
 
+    def _choice_pick(self, reading: str, btn=None) -> None:
+        w = self.word
+        if w is None or self._advancing:
+            return
+        if is_correct_reading(reading, w.reading):
+            self._grade_correct(w)
+        else:
+            if btn is not None:
+                btn.disabled = True   # the retry is a real second decision
+            self._grade_wrong(w)
+
     def _submit(self) -> None:
         w = self.word
         if w is None or self._advancing:
@@ -206,44 +318,51 @@ class RecallScreen(Screen):
         answer = romaji_to_hira(self._input.text)
         if not answer:
             return
-        if answer == w.reading:
-            first_try = self.attempts == 0
+        # ~20 words carry alternative readings ("なん; なに") — any counts.
+        if is_correct_reading(answer, w.reading):
+            self._grade_correct(w)
+        else:
+            self._grade_wrong(w)
+
+    def _grade_correct(self, w) -> None:
+        first_try = self.attempts == 0
+        try:
+            self._app.stats.recalled(w, first_try=first_try)
+        except Exception:
+            pass
+        self.engine.record(recalled=True, first_try=first_try)
+        self._app.audio.sfx.play("match_hi" if first_try else "match")
+        if self._app.state.tts_on_match:
+            self._app.audio.speech.say_jp(w.reading)
+        self._feedback.color = rgba(theme.SUCCESS)
+        self._feedback.text = w.reading + "  ○"
+        if self.mode == "listen":
+            self._kanji.text = w.expression
+        self._advance_after(0.7)
+
+    def _grade_wrong(self, w) -> None:
+        self.attempts += 1
+        self._app.audio.sfx.play("mismatch")
+        if self.attempts >= MAX_ATTEMPTS:
             try:
-                self._app.stats.recalled(w, first_try=first_try)
+                self._app.stats.confused(w, w, "reading")
             except Exception:
                 pass
-            self.engine.record(recalled=True, first_try=first_try)
-            self._app.audio.sfx.play("match_hi" if first_try else "match")
-            if self._app.state.tts_on_match:
-                self._app.audio.speech.say_jp(w.reading)
-            self._feedback.color = rgba(theme.SUCCESS)
-            self._feedback.text = w.reading + "  ○"
+            self.engine.record(recalled=False, first_try=False)
+            self._feedback.color = rgba(theme.DANGER)
+            self._feedback.text = tr("RECALL_ANSWER", reading=w.reading)
             if self.mode == "listen":
                 self._kanji.text = w.expression
-            self._advance_after(0.7)
+            if self._app.state.tts_on_mismatch:
+                self._app.audio.speech.say_jp(w.reading)
+            self._advance_after(1.6)
         else:
-            self.attempts += 1
-            self._app.audio.sfx.play("mismatch")
-            if self.attempts >= MAX_ATTEMPTS:
-                try:
-                    self._app.stats.confused(w, w, "reading")
-                except Exception:
-                    pass
-                self.engine.record(recalled=False, first_try=False)
-                self._feedback.color = rgba(theme.DANGER)
-                self._feedback.text = tr("RECALL_ANSWER", reading=w.reading)
-                if self.mode == "listen":
-                    self._kanji.text = w.expression
-                if self._app.state.tts_on_mismatch:
-                    self._app.audio.speech.say_jp(w.reading)
-                self._advance_after(1.6)
-            else:
-                self._feedback.color = rgba(theme.GOLD)
-                self._feedback.text = tr("RECALL_TRY_AGAIN")
-                if self.mode == "listen":
-                    self._app.audio.speech.say_jp(w.reading)
-                self._input.text = ""
-                self._preview.text = ""
+            self._feedback.color = rgba(theme.GOLD)
+            self._feedback.text = tr("RECALL_TRY_AGAIN")
+            if self.mode == "listen":
+                self._app.audio.speech.say_jp(w.reading)
+            self._input.text = ""
+            self._preview.text = ""
 
     def _advance_after(self, delay: float) -> None:
         """Advance after *delay* — but never while audio is still playing.

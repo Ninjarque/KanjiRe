@@ -45,7 +45,7 @@ PRESET_FIELDS = (
     "round_bonus", "repetitions", "random_fonts", "vertical_writing",
     "learn_known", "learn_less_known", "learn_unknown",
     "lives_mode", "start_lives", "max_lives", "heart_chance",
-    "recall_mode", "recall_prompt",
+    "recall_mode", "recall_prompt", "recall_preview",
     "name",
 )
 
@@ -66,6 +66,7 @@ DEFAULT_SETTINGS = {
     "start_hearts": 3,
     "bounty_freq": "med",
     "recall_prompt": "mixed",
+    "recall_preview": True,
 }
 
 
@@ -101,8 +102,11 @@ def normalized_settings(d: dict | None) -> dict:
         s["start_hearts"] = int(d["start_hearts"])
     if d.get("bounty_freq") in BOUNTY_CHANCE:
         s["bounty_freq"] = d["bounty_freq"]
-    if d.get("recall_prompt") in ("typed", "listen", "both", "mixed"):
+    if d.get("recall_prompt") in ("typed", "listen", "both", "choice",
+                                  "mixed"):
         s["recall_prompt"] = d["recall_prompt"]
+    if "recall_preview" in d:
+        s["recall_preview"] = bool(d["recall_preview"])
     return s
 
 
@@ -145,5 +149,6 @@ def config_for(mode: str, settings: dict, *,
         max_lives=HEARTS_MAX[s["start_hearts"]],
         heart_chance=BOUNTY_CHANCE[s["bounty_freq"]],
         recall_prompt=s["recall_prompt"],
+        recall_preview=s["recall_preview"],
         name=mode,
     )

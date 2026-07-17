@@ -12,6 +12,7 @@ from kivy.metrics import dp, sp
 from kivy.properties import ListProperty, NumericProperty
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 
@@ -142,6 +143,43 @@ class ChipRow(BoxLayout):
         if self._multi:
             if chip.selected and sum(c.selected for c in self._chips) <= 1:
                 return  # never allow an empty multi-selection
+            chip.set_selected(not chip.selected)
+        else:
+            for c in self._chips:
+                c.set_selected(c is chip)
+        if self._on_change:
+            self._on_change(self.values())
+
+    def values(self):
+        sel = [c.value for c in self._chips if c.selected]
+        return sel if self._multi else (sel[0] if sel else None)
+
+
+class ChipGrid(GridLayout):
+    """ChipRow's wrapping sibling: same API, chips flow over N columns."""
+
+    def __init__(self, options, selected, *, cols=3, multi=False,
+                 on_change=None, **kw):
+        kw.setdefault("cols", cols)
+        kw.setdefault("spacing", dp(6))
+        kw.setdefault("size_hint_y", None)
+        super().__init__(**kw)
+        self.bind(minimum_height=self.setter("height"))
+        self._multi = multi
+        self._on_change = on_change
+        self._chips: list[Chip] = []
+        selected = set(selected if multi else [selected])
+        for value, label in options:
+            chip = Chip(value, text=str(label), selected=value in selected,
+                        size_hint_y=None)
+            chip.bind(on_release=self._tapped)
+            self._chips.append(chip)
+            self.add_widget(chip)
+
+    def _tapped(self, chip: Chip) -> None:
+        if self._multi:
+            if chip.selected and sum(c.selected for c in self._chips) <= 1:
+                return
             chip.set_selected(not chip.selected)
         else:
             for c in self._chips:

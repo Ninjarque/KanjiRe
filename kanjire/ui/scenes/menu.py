@@ -78,6 +78,7 @@ _PRESET_FIELDS = (
 RECALL_PROMPT_OPTIONS = (("typed", "RECALL_P_TYPED"),
                          ("listen", "RECALL_P_LISTEN"),
                          ("both", "RECALL_P_BOTH"),
+                         ("choice", "RECALL_P_CHOICE"),
                          ("mixed", "RECALL_P_MIXED"))
 
 
@@ -138,6 +139,7 @@ class MenuScene(Scene):
         self.bounty_freq = "low"
         # Recall prompt style (only shown when "Recall" is the active mode).
         self.recall_prompt = "mixed"
+        self.recall_preview = True
         # Which menu sub-tab is showing: "quick" (mode/deck/level/words) or
         # "advanced" (cards/fonts/writing/passes/learn buckets).
         self.active_subtab = "quick"
@@ -339,12 +341,19 @@ class MenuScene(Scene):
             for val, key in BOUNTY_OPTIONS
         ]
 
-        # Recall prompt style: type / listen / mixed. Shown only for Recall.
+        # Recall prompt style: type / listen / … Shown only for Recall.
         self.lbl_recall_prompt = self._section(tr("SEC_RECALL_PROMPT"))
         self.recall_prompt_btns = [
             (val, self._btn(tr(key), lambda v=val: self._set_recall_prompt(v),
                             accent=theme.FACE_COLORS["reading"], font_size=11))
             for val, key in RECALL_PROMPT_OPTIONS
+        ]
+        # Study-first: show the drill's words once before quizzing them.
+        self.lbl_recall_preview = self._section(tr("SEC_RECALL_PREVIEW"))
+        self.recall_preview_btns = [
+            (val, self._btn(tr(key), lambda v=val: self._set_recall_preview(v),
+                            accent=theme.GOLD, font_size=11))
+            for val, key in ((True, "OPT_ON"), (False, "OPT_OFF"))
         ]
 
         self.save_preset_btn = self._btn(
@@ -391,11 +400,13 @@ class MenuScene(Scene):
             self.repeat_btns,
             self.known_btns, self.less_known_btns, self.unknown_btns,
             self.hearts_btns, self.bounty_btns, self.recall_prompt_btns,
+            self.recall_preview_btns,
         )
         self._adv_labels = [
             self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat,
             self.lbl_known, self.lbl_less_known, self.lbl_unknown,
             self.lbl_hearts, self.lbl_bounty, self.lbl_recall_prompt,
+            self.lbl_recall_preview,
         ]
 
     # ------------------------------------------------------------------ #
@@ -457,6 +468,10 @@ class MenuScene(Scene):
         self.bounty_freq = v
         self._after_change()
 
+    def _set_recall_preview(self, v: bool) -> None:
+        self.recall_preview = bool(v)
+        self._after_change()
+
     def _set_recall_prompt(self, v: str) -> None:
         self.recall_prompt = v
         self._after_change()
@@ -483,6 +498,7 @@ class MenuScene(Scene):
             "start_hearts": self.start_hearts,
             "bounty_freq": self.bounty_freq,
             "recall_prompt": self.recall_prompt,
+            "recall_preview": self.recall_preview,
         }
 
     def _apply_settings(self, d: dict) -> None:
@@ -520,6 +536,8 @@ class MenuScene(Scene):
             self.bounty_freq = d["bounty_freq"]
         if d.get("recall_prompt") in {v for v, _ in RECALL_PROMPT_OPTIONS}:
             self.recall_prompt = d["recall_prompt"]
+        if "recall_preview" in d:
+            self.recall_preview = bool(d["recall_preview"])
 
     def _sync_from_mode(self, name: str) -> None:
         """Update toggle state from the chosen mode (built-in or saved)."""
@@ -697,6 +715,11 @@ class MenuScene(Scene):
                 if showing_recall:
                     b.set_selected(v == self.recall_prompt)
             self.lbl_recall_prompt.opacity = 255 if showing_recall else 0
+            for v, b in self.recall_preview_btns:
+                b.set_visible(showing_recall)
+                if showing_recall:
+                    b.set_selected(v == self.recall_preview)
+            self.lbl_recall_preview.opacity = 255 if showing_recall else 0
 
         # availability count
         if self.deck == kana.KANA_DECK:
@@ -799,6 +822,7 @@ class MenuScene(Scene):
             max_lives=_HEARTS_MAX[self.start_hearts],
             heart_chance=_BOUNTY_CHANCE[self.bounty_freq],
             recall_prompt=self.recall_prompt,
+            recall_preview=self.recall_preview,
             name=self.mode,
         )
 
@@ -1020,7 +1044,9 @@ class MenuScene(Scene):
             [self.lbl_hearts, self.lbl_bounty],
         )
         recall_widgets = (
-            self._flat(self.recall_prompt_btns), [self.lbl_recall_prompt],
+            self._flat(self.recall_prompt_btns)
+            + self._flat(self.recall_preview_btns),
+            [self.lbl_recall_prompt, self.lbl_recall_preview],
         )
         board_widgets = (
             self._flat(self.faces_btns) + self._flat(self.font_btns)
@@ -1036,7 +1062,10 @@ class MenuScene(Scene):
             self._set_group_visible(*survival_widgets, False)
             section(self.lbl_recall_prompt, dy=10)
             y -= 28 * s
-            self._row(self.recall_prompt_btns, y, 130 * s, 32 * s, gap=10 * s)
+            self._row(self.recall_prompt_btns, y, 118 * s, 32 * s, gap=8 * s)
+            section(self.lbl_recall_preview, dy=44)
+            y -= 28 * s
+            self._row(self.recall_preview_btns, y, 90 * s, 30 * s, gap=8 * s)
             bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
             row_w = 4 * bw2 + 3 * gap2
             for lbl, btns in ((self.lbl_known, self.known_btns),

@@ -33,6 +33,9 @@ WALK = [("play", None), ("stats", None), ("settings", None),
 def _run_one(label: str, size: str, outdir: Path) -> None:
     env = dict(os.environ)
     env["KANJIRE_KIVY_SIZE"] = size
+    # DPI-unaware: Windows display scaling shears Window.screenshot output.
+    env.setdefault("SDL_WINDOWS_DPI_AWARENESS", "unaware")
+    env.setdefault("KIVY_METRICS_DENSITY", "1")
     env["KANJIRE_KIVY_CAPTURE"] = str(outdir / label)
     env.setdefault("KANJIRE_USER_DIR", str(outdir / "_userstate"))
     code = (

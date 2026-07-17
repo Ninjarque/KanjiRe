@@ -23,6 +23,12 @@ import pyglet
 from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 
+from kanjire.game.recall import (
+    acceptable_readings,
+    choice_options,
+    is_correct_reading,
+    prompt_for,
+)
 from kanjire.i18n import tr
 from kanjire.kana import romaji_to_hira
 from kanjire.model.wordpick import sample_words
@@ -116,8 +122,20 @@ class RecallScene(Scene):
                       and not app.audio.muted)
         want = getattr(config, "recall_prompt", "mixed") if self.standalone \
             else "mixed"
-        self.modes = [self._prompt_for(i, want, tts_ok)
+        # Shared policy (kanjire.game.recall): the local copy silently
+        # downgraded 'both' to mixed — one source of truth now.
+        self.modes = [prompt_for(i, want, tts_ok)
                       for i in range(len(self.words))]
+        self._rng = random.Random()
+        #: Extra readings for multiple-choice distractors (standalone only —
+        #: the epilogue's word set is small and related enough on its own).
+        self._distractors = list(self.words)
+        if self.standalone and want in ("choice",):
+            try:
+                self._distractors += sample_words(app, config, 24,
+                                                  rng=self._rng)
+            except Exception:
+                pass
 
         self.batch = pyglet.graphics.Batch()
         self.g_bg = OrderedGroup(0)
@@ -150,17 +168,61 @@ class RecallScene(Scene):
                                font_size=16, placeholder="",
                                on_change=self._on_type)
         self.input.focus()
+
+        from kanjire.ui.widgets.button import Button as _Button
+        self._Button = _Button
+        #: Multiple-choice option buttons for the current word (mode 'choice').
+        self.choice_btns: list[tuple[str, object]] = []
+        #: Study-first pass: show the drill's words before quizzing them.
+        self._preview_labels: list = []
+        self.preview_btn = None
+        self.previewing = bool(
+            self.standalone and getattr(config, "recall_preview", False)
+            and self.words and not self.error)
+        if self.previewing:
+            self._build_preview()
+        else:
+            self._show_word()
+
+    # ------------------------------------------------------------------ #
+    # Study-first preview
+    # ------------------------------------------------------------------ #
+    def _build_preview(self) -> None:
+        self.title.text = tr("RECALL_PREVIEW_TITLE")
+        self.kanji.text = ""
+        self.meaning.text = ""
+        self.hint.text = ""
+        loc = self.app.state.locale
+        for w in self.words:
+            reading = "・".join(acceptable_readings(w.reading))
+            out = Label(
+                f"{w.expression}   {reading}   — {w.get_meaning(loc)[:40]}",
+                font_name=JP_FONT, font_size=15,
+                color=theme.with_alpha(theme.TEXT, 255),
+                anchor_x="left", anchor_y="center",
+                batch=self.batch, group=self.g_text)
+            self._preview_labels.append(out)
+        self.preview_btn = self._Button(
+            tr("RECALL_START"), self._end_preview,
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.SUCCESS, font_size=14)
+        self.on_resize(self.width, self.height)
+
+    def _end_preview(self) -> None:
+        if not self.previewing:
+            return
+        self.previewing = False
+        for lab in self._preview_labels:
+            lab.delete()
+        self._preview_labels.clear()
+        if self.preview_btn is not None:
+            self.preview_btn.delete()
+            self.preview_btn = None
+        self.title.text = tr("RECALL_TITLE")
+        self.hint.text = tr("RECALL_HINT")
         self._show_word()
 
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _prompt_for(i: int, want: str, tts_ok: bool) -> str:
-        if want == "listen":
-            return "listen" if tts_ok else "typed"
-        if want == "typed":
-            return "typed"
-        return "listen" if (tts_ok and i % 2 == 1) else "typed"  # mixed
-
     @property
     def word(self):
         return self.words[self.idx] if self.idx < len(self.words) else None
@@ -177,7 +239,21 @@ class RecallScene(Scene):
             return
         self.attempts = 0
         self._advancing = False
-        if self.mode == "listen":
+        self._clear_choices()
+        if self.mode == "choice":
+            # Multiple choice: kanji + meaning shown, pick the reading among
+            # lookalike distractors — forces real discrimination.
+            self.kanji.text = w.expression
+            self.title.text = tr("RECALL_TITLE")
+            self.meaning.text = w.get_meaning(self.app.state.locale)
+            for r in choice_options(w, self._distractors, self._rng):
+                b = self._Button(r, lambda rr=r: self._choice_pick(rr),
+                                 self.batch, self.g_bg, self.g_text,
+                                 accent=theme.FACE_COLORS["reading"],
+                                 font_size=15)
+                self.choice_btns.append((r, b))
+            self.on_resize(self.width, self.height)
+        elif self.mode == "listen":
             # Dictation: hear it, type it. Kanji revealed on the answer.
             self.kanji.text = "♪"
             self.title.text = tr("RECALL_LISTEN_TITLE")
@@ -203,53 +279,81 @@ class RecallScene(Scene):
     def _on_type(self, text: str) -> None:
         self.preview.text = romaji_to_hira(text) if text else ""
 
+    def _clear_choices(self) -> None:
+        for _r, b in self.choice_btns:
+            b.delete()
+        self.choice_btns.clear()
+
+    def _grade_correct(self) -> None:
+        w = self.word
+        first_try = self.attempts == 0
+        try:
+            self.app.stats.recalled(w, first_try=first_try)
+        except Exception:
+            pass
+        if self.standalone:
+            self.engine.record(recalled=True, first_try=first_try)
+        self.app.audio.sfx.play("match_hi" if first_try else "match")
+        self.feedback.color = theme.with_alpha(theme.SUCCESS, 255)
+        self.feedback.text = w.reading + "  ○"
+        if self.mode == "listen":     # reveal what you transcribed
+            self.kanji.text = w.expression
+        self._advance_after(0.7)
+
+    def _grade_wrong(self) -> None:
+        w = self.word
+        self.attempts += 1
+        self.app.audio.sfx.play("mismatch")
+        self._shake = 12.0
+        self.anim.to(self, "_shake", 0.0, 0.5, ease=ease_out_elastic)
+        if self.attempts >= MAX_ATTEMPTS:
+            try:
+                self.app.stats.confused(w, w, "reading")
+            except Exception:
+                pass
+            if self.standalone:
+                self.engine.record(recalled=False, first_try=False)
+            self.feedback.color = theme.with_alpha(theme.DANGER, 255)
+            self.feedback.text = tr("RECALL_ANSWER", reading=w.reading)
+            if self.mode == "listen":
+                self.kanji.text = w.expression
+            if self.app.state.tts_on_mismatch:
+                self.app.audio.speech.say_jp(w.reading)
+            self._advance_after(1.6)
+        else:
+            self.feedback.color = theme.with_alpha(theme.GOLD, 255)
+            self.feedback.text = tr("RECALL_TRY_AGAIN")
+            if self.mode == "listen":
+                self.app.audio.speech.say_jp(w.reading)   # replay
+            self.input.set_text("")
+            self.preview.text = ""
+
     def _submit(self) -> None:
         w = self.word
-        if w is None or self._advancing:
+        if w is None or self._advancing or self.previewing:
             return
         answer = romaji_to_hira(self.input.text)
         if not answer:
             return
-        if answer == w.reading:
-            first_try = self.attempts == 0
-            try:
-                self.app.stats.recalled(w, first_try=first_try)
-            except Exception:
-                pass
-            if self.standalone:
-                self.engine.record(recalled=True, first_try=first_try)
-            self.app.audio.sfx.play("match_hi" if first_try else "match")
-            self.feedback.color = theme.with_alpha(theme.SUCCESS, 255)
-            self.feedback.text = w.reading + "  ○"
-            if self.mode == "listen":     # reveal what you transcribed
-                self.kanji.text = w.expression
-            self._advance_after(0.7)
+        # ~20 words carry alternative readings ("なん; なに") — any counts.
+        if is_correct_reading(answer, w.reading):
+            self._grade_correct()
         else:
-            self.attempts += 1
-            self.app.audio.sfx.play("mismatch")
-            self._shake = 12.0
-            self.anim.to(self, "_shake", 0.0, 0.5, ease=ease_out_elastic)
-            if self.attempts >= MAX_ATTEMPTS:
-                try:
-                    self.app.stats.confused(w, w, "reading")
-                except Exception:
-                    pass
-                if self.standalone:
-                    self.engine.record(recalled=False, first_try=False)
-                self.feedback.color = theme.with_alpha(theme.DANGER, 255)
-                self.feedback.text = tr("RECALL_ANSWER", reading=w.reading)
-                if self.mode == "listen":
-                    self.kanji.text = w.expression
-                if self.app.state.tts_on_mismatch:
-                    self.app.audio.speech.say_jp(w.reading)
-                self._advance_after(1.6)
-            else:
-                self.feedback.color = theme.with_alpha(theme.GOLD, 255)
-                self.feedback.text = tr("RECALL_TRY_AGAIN")
-                if self.mode == "listen":
-                    self.app.audio.speech.say_jp(w.reading)   # replay
-                self.input.set_text("")
-                self.preview.text = ""
+            self._grade_wrong()
+
+    def _choice_pick(self, reading: str) -> None:
+        w = self.word
+        if w is None or self._advancing or self.previewing:
+            return
+        if is_correct_reading(reading, w.reading):
+            self._grade_correct()
+        else:
+            # Grey the wrong pick so the retry is a real second decision.
+            for r, b in self.choice_btns:
+                if r == reading:
+                    b.enabled = False
+                    b._refresh()
+            self._grade_wrong()
 
     def _advance_after(self, delay: float) -> None:
         self._advancing = True
@@ -287,7 +391,15 @@ class RecallScene(Scene):
         from pyglet.window import key
 
         if symbol in (key.ENTER, key.RETURN):
-            self._submit()
+            if self.previewing:
+                self._end_preview()
+            else:
+                self._submit()
+        elif (self.choice_btns and not self._advancing
+                and key._1 <= symbol <= key._4):
+            i = symbol - key._1
+            if i < len(self.choice_btns) and self.choice_btns[i][1].enabled:
+                self._choice_pick(self.choice_btns[i][0])
         elif (symbol == key.F1 and self.mode in ("listen", "both")
                 and self.word):
             self.app.audio.speech.say_jp(self.word.reading)   # replay
@@ -313,6 +425,14 @@ class RecallScene(Scene):
                 and abs(y - self.kanji.y) < 70):
             self.app.audio.speech.say_jp(self.word.reading)
             return
+        if self.previewing:
+            if self.preview_btn is not None and self.preview_btn.contains(x, y):
+                self.preview_btn.click()
+            return
+        for _r, b in self.choice_btns:
+            if b.enabled and b.contains(x, y):
+                b.click()
+                return
         self.input.on_mouse_press(x, y, button, modifiers)
         self.input.focus()          # there's nothing else to focus here
 
@@ -336,6 +456,31 @@ class RecallScene(Scene):
         self.preview.x, self.preview.y = cx, height - 420 * s
         self.feedback.x, self.feedback.y = cx, height - 480 * s
         self.hint.x, self.hint.y = cx, 40 * s
+        # Study-first list: one row per word, centred column.
+        if self._preview_labels:
+            row_h = 34 * s
+            y0 = height - 130 * s
+            for i, lab in enumerate(self._preview_labels):
+                lab.font_size = max(9, round(15 * s))
+                lab.x = cx - 260 * s
+                lab.y = y0 - i * row_h
+            if self.preview_btn is not None:
+                self.preview_btn.set_scale(s)
+                self.preview_btn.set_rect(cx - 110 * s,
+                                          y0 - len(self._preview_labels)
+                                          * row_h - 30 * s,
+                                          220 * s, 40 * s)
+        # Multiple-choice options: 2×2 grid below the meaning.
+        if self.choice_btns:
+            bw, bh, gap = 220 * s, 44 * s, 14 * s
+            grid_w = 2 * bw + gap
+            x0 = cx - grid_w / 2
+            y0 = height - 360 * s
+            for i, (_r, b) in enumerate(self.choice_btns):
+                r_, c_ = divmod(i, 2)
+                b.set_scale(s)
+                b.set_rect(x0 + c_ * (bw + gap),
+                           y0 - r_ * (bh + gap), bw, bh)
 
     def draw(self) -> None:
         h = round(6 * scale_for(self.width, self.height))
@@ -345,3 +490,9 @@ class RecallScene(Scene):
 
     def on_exit(self) -> None:
         self.input.delete()
+        self._clear_choices()
+        for lab in self._preview_labels:
+            lab.delete()
+        self._preview_labels.clear()
+        if self.preview_btn is not None:
+            self.preview_btn.delete()

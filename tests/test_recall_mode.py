@@ -57,17 +57,22 @@ def test_sample_words_empty_for_a_nonexistent_deck(app):
 
 
 def test_prompt_style_selects_typed_listen_or_mixed():
-    from kanjire.ui.scenes.recall import RecallScene as R
+    # One shared policy for BOTH UIs (the scene's private copy silently
+    # downgraded 'both' to mixed — that's why this lives in game.recall now).
+    from kanjire.game.recall import prompt_for
 
     # typed: always typed, even with TTS.
-    assert [R._prompt_for(i, "typed", True) for i in range(4)] == ["typed"] * 4
+    assert [prompt_for(i, "typed", True) for i in range(4)] == ["typed"] * 4
     # listen: dictation when TTS is available, else falls back to typed.
-    assert [R._prompt_for(i, "listen", True) for i in range(3)] == ["listen"] * 3
-    assert [R._prompt_for(i, "listen", False) for i in range(3)] == ["typed"] * 3
+    assert [prompt_for(i, "listen", True) for i in range(3)] == ["listen"] * 3
+    assert [prompt_for(i, "listen", False) for i in range(3)] == ["typed"] * 3
+    # both: see + hear when TTS exists, else typed.
+    assert prompt_for(0, "both", True) == "both"
+    assert prompt_for(0, "both", False) == "typed"
     # mixed: alternates, but only when TTS exists.
-    assert R._prompt_for(1, "mixed", True) == "listen"
-    assert R._prompt_for(0, "mixed", True) == "typed"
-    assert R._prompt_for(1, "mixed", False) == "typed"
+    assert prompt_for(1, "mixed", True) == "listen"
+    assert prompt_for(0, "mixed", True) == "typed"
+    assert prompt_for(1, "mixed", False) == "typed"
 
 
 def test_recall_engine_tracks_score():
