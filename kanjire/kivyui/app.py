@@ -16,7 +16,23 @@ os.environ.setdefault("KIVY_NO_ARGS", "1")
 
 from kivy.config import Config  # noqa: E402  (must precede Window import)
 
-Config.set("input", "mouse", "mouse,disable_multitouch")
+_ON_ANDROID = "ANDROID_ARGUMENT" in os.environ
+
+if _ON_ANDROID:
+    # SDL2 delivers native touch on Android. Any [input] provider on top
+    # (the desktop 'mouse' one, or a device default) re-delivers every tap
+    # as a SECOND synthesized event — every tap toggled twice: cards played
+    # the select sound but ended deselected, toggles flipped back, and only
+    # multi-finger taps (whose duplicate pairs cancel unevenly) "worked".
+    for _name, _ in Config.items("input"):
+        Config.remove_option("input", _name)
+else:
+    Config.set("input", "mouse", "mouse,disable_multitouch")
+# Let a drag that STARTS on a button still scroll the list: ScrollView holds
+# the touch this long (ms) before handing it to the child, so big buttons
+# don't pin the page. 55ms default is tuned for mouse wheels, not thumbs.
+Config.set("widgets", "scroll_timeout", "250")
+Config.set("widgets", "scroll_distance", "20")
 Config.set("kivy", "exit_on_escape", "0")
 
 import threading  # noqa: E402
@@ -35,7 +51,7 @@ from kanjire.kivyui.theming import rgba, theme  # noqa: E402
 from kanjire.paths import STATS_DB_PATH  # noqa: E402
 from kanjire.userstate import UserState  # noqa: E402
 
-IS_ANDROID = "ANDROID_ARGUMENT" in os.environ
+IS_ANDROID = _ON_ANDROID
 
 
 def _dev_window_size() -> tuple[int, int]:
