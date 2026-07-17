@@ -329,7 +329,10 @@ class GameScene(Scene):
         area_y = 56          # keeps clear of the bottom sentence toast
         area_w = self.width - 80
         area_h = self.height - self._hud_h - 86
-        cols, rows, cw, ch = choose_grid(n, area_w, area_h, GAP)
+        # Full rectangles only: a short centred last row reads as the board
+        # "moving" and is harder to scan (mobile feedback, applies here too).
+        cols, rows, cw, ch = choose_grid(n, area_w, area_h, GAP,
+                                         prefer_exact=True)
         # Generous caps so a maximised or fullscreen window actually uses the
         # space, but still bounded so 1-2 cards don't look comically large.
         cw = min(cw, 320)
