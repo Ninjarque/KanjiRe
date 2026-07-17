@@ -39,7 +39,16 @@ rsync -a --delete \
     "$REPO/" "$WORK/"
 
 cd "$WORK/android"
-export PATH="$VENV/bin:$PATH"
+# p4a installs meson/ninja with `pip --user` (venv must be created with
+# --system-site-packages or that pip call fails outright); their scripts
+# land in ~/.local/bin.
+export PATH="$VENV/bin:$HOME/.local/bin:$PATH"
+# User-space JDK (WSL ships only a JRE; gradle/aapt need javac). Installed
+# once by: curl adoptium temurin-17 tarball -> ~/jdk17 (no sudo needed).
+if [ -x "$HOME/jdk17/bin/javac" ]; then
+    export JAVA_HOME="$HOME/jdk17"
+    export PATH="$JAVA_HOME/bin:$PATH"
+fi
 "$VENV/bin/buildozer" android debug
 
 APK=$(ls -t bin/*.apk 2>/dev/null | head -1)

@@ -30,11 +30,19 @@ _GAP = 10  # dp between cards; tighter than desktop, phones are small
 
 
 class CardWidget(ButtonBehavior, Widget):
-    """One board card: rounded panel, face-coloured border, fitted text."""
+    """One board card: rounded panel, face-coloured border, fitted text.
 
-    def __init__(self, card, **kw):
+    *font_name*/*vertical* exist for Familiarize (random fonts, vertical
+    writing). Vertical text is emulated by stacking the characters — Kivy
+    has no native tategaki.
+    """
+
+    def __init__(self, card, font_name: str | None = None,
+                 vertical: bool = False, **kw):
         super().__init__(**kw)
         self.card = card
+        self._font = font_name or UI_FONT
+        self._vertical = vertical and card.face in ("kanji", "reading")
         self._face_col = theme.FACE_COLORS.get(card.face, theme.ACCENT)
         self._sticker_text = ""
         self._sticker_col = theme.GOLD
@@ -46,7 +54,9 @@ class CardWidget(ButtonBehavior, Widget):
             self._border_col = Color(*rgba(self._face_col, 0.55))
             self._border = Line(width=dp(1.4), rounded_rectangle=(0, 0, 1, 1, dp(10)))
 
-        self._label = JPLabel(text=card.text, color=rgba(theme.TEXT),
+        text = ("\n".join(card.text) if self._vertical else card.text)
+        self._label = JPLabel(text=text, font_name=self._font,
+                              color=rgba(theme.TEXT),
                               halign="center", valign="middle")
         self.add_widget(self._label)
         self._sticker = JPLabel(text="", font_size=sp(13), bold=True)
@@ -64,8 +74,9 @@ class CardWidget(ButtonBehavior, Widget):
         w = max(10.0, self.width - 2 * pad)
         h = max(10.0, self.height - 2 * pad)
         wrap = self.card.face == "meaning"
-        size = fit_font_size(self.card.text, w, h, font_name=UI_FONT,
-                             start=min(sp(30), h * 0.6), wrap=wrap)
+        size = fit_font_size(self._label.text, w, h, font_name=self._font,
+                             start=min(sp(30), h * 0.6),
+                             wrap=wrap or self._vertical)
         self._label.font_size = size
         self._label.text_size = (w, None) if wrap else (None, None)
         self._label.size = (w, h)
@@ -153,6 +164,19 @@ class GameScreen(Screen):
         self.board.bind(size=lambda *_: self._layout_cards())
         root.add_widget(self.hud)
         root.add_widget(self.board)
+        # Example-sentence strip: context reps for the just-matched word.
+        self._sent_ja = JPLabel(text="", font_size=sp(14), halign="center",
+                                size_hint_y=None, height=0)
+        self._sent_ja.bind(width=lambda w, v: setattr(w, "text_size",
+                                                      (v - dp(16), None)))
+        self._sent_en = JPLabel(text="", font_size=sp(11),
+                                color=rgba(theme.MUTED), halign="center",
+                                size_hint_y=None, height=0)
+        self._sent_en.bind(width=lambda w, v: setattr(w, "text_size",
+                                                      (v - dp(16), None)))
+        root.add_widget(self._sent_ja)
+        root.add_widget(self._sent_en)
+        self._sent_ev = None
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -186,10 +210,29 @@ class GameScreen(Screen):
     # Board construction / layout
     # ------------------------------------------------------------------ #
     def _build_board(self, initial=False) -> None:
+        import random as _random
+
+        from kanjire.kivyui.fonts import jp_fonts
+
         self.board.clear_widgets()
         self._cards = {}
+        cfg = self.engine.config
+        variety = jp_fonts()
         for i, card in enumerate(self.engine.board_cards):
-            w = CardWidget(card, size_hint=(None, None))
+            # Familiarize: stable per-card style (seeded by id so a relayout
+            # doesn't reshuffle the look mid-round).
+            font = None
+            vertical = False
+            if card.face in ("kanji", "reading"):
+                rng = _random.Random(card.id)
+                if cfg.random_fonts and variety:
+                    font = rng.choice(variety)
+                if cfg.vertical_writing == "all":
+                    vertical = True
+                elif cfg.vertical_writing == "random":
+                    vertical = rng.random() < 0.5
+            w = CardWidget(card, font_name=font, vertical=vertical,
+                           size_hint=(None, None))
             w.bind(on_release=lambda wid: self._on_card(wid))
             self._cards[card.id] = w
             self.board.add_widget(w)
@@ -263,6 +306,8 @@ class GameScreen(Screen):
                 audio.sfx.play("match")
             if state.tts_on_match and res.word is not None:
                 audio.speech.say_jp(res.word.reading)
+            if res.word is not None and not self.session.is_kana:
+                self._show_sentence(res.word)
             for cid in res.cards:
                 self._cards[cid].celebrate()
             txt = f"+{res.points}" + (f"  ×{res.combo}" if res.combo > 1 else "")
@@ -293,6 +338,32 @@ class GameScreen(Screen):
 
     def _popup(self, text, color, center) -> None:
         self.board.add_widget(_FloatText(text, color, center))
+
+    def _show_sentence(self, word) -> None:
+        """Flash an example sentence for the just-matched word (context reps
+        for free; replaced by the next match or fading out on its own)."""
+        from kanjire.data import kanjidata
+        try:
+            got = kanjidata.sentences_for(word.expression, word.reading, 1)
+        except Exception:
+            got = []
+        if not got:
+            return
+        ja, en = got[0]
+        self._sent_ja.text = ja
+        self._sent_en.text = en if len(en) <= 90 else en[:89] + "…"
+        self._sent_ja.height = dp(24)
+        self._sent_en.height = dp(18)
+        if self._sent_ev is not None:
+            self._sent_ev.cancel()
+        self._sent_ev = Clock.schedule_once(self._hide_sentence, 5.0)
+
+    def _hide_sentence(self, *_) -> None:
+        self._sent_ja.text = ""
+        self._sent_en.text = ""
+        self._sent_ja.height = 0
+        self._sent_en.height = 0
+        self._sent_ev = None
 
     def _speak_selected(self, card_id: int) -> None:
         """Japanese for kanji/reading/romaji cards, English for meanings."""
@@ -370,9 +441,16 @@ class GameScreen(Screen):
         self._show_overlay(msg, final=True)
 
     def _record_game(self) -> None:
-        """High score + history entry, mirroring the pyglet ResultsScene."""
+        """High score + history + streak, mirroring the pyglet ResultsScene."""
         e, cfg, sess = self.engine, self.session.config, self.session
         self.is_record = self._app.state.record_score(cfg.name, e.score)
+        # Completing the daily Today session stamps the streak (freeze mercy
+        # is applied inside stamp_streak).
+        if cfg.session_mode and e.session_left == 0 and cfg.name == "Today":
+            try:
+                self._app.state.stamp_streak()
+            except Exception:
+                pass
         if (e.matches or e.mistakes) and "kana" not in cfg.decks:
             keys, seen = [], set()
             for w in list(e.seen_words) + (sess.tally.struggled() if sess else []):

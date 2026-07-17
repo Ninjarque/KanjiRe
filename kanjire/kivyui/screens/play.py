@@ -51,6 +51,24 @@ class PlayScreen(Screen):
                                 font_size=sp(24), size_hint_y=None,
                                 height=dp(40)))
 
+        # Today's Training + streak: the daily driver sits right on top.
+        plan = self._today_plan()
+        streak = self._app.state.streak_status()
+        today = ThemedButton(text=self._today_label(plan, streak),
+                             fill=theme.GOLD, font_size=sp(14),
+                             height=dp(46))
+        today.disabled = plan.empty
+        today.bind(on_release=lambda *_: self._play_today())
+        root.add_widget(today)
+        if streak["count"] > 0:
+            line = (tr("STREAK_FOOTER", n=streak["count"])
+                    + " ◇" * streak["freezes"]
+                    + (" ○" if streak["done_today"] else ""))
+            lbl = JPLabel(text=line, color=rgba(theme.GOLD),
+                          font_size=sp(11.5), size_hint_y=None,
+                          height=dp(18))
+            root.add_widget(lbl)
+
         scroller = ScrollView(do_scroll_x=False, bar_width=dp(3))
         body = GridLayout(cols=1, spacing=dp(6), size_hint_y=None,
                           padding=[0, 0, 0, dp(8)])
@@ -165,6 +183,8 @@ class PlayScreen(Screen):
     def _set(self, key: str, value) -> None:
         self.settings[key] = value
         self._app.state.set_last_for_mode(self.mode, dict(self.settings))
+        if key in ("deck", "levels"):
+            self._today_cache = None   # Today's pool is scoped by these
         # Deck switches change which option rows exist.
         if key == "deck":
             self._build()
@@ -172,3 +192,49 @@ class PlayScreen(Screen):
     def _play(self) -> None:
         cfg = mc.config_for(self.mode, self.settings)
         self._app.go_game(cfg)
+
+    # ------------------------------------------------------------------ #
+    # Today's Training (mirrors the pyglet menu)
+    # ------------------------------------------------------------------ #
+    def _today_plan(self):
+        if getattr(self, "_today_cache", None) is None:
+            from kanjire.srs.session import TodayPlan, build_today_plan
+            s = self.settings
+            decks = None if s["deck"] == kana.KANA_DECK else [s["deck"]]
+            levels = sorted(s["levels"]) if s["deck"] == "jlpt" else None
+            try:
+                self._today_cache = build_today_plan(
+                    self._app.con, self._app.stats, decks=decks,
+                    levels=levels)
+            except Exception:
+                self._today_cache = TodayPlan()
+        return self._today_cache
+
+    @staticmethod
+    def _today_label(plan, streak) -> str:
+        if plan.empty:
+            return tr("TODAY_DONE")
+        if plan.comeback:
+            return tr("TODAY_COMEBACK", n=len(plan.reviews))
+        if streak["done_today"]:
+            return tr("TODAY_MORE", rev=len(plan.reviews),
+                      new=len(plan.new_words))
+        return tr("BTN_TODAY", rev=len(plan.reviews),
+                  new=len(plan.new_words))
+
+    def _play_today(self) -> None:
+        from kanjire.game.config import DEFAULT_FACES, GameConfig
+        plan = self._today_plan()
+        if plan.empty:
+            return
+        s = self.settings
+        cfg = GameConfig(
+            name="Today",
+            decks=(s["deck"] if s["deck"] != kana.KANA_DECK else "jlpt",),
+            levels=(), faces=DEFAULT_FACES,
+            words_per_round=min(6, max(2, len(plan.pool))),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+        )
+        self._today_cache = None   # replay rebuilds tomorrow's picture
+        self._app.go_game(cfg, pool=plan.pool)
