@@ -63,6 +63,11 @@ def main(argv=None) -> int:
     for p in ("windows", "linux"):
         if p not in plats:
             problems.append(f"no '{p}' build in the manifest")
+    if "android" not in plats:
+        # Not (yet) fatal — but once phones are on the channel, a manifest
+        # without an android entry strands every one of them on this version.
+        print("WARNING      : no 'android' build in this manifest — phone "
+              "users would see no update")
     for key in ("url", "sha256", "size"):
         if key not in manifest:
             problems.append(

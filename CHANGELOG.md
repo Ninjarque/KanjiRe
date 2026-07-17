@@ -12,6 +12,23 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **KanjiRe is now on Android!** The whole game on your phone: every mode
+  (Time Attack, Survival with hearts, Zen, Familiarize, Learn, Recall),
+  Today's Training with your streak, the Journey road, the Reading Room
+  with its difficulty dials, your stats and history — all sharing the same
+  data and rules as the desktop version.
+- **Cross-platform multiplayer.** Phone and desktop players meet in the
+  same rooms with the same 5-letter codes. On touch, hold a card to point
+  at it for everyone (the hover equivalent).
+- **Friends work everywhere.** Requests, presence and play-together
+  invites reach you on the phone, and answering an invite drops you
+  straight into the room.
+- **The phone updates itself too.** The app checks the same signed
+  releases; a new version downloads and Android installs it — your
+  progress carries over.
+- Built for the Fold: the layout re-flows live when you open or close the
+  phone, mid-game included.
+
 ## 0.23.0 — 2026-07-16
 - **More reading examples for under-covered words.** Added ~900 real,
   human-translated sentences (from Tatoeba, same free licence as before), chosen
