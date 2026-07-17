@@ -265,6 +265,67 @@ def main() -> None:
             check("epilogue drills the queued word", len(rs.words) == 1)
             snap(app, "14-epilogue")
             rs._quit()
+            later(0.4, step_back_key)
+
+        def step_back_key():
+            # Back/Esc: in a game -> previous menu; on a tab -> play tab;
+            # on the play tab -> confirm-exit modal (unless opted out).
+            app.go_game()
+            later(0.5, step_back_in_game)
+
+        def step_back_in_game():
+            handled = app._on_hard_key(None, 27)
+            check("back leaves the game", handled
+                  and app.sm.current == "play")
+            app.switch_tab("stats")
+            handled = app._on_hard_key(None, 27)
+            check("back returns to play tab", handled
+                  and app.sm.current == "play")
+            app.state.set_setting("back_confirm", "off")
+            check("back exits directly when opted out",
+                  app._on_hard_key(None, 27) is False)
+            app.state.set_setting("back_confirm", "on")
+            check("back asks before exiting",
+                  app._on_hard_key(None, 27) is True)
+            later(0.4, step_grid_stability)
+
+        def step_grid_stability():
+            snap(app, "15-exit-confirm")
+            # Matching a group (which shows a sentence toast) must NOT move
+            # any other card: the strip is an overlay, not a layout sibling.
+            from kivy.uix.modalview import ModalView
+            for w in list(app.root_window.children):
+                if isinstance(w, ModalView):
+                    w.dismiss()
+            app.go_game()
+            later(0.6, step_grid_check)
+
+        def step_grid_check():
+            gs = app.sm.get_screen("game")
+            e = gs.engine
+            others = {cid: tuple(w.pos) for cid, w in gs._cards.items()
+                      if w.card.group != 0}
+            n = len(gs._cards)
+            cols = choose_grid_cols(n, gs)
+            check("solo grid is a full rectangle", n % cols == 0)
+            for cid in e.group_cards[0]:
+                gs._on_card(gs._cards[cid])
+            later(0.6, lambda: step_grid_after(gs, others))
+
+        def choose_grid_cols(n, gs):
+            from kivy.metrics import dp
+
+            from kanjire.ui.layout import choose_grid
+            cols, _r, _w, _h = choose_grid(n, gs.board.width,
+                                           gs.board.height, gap=dp(10),
+                                           prefer_exact=True)
+            return cols
+
+        def step_grid_after(gs, others):
+            moved = [cid for cid, pos in others.items()
+                     if tuple(gs._cards[cid].pos) != pos]
+            check("matching never moves other cards", not moved)
+            gs._quit()
             app.stop()
 
         later(0.4, step_complete_group)  # let the fade transition finish

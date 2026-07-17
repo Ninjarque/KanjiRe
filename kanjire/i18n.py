@@ -79,6 +79,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_RECALL_PROMPT": "PROMPT",
         "RECALL_P_TYPED":  "Read, type",
         "RECALL_P_LISTEN": "Listen, type",
+        "RECALL_P_BOTH":   "Read + hear",
         "RECALL_P_MIXED":  "Mixed",
         "BOUNTY_NONE":   "None",
         "BOUNTY_LOW":    "Low",
@@ -171,7 +172,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_TRY_AGAIN":    "Not quite — try once more",
         "RECALL_ANSWER":       "Answer:  {reading}",
         "RECALL_LISTEN_TITLE": "TYPE WHAT YOU HEAR",
-        "RECALL_LISTEN_HINT":  "listen carefully — F1 replays the audio",
+        "RECALL_LISTEN_HINT":  "listen carefully — tap ♪ (or F1) to replay",
+        "EXIT_ASK":            "Close KanjiRe?",
+        "EXIT_ALWAYS":         "Always close",
+        "SET_BACK_CONFIRM":    "Ask before closing (back button)",
 
         # --- multiplayer ------------------------------------------ #
         "BTN_MULTIPLAYER":     "★ Multiplayer…",
@@ -406,6 +410,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "SEC_RECALL_PROMPT": "INVITE",
         "RECALL_P_TYPED":  "Lire, écrire",
         "RECALL_P_LISTEN": "Écouter, écrire",
+        "RECALL_P_BOTH":   "Lire + écouter",
         "RECALL_P_MIXED":  "Mixte",
         "BOUNTY_NONE":   "Aucune",
         "BOUNTY_LOW":    "Faible",
@@ -497,7 +502,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "RECALL_TRY_AGAIN":    "Presque — encore un essai",
         "RECALL_ANSWER":       "Réponse :  {reading}",
         "RECALL_LISTEN_TITLE": "TAPEZ CE QUE VOUS ENTENDEZ",
-        "RECALL_LISTEN_HINT":  "écoutez bien — F1 pour réécouter",
+        "RECALL_LISTEN_HINT":  "écoutez bien — touchez ♪ (ou F1) pour réécouter",
+        "EXIT_ASK":            "Quitter KanjiRe ?",
+        "EXIT_ALWAYS":         "Toujours quitter",
+        "SET_BACK_CONFIRM":    "Demander avant de quitter (bouton retour)",
 
         # --- multijoueur ------------------------------------------- #
         "BTN_MULTIPLAYER":     "★ Multijoueur…",

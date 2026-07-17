@@ -55,13 +55,15 @@ class RecallEngine:
 
 
 def prompt_for(i: int, want: str, tts_ok: bool) -> str:
-    """Which prompt the *i*-th word uses: typed, or listen (dictation).
+    """Which prompt the *i*-th word uses: typed, listen (dictation) or both.
 
-    Dictation needs Japanese TTS; without it everything falls back to typed.
-    'mixed' alternates.
+    Audio prompts need Japanese TTS; without it everything falls back to
+    typed. 'mixed' alternates typed and listen.
     """
     if want == "listen":
         return "listen" if tts_ok else "typed"
+    if want == "both":
+        return "both" if tts_ok else "typed"
     if want == "typed":
         return "typed"
     return "listen" if (tts_ok and i % 2 == 1) else "typed"

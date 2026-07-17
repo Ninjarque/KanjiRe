@@ -22,8 +22,9 @@ VERTICAL_MODES = ("off", "random", "all")
 
 #: Allowed values for ``GameConfig.recall_prompt`` (the standalone Recall mode).
 #: 'typed' = see the kanji, type the reading; 'listen' = hear it, type it
-#: (needs Japanese TTS); 'mixed' = alternate between the two.
-RECALL_PROMPTS = ("typed", "listen", "mixed")
+#: (needs Japanese TTS); 'both' = see it AND hear it; 'mixed' = alternate
+#: between typed and listen.
+RECALL_PROMPTS = ("typed", "listen", "both", "mixed")
 
 
 @dataclass

@@ -101,7 +101,7 @@ def normalized_settings(d: dict | None) -> dict:
         s["start_hearts"] = int(d["start_hearts"])
     if d.get("bounty_freq") in BOUNTY_CHANCE:
         s["bounty_freq"] = d["bounty_freq"]
-    if d.get("recall_prompt") in ("typed", "listen", "mixed"):
+    if d.get("recall_prompt") in ("typed", "listen", "both", "mixed"):
         s["recall_prompt"] = d["recall_prompt"]
     return s
 

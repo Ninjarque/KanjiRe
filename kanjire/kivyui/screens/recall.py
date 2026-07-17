@@ -16,6 +16,8 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
+from kivy.uix.behaviors import ButtonBehavior
+
 from kanjire.game.recall import MAX_ATTEMPTS, RecallEngine, prompt_for
 from kanjire.i18n import tr
 from kanjire.kana import romaji_to_hira
@@ -23,6 +25,17 @@ from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
 from kanjire.kivyui.widgets import JPLabel, Panel, ThemedButton
 from kanjire.model.wordpick import sample_words
+
+
+class _PromptLabel(ButtonBehavior, JPLabel):
+    """The big prompt (♪ or kanji); tapping it replays the audio."""
+
+    def __init__(self, on_tap, **kw):
+        super().__init__(**kw)
+        self._on_tap = on_tap
+
+    def on_release(self):
+        self._on_tap()
 
 
 class RecallScreen(Screen):
@@ -79,8 +92,11 @@ class RecallScreen(Screen):
         root.add_widget(top)
 
         root.add_widget(Widget(size_hint_y=0.08))
-        self._kanji = JPLabel(text="", bold=True, font_size=sp(52),
-                              size_hint_y=None, height=dp(90))
+        # The prompt is a button: tapping ♪ (or the kanji, in 'both' mode)
+        # replays the audio — phones have no F1.
+        self._kanji = _PromptLabel(self._replay, text="", bold=True,
+                                   font_size=sp(52), size_hint_y=None,
+                                   height=dp(90))
         root.add_widget(self._kanji)
         self._meaning = JPLabel(text="", color=rgba(theme.MUTED),
                                 font_size=sp(14), halign="center",
@@ -144,6 +160,12 @@ class RecallScreen(Screen):
             self._title.text = tr("RECALL_LISTEN_TITLE")
             self._meaning.text = tr("RECALL_LISTEN_HINT")
             self._app.audio.speech.say_jp(w.reading)
+        elif self.mode == "both":
+            # See it AND hear it; tapping the kanji replays.
+            self._kanji.text = w.expression
+            self._title.text = tr("RECALL_TITLE")
+            self._meaning.text = w.get_meaning(self._app.state.locale)
+            self._app.audio.speech.say_jp(w.reading)
         else:
             self._kanji.text = w.expression
             self._title.text = tr("RECALL_TITLE")
@@ -154,6 +176,10 @@ class RecallScreen(Screen):
         self._input.text = ""
         self._preview.text = ""
         self._input.focus = True
+
+    def _replay(self) -> None:
+        if self.mode in ("listen", "both") and self.word is not None:
+            self._app.audio.speech.say_jp(self.word.reading)
 
     def _on_type(self, text: str) -> None:
         self._preview.text = romaji_to_hira(text) if text else ""

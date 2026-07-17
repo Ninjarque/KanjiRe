@@ -70,6 +70,13 @@ class SettingsScreen(Screen):
         )
         for key, value, setter in toggles:
             body.add_widget(_ToggleRow(tr(key), value, setter))
+        # Back-button exit confirmation (the "never ask again" undo lives
+        # here). Meaningful on Android; harmless (Esc) on desktop Kivy.
+        body.add_widget(_ToggleRow(
+            tr("SET_BACK_CONFIRM"),
+            app.state.setting("back_confirm", "on") == "on",
+            lambda v: app.state.set_setting("back_confirm",
+                                            "on" if v else "off")))
 
         hint = JPLabel(text=tr("SET_HINT"), color=rgba(theme.DIM),
                        font_size=sp(12), halign="left", size_hint_y=None)

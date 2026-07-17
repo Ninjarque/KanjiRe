@@ -77,6 +77,7 @@ _PRESET_FIELDS = (
 #: (state value, translation key) for the Recall prompt-style row.
 RECALL_PROMPT_OPTIONS = (("typed", "RECALL_P_TYPED"),
                          ("listen", "RECALL_P_LISTEN"),
+                         ("both", "RECALL_P_BOTH"),
                          ("mixed", "RECALL_P_MIXED"))
 
 

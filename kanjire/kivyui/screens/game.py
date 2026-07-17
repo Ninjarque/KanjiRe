@@ -164,20 +164,24 @@ class GameScreen(Screen):
         self.board.bind(size=lambda *_: self._layout_cards())
         root.add_widget(self.hud)
         root.add_widget(self.board)
-        # Example-sentence strip: context reps for the just-matched word.
-        self._sent_ja = JPLabel(text="", font_size=sp(14), halign="center",
-                                size_hint_y=None, height=0)
-        self._sent_ja.bind(width=lambda w, v: setattr(w, "text_size",
-                                                      (v - dp(16), None)))
-        self._sent_en = JPLabel(text="", font_size=sp(11),
-                                color=rgba(theme.MUTED), halign="center",
-                                size_hint_y=None, height=0)
-        self._sent_en.bind(width=lambda w, v: setattr(w, "text_size",
-                                                      (v - dp(16), None)))
-        root.add_widget(self._sent_ja)
-        root.add_widget(self._sent_en)
-        self._sent_ev = None
         self.add_widget(root)
+        # Example-sentence strip: an OVERLAY pinned to the bottom, never a
+        # layout sibling — resizing the board on every match re-flowed the
+        # whole grid ("cards jump around when I match things").
+        self._sent_box = BoxLayout(orientation="vertical",
+                                   size_hint=(1, None), height=dp(44),
+                                   padding=[dp(10), 0], opacity=0)
+        self._sent_ja = JPLabel(text="", font_size=sp(14), halign="center")
+        self._sent_ja.bind(size=self._sent_ja.setter("text_size"))
+        self._sent_en = JPLabel(text="", font_size=sp(11),
+                                color=rgba(theme.MUTED), halign="center")
+        self._sent_en.bind(size=self._sent_en.setter("text_size"))
+        self._sent_box.add_widget(self._sent_ja)
+        self._sent_box.add_widget(self._sent_en)
+        self._sent_box.pos = (0, 0)
+        self.bind(size=lambda w, v: setattr(self._sent_box, "width", v[0]))
+        self.add_widget(self._sent_box)
+        self._sent_ev = None
 
     # ------------------------------------------------------------------ #
     # Session lifecycle
@@ -263,7 +267,8 @@ class GameScreen(Screen):
         aw, ah = self.board.width, self.board.height
         if aw < 50 or ah < 50:
             return
-        cols, rows, cw, ch = choose_grid(n, aw, ah, gap=gap)
+        cols, rows, cw, ch = choose_grid(n, aw, ah, gap=gap,
+                                         prefer_exact=True)
         ordered = [self._cards[cid] for cid in self.engine.board
                    if cid in self._cards]
         for i, w in enumerate(ordered):
@@ -354,8 +359,7 @@ class GameScreen(Screen):
         ja, en = got[0]
         self._sent_ja.text = ja
         self._sent_en.text = en if len(en) <= 90 else en[:89] + "…"
-        self._sent_ja.height = dp(24)
-        self._sent_en.height = dp(18)
+        self._sent_box.opacity = 1
         if self._sent_ev is not None:
             self._sent_ev.cancel()
         self._sent_ev = Clock.schedule_once(self._hide_sentence, 5.0)
@@ -363,8 +367,7 @@ class GameScreen(Screen):
     def _hide_sentence(self, *_) -> None:
         self._sent_ja.text = ""
         self._sent_en.text = ""
-        self._sent_ja.height = 0
-        self._sent_en.height = 0
+        self._sent_box.opacity = 0
         self._sent_ev = None
 
     def _speak_selected(self, card_id: int) -> None:

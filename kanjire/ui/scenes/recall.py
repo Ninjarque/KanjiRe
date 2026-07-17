@@ -183,6 +183,12 @@ class RecallScene(Scene):
             self.title.text = tr("RECALL_LISTEN_TITLE")
             self.meaning.text = tr("RECALL_LISTEN_HINT")
             self.app.audio.speech.say_jp(w.reading)
+        elif self.mode == "both":
+            # See it AND hear it.
+            self.kanji.text = w.expression
+            self.title.text = tr("RECALL_TITLE")
+            self.meaning.text = w.get_meaning(self.app.state.locale)
+            self.app.audio.speech.say_jp(w.reading)
         else:
             self.kanji.text = w.expression
             self.title.text = tr("RECALL_TITLE")
@@ -269,7 +275,8 @@ class RecallScene(Scene):
 
         if symbol in (key.ENTER, key.RETURN):
             self._submit()
-        elif symbol == key.F1 and self.mode == "listen" and self.word:
+        elif (symbol == key.F1 and self.mode in ("listen", "both")
+                and self.word):
             self.app.audio.speech.say_jp(self.word.reading)   # replay
         elif symbol == key.ESCAPE:
             # Bail on the whole epilogue - straight to results, no penalty.
@@ -286,6 +293,13 @@ class RecallScene(Scene):
         self.input.on_text_motion_select(motion)
 
     def on_mouse_press(self, x, y, button, modifiers) -> None:
+        # Clicking the ♪ / kanji prompt replays the audio (same as F1) —
+        # phones have no F1, and it's a natural click target anywhere.
+        if (self.mode in ("listen", "both") and self.word
+                and abs(x - self.kanji.x) < 120
+                and abs(y - self.kanji.y) < 70):
+            self.app.audio.speech.say_jp(self.word.reading)
+            return
         self.input.on_mouse_press(x, y, button, modifiers)
         self.input.focus()          # there's nothing else to focus here
 

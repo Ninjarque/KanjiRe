@@ -140,6 +140,7 @@ class PlayScreen(Screen):
             body.add_widget(self._chips(
                 [("typed", tr("RECALL_P_TYPED")),
                  ("listen", tr("RECALL_P_LISTEN")),
+                 ("both", tr("RECALL_P_BOTH")),
                  ("mixed", tr("RECALL_P_MIXED"))],
                 s["recall_prompt"], "recall_prompt"))
         if s["deck"] == kana.KANA_DECK:

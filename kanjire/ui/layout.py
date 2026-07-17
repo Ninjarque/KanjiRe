@@ -5,18 +5,36 @@ import math
 
 
 def choose_grid(
-    n: int, area_w: float, area_h: float, gap: float = 16.0
+    n: int, area_w: float, area_h: float, gap: float = 16.0,
+    *, prefer_exact: bool = False,
 ) -> tuple[int, int, float, float]:
     """Choose (cols, rows, cell_w, cell_h) maximising card area.
 
     Prefers card aspect ratios that look like cards (taller-ish), but always
     returns *something* usable even for awkward counts.
+
+    With *prefer_exact*, column counts that divide *n* evenly (a full
+    rectangle, no short last row) are chosen when any exists — a stable,
+    scannable grid matters more than a few extra pixels per card.
     """
     if n <= 0:
         return 1, 1, area_w, area_h
 
+    if prefer_exact:
+        divisors = [c for c in range(1, n + 1) if n % c == 0]
+        exact = _best_grid(n, area_w, area_h, gap, divisors)
+        if exact is not None:
+            return exact
+
+    got = _best_grid(n, area_w, area_h, gap, range(1, n + 1))
+    if got is None:  # degenerate fallback
+        return n, 1, area_w / n, area_h
+    return got
+
+
+def _best_grid(n, area_w, area_h, gap, candidates):
     best = None
-    for cols in range(1, n + 1):
+    for cols in candidates:
         rows = math.ceil(n / cols)
         cell_w = (area_w - (cols + 1) * gap) / cols
         cell_h = (area_h - (rows + 1) * gap) / rows
@@ -33,8 +51,8 @@ def choose_grid(
         if best is None or score > best[0]:
             best = (score, cols, rows, cell_w, cell_h)
 
-    if best is None:  # degenerate fallback
-        return n, 1, area_w / n, area_h
+    if best is None:
+        return None
     _, cols, rows, cell_w, cell_h = best
     return cols, rows, cell_w, cell_h
 

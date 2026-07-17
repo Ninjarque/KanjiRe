@@ -88,6 +88,11 @@ class KanjiReApp(App):
         if not IS_ANDROID:
             Window.size = _dev_window_size()
         Window.clearcolor = rgba(theme.BG)
+        # The soft keyboard must not cover the focused TextInput (it hid the
+        # Recall answer bar entirely) — pan the window up instead.
+        Window.softinput_mode = "below_target"
+        # Android back button (and desktop Esc) arrives as key 27.
+        Window.bind(on_keyboard=self._on_hard_key)
 
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.floatlayout import FloatLayout
@@ -198,6 +203,63 @@ class KanjiReApp(App):
         self.nav = NavBar(self.switch_tab, tr)
         self.root_box.add_widget(self.nav)
         self.switch_tab(keep if self.sm.has_screen(keep) else "play")
+
+    # ------------------------------------------------------------------ #
+    # Android back button / desktop Esc
+    # ------------------------------------------------------------------ #
+    def _on_hard_key(self, window, key, *args) -> bool:
+        if key != 27:  # back / escape
+            return False
+        current = self.sm.current
+        if current == "game":
+            self.sm.get_screen("game")._quit()
+            return True
+        if current == "recall":
+            self.sm.get_screen("recall")._finish()
+            return True
+        if current == "multiplayer":
+            self.sm.get_screen("multiplayer").leave()
+            return True
+        if current != "play":
+            self.switch_tab("play")   # any other tab: back to the main one
+            return True
+        # On the Play tab: leaving the app. Confirm, unless opted out.
+        if self.state.setting("back_confirm", "on") != "on":
+            return False              # let the OS close us
+        self._confirm_exit()
+        return True
+
+    def _confirm_exit(self) -> None:
+        from kivy.metrics import dp, sp
+        from kivy.uix.boxlayout import BoxLayout
+
+        from kanjire.i18n import tr
+        from kanjire.kivyui.modal import _base, _message_label
+        from kanjire.kivyui.widgets import ThemedButton
+        view, box = _base()
+        box.add_widget(_message_label(tr("EXIT_ASK")))
+        row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                        size_hint_y=None, height=dp(48))
+        stay = ThemedButton(text=tr("DLG_CANCEL"), font_size=sp(13))
+        close = ThemedButton(text=tr("DLG_OK"), fill=theme.ACCENT,
+                             font_size=sp(13))
+        always = ThemedButton(text=tr("EXIT_ALWAYS"), font_size=sp(12))
+        stay.bind(on_release=lambda *_: view.dismiss())
+        close.bind(on_release=lambda *_: (view.dismiss(), self.stop()))
+
+        def _always(*_):
+            # "Never ask again" — also a toggle in Settings to turn it back.
+            self.state.set_setting("back_confirm", "off")
+            view.dismiss()
+            self.stop()
+
+        always.bind(on_release=_always)
+        row.add_widget(stay)
+        row.add_widget(close)
+        box.add_widget(row)
+        box.add_widget(always)
+        box.bind(minimum_height=lambda w, v: setattr(view, "height", v))
+        view.open()
 
     def on_pause(self):
         # Android: returning True keeps the app alive in the background
