@@ -133,6 +133,12 @@ def main() -> None:
         def step_stats():
             check("stats tab shown", app.sm.current == "stats")
             snap(app, "07-stats")
+            ss = app.sm.get_screen("stats")
+            ss._set_view("history")
+            check("history rows listed", len(ss._rv.data) >= 1)
+            check("history rows tappable",
+                  all(d.get("row_id") for d in ss._rv.data))
+            ss._set_view("words")
             # Live theme swap must rebuild every tab without error.
             from kanjire.ui import theme as _theme
             app.sm.get_screen("settings")._set_palette("Paper")

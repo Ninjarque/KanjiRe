@@ -13,17 +13,20 @@ from kivy.uix.recycleview import RecycleView
 from kivy.uix.screenmanager import Screen
 from kivy.uix.textinput import TextInput
 
+from kivy.uix.behaviors import ButtonBehavior
+
 from kanjire.data.stats import classify, knowledge_score
 from kanjire.i18n import tr
 from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
-from kanjire.kivyui.widgets import JPLabel, Panel, SectionLabel
+from kanjire.kivyui.widgets import ChipRow, JPLabel, Panel, SectionLabel
 
 _BUCKET_COL = {"known": "SUCCESS", "less_known": "GOLD", "unknown": "DANGER"}
 
 
-class WordRow(BoxLayout):
-    """One word_stats row: expression+reading | bucket dot | matches/misses."""
+class WordRow(ButtonBehavior, BoxLayout):
+    """One list row: main text | right-aligned counts. Doubles as a history
+    row (tap = replay) — ``row_id`` is a session id there, None for words."""
 
     def __init__(self, **kw):
         kw.setdefault("orientation", "horizontal")
@@ -31,6 +34,7 @@ class WordRow(BoxLayout):
         kw.setdefault("height", dp(44))
         kw.setdefault("padding", [dp(6), 0])
         super().__init__(**kw)
+        self.row_id = None
         self.lbl_word = JPLabel(halign="left", valign="middle",
                                 font_size=sp(15), size_hint_x=0.62)
         self.lbl_word.bind(size=self.lbl_word.setter("text_size"))
@@ -46,6 +50,13 @@ class WordRow(BoxLayout):
     counts = property(fset=lambda self, v: setattr(self.lbl_counts, "text", v))
     word_color = property(
         fset=lambda self, v: setattr(self.lbl_word, "color", v))
+
+    def on_release(self):
+        if self.row_id is None:
+            return
+        from kivy.app import App
+        app = App.get_running_app()
+        app.sm.get_screen("stats")._history_tapped(self.row_id)
 
 
 Factory.register("WordRow", cls=WordRow)
@@ -79,6 +90,12 @@ class StatsScreen(Screen):
                                 height=dp(20))
         self._lbl_acc.bind(size=self._lbl_acc.setter("text_size"))
         root.add_widget(self._lbl_acc)
+
+        # ---- view switch: words / history --------------------------------- #
+        self._view = "words"
+        root.add_widget(ChipRow(
+            [("words", tr("INNER_WORDS")), ("history", tr("INNER_HISTORY"))],
+            "words", on_change=self._set_view))
 
         # ---- search + list ----------------------------------------------- #
         self._search = TextInput(
@@ -137,13 +154,23 @@ class StatsScreen(Screen):
         rows = stats.all_rows()
         rows.sort(key=lambda r: knowledge_score(r))
         self._rows = rows
+        self._history = stats.game_history()
         self._refill()
 
         empty = not rows
         self._empty.opacity = 1 if empty else 0
         self._empty.height = dp(40) if empty else 0
 
+    def _set_view(self, view: str) -> None:
+        self._view = view
+        self._search.hint_text = (tr("SEARCH_HISTORY") if view == "history"
+                                  else tr("SEARCH_WORDS"))
+        self._refill()
+
     def _refill(self) -> None:
+        if self._view == "history":
+            self._refill_history()
+            return
         q = (self._search.text or "").strip().lower()
         data = []
         for r in self._rows:
@@ -160,8 +187,60 @@ class StatsScreen(Screen):
                 "word": f"{expr}  {read}",
                 "counts": f"正{r.get('matches', 0)}  誤{miss}",
                 "word_color": rgba(getattr(theme, _BUCKET_COL[bucket])),
+                "row_id": None,
             })
         self._rv.data = data
+
+    def _refill_history(self) -> None:
+        q = (self._search.text or "").strip().lower()
+        data = []
+        for row in self._history:
+            mode = row.get("mode") or "?"
+            if q and q not in mode.lower():
+                continue
+            day = row.get("day") or ""
+            data.append({
+                "word": f"{mode}   {day}",
+                "counts": f"{row.get('score', 0):,}  ·  "
+                          f"正{row.get('matches', 0)} 誤{row.get('mistakes', 0)}",
+                "word_color": rgba(theme.TEXT),
+                "row_id": row.get("id"),
+            })
+        self._rv.data = data
+
+    def _history_tapped(self, session_id) -> None:
+        row = next((r for r in self._history if r.get("id") == session_id),
+                   None)
+        if row is None:
+            return
+        from kanjire.kivyui import modal
+        modal.confirm(f"{tr('MP_REPLAY')}  ·  {row.get('mode') or '?'}?",
+                      lambda: self._replay_game(row))
+
+    def _replay_game(self, row: dict) -> None:
+        """Replay a past session: same words, finite session, fresh score."""
+        from kanjire.data import db
+        from kanjire.game.config import GameConfig
+        keys = set(map(tuple, row.get("word_keys") or []))
+        if len(keys) < 2:
+            return
+        try:
+            words = [w for w in db.load_words(self._app.con,
+                                              require_kanji=True)
+                     if (w.expression, w.reading) in keys]
+        except Exception:
+            return
+        if len(words) < 2:
+            return
+        cfg = GameConfig(
+            name=f"Replay · {row.get('mode') or '?'}",
+            decks=("jlpt",), levels=(),
+            faces=("kanji", "reading", "meaning"),
+            words_per_round=min(6, len(words)),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+        )
+        self._app.go_game(cfg, pool=words)
 
 
 class _Tile(Panel):
