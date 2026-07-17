@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.27.0 — 2026-07-17
+
 - **Pick your card faces directly.** "Cards per word" is now four toggle
   buttons — 漢字 Kanji, かな Kana, abc Romaji, Meaning — each in the same
   colour as its cards on the board. Turn any combination on or off (at
