@@ -12,6 +12,8 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.25.1 — 2026-07-17
+
 - The pairing code now wraps onto its own line on phone screens — it was
   cut off after the first characters at narrow widths.
 - The desktop Settings page scrolls (mouse wheel) — the Device sync
