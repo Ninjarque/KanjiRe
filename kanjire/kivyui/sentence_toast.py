@@ -32,8 +32,8 @@ class SentenceToast(ButtonBehavior, BoxLayout):
     def __init__(self, app, **kw):
         kw.setdefault("orientation", "vertical")
         kw.setdefault("size_hint", (None, None))
-        kw.setdefault("padding", [dp(14), dp(10)])
-        kw.setdefault("spacing", dp(4))
+        kw.setdefault("padding", [dp(16), dp(14)])
+        kw.setdefault("spacing", dp(6))
         super().__init__(**kw)
         self._app = app
         self._ev = None
@@ -47,13 +47,21 @@ class SentenceToast(ButtonBehavior, BoxLayout):
             self._border = Line(width=dp(1.2),
                                 rounded_rectangle=(0, 0, 1, 1, dp(12)))
         self.bind(pos=self._sync, size=self._sync)
-        self._ja = JPLabel(text="", halign="center", valign="middle")
-        self._ja.bind(size=self._ja.setter("text_size"))
+        # Autoheight labels: wrap on width only, height follows the texture.
+        # (Binding full size into text_size height-constrains the texture —
+        # a line that wraps at the boundary then CLIPS instead of growing.)
+        self._ja = JPLabel(text="", halign="center", valign="middle",
+                           size_hint_y=None)
         self._en = JPLabel(text="", halign="center", valign="middle",
-                           color=rgba(theme.MUTED))
-        self._en.bind(size=self._en.setter("text_size"))
+                           color=rgba(theme.MUTED), size_hint_y=None)
+        for lbl in (self._ja, self._en):
+            lbl.bind(width=lambda w, v: setattr(w, "text_size", (v, None)),
+                     texture_size=lambda w, ts: setattr(w, "height",
+                                                        ts[1] + dp(4)))
+            lbl.bind(height=self._fit_height)
         self.add_widget(self._ja)
         self.add_widget(self._en)
+        self._big = False
 
     def _sync(self, *_):
         self._rect.pos = self.pos
@@ -78,26 +86,19 @@ class SentenceToast(ButtonBehavior, BoxLayout):
         parent = self.parent
         if parent is None:
             return
-        big = mode == "big"
-        self._ja.text = ja
+        self._big = big = mode == "big"
         self._ja.font_size = sp(22) if big else sp(15)
-        self._en.text = en if len(en) <= 110 else en[:109] + "…"
         self._en.font_size = sp(14) if big else sp(11)
         self.width = min(parent.width - dp(16), dp(560))
-        self._ja.height = self._measure(self._ja)
-        self._en.height = self._measure(self._en)
-        self.height = (self._ja.height + self._en.height
-                       + dp(10) * 2 + dp(4))
+        self._ja.text = ja
+        self._en.text = en if len(en) <= 110 else en[:109] + "…"
         if big:
-            self.center_x = parent.width / 2
-            self.center_y = parent.height * 0.5
             self._bg.rgba = rgba(theme.PANEL, 0.96)
             self._bcol.rgba = rgba(theme.GOLD, 0.9)
         else:
-            self.center_x = parent.width / 2
-            self.y = dp(4)
             self._bg.rgba = rgba(theme.PANEL, 0.85)
             self._bcol.rgba = rgba(theme.GOLD, 0.0)
+        self._fit_height()
         self.opacity = 1
         self.disabled = False
         if self._ev is not None:
@@ -105,13 +106,18 @@ class SentenceToast(ButtonBehavior, BoxLayout):
         self._ev = Clock.schedule_once(
             self.dismiss, BIG_SECONDS if big else DEFAULT_SECONDS)
 
-    def _measure(self, lbl) -> float:
-        from kivy.core.text import Label as CoreLabel
-        cl = CoreLabel(text=lbl.text, font_name=lbl.font_name,
-                       font_size=lbl.font_size)
-        cl.options["text_size"] = (self.width - dp(28), None)
-        cl.refresh()
-        return (cl.texture.size[1] if cl.texture else 20) + dp(4)
+    def _fit_height(self, *_) -> None:
+        """Box height = the labels' natural (texture) heights; re-anchor."""
+        parent = self.parent
+        if parent is None:
+            return
+        self.height = (self._ja.height + self._en.height
+                       + self.padding[1] * 2 + self.spacing)
+        self.center_x = parent.width / 2
+        if self._big:
+            self.center_y = parent.height * 0.5
+        else:
+            self.y = dp(4)
 
     def dismiss(self, *_) -> None:
         self.opacity = 0
