@@ -13,10 +13,10 @@ from kivy.uix.boxlayout import BoxLayout
 
 from kanjire.i18n import tr
 from kanjire.kivyui.theming import rgba, theme
-from kanjire.kivyui.widgets import JPLabel, ThemedButton
+from kanjire.kivyui.widgets import GhostWhenHidden, JPLabel, ThemedButton
 
 
-class UpdateBanner(BoxLayout):
+class UpdateBanner(GhostWhenHidden, BoxLayout):
     def __init__(self, app, **kw):
         kw.setdefault("orientation", "horizontal")
         kw.setdefault("size_hint", (None, None))

@@ -12,6 +12,20 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **The unclickable buttons are fixed — for real, with proof.** Thanks
+  to the touch-marker screenshots, the culprit turned out to be OUR
+  hidden overlays: the invisible invite popup, the after-match sentence
+  strip, and the collapsed tab bar all kept sitting silently over parts
+  of the screen, and hidden-but-disabled things still swallow taps.
+  Exactly the bands you found dead: the Multiplayer button, the
+  Translation/Next buttons in the Reading Room, and the bottom row of
+  cards mid-game. All overlays are now "ghosts" while hidden — taps
+  pass straight through — and the test suite now fires real
+  screen-level taps at those exact spots so this whole class of bug
+  can't come back.
+
+## 0.29.1 — 2026-07-18
+
 - **Android touch fix, the real one this time.** The app no longer uses
   the keyboard "pan" mode that shifted the whole picture away from where
   taps actually land whenever Android misreported the keyboard height

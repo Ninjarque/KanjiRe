@@ -15,7 +15,7 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 
 from kanjire.kivyui.theming import rgba, theme
-from kanjire.kivyui.widgets import JPLabel
+from kanjire.kivyui.widgets import GhostWhenHidden, JPLabel
 
 DEFAULT_SECONDS = 5.0
 BIG_SECONDS = 7.5   # 50% longer — the point of "big" is having time to read
@@ -26,7 +26,7 @@ def display_mode(state) -> str:
     return mode if mode in ("off", "default", "big") else "default"
 
 
-class SentenceToast(ButtonBehavior, BoxLayout):
+class SentenceToast(GhostWhenHidden, ButtonBehavior, BoxLayout):
     """Overlay widget; add to a Screen and call :meth:`show`."""
 
     def __init__(self, app, **kw):

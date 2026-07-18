@@ -20,6 +20,36 @@ from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
 
 
+class GhostWhenHidden:
+    """Overlay mixin: while faded out, NEVER touch the touch.
+
+    Kivy's base Widget CONSUMES any touch landing on a *disabled* widget
+    (``if self.disabled and self.collide_point(...): return True``), so the
+    usual "hide" idiom for overlays — opacity 0 + disabled True, widget
+    left in the tree at full size — is an invisible touch shield. That was
+    the long-standing unclickable-buttons bug on Android: the hidden
+    invite toast blanketed the Multiplayer/bottom buttons on every tab,
+    and the hidden sentence toast blanketed the bottom card row in games.
+    Guarding the overlay root is sufficient: children only ever see
+    touches through their parent's dispatch.
+    """
+
+    def on_touch_down(self, touch):
+        if self.opacity <= 0:
+            return False
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if self.opacity <= 0:
+            return False
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self.opacity <= 0:
+            return False
+        return super().on_touch_up(touch)
+
+
 class JPLabel(Label):
     """Label defaulting to the bundled Japanese UI face + theme text colour."""
 
@@ -207,8 +237,13 @@ class ChipGrid(GridLayout):
         return sel if self._multi else (sel[0] if sel else None)
 
 
-class NavBar(BoxLayout):
-    """Bottom navigation: kanji icon + tiny label per tab."""
+class NavBar(GhostWhenHidden, BoxLayout):
+    """Bottom navigation: kanji icon + tiny label per tab.
+
+    GhostWhenHidden matters here too: when a game collapses the nav to
+    height 0, its fixed-height icon labels OVERFLOW the collapsed bar and
+    sat (disabled, invisible) over the bottom card row, eating its taps.
+    """
 
     TABS = [
         ("play",     "遊", "NAV_PLAY"),

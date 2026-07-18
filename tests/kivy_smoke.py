@@ -60,9 +60,45 @@ def main() -> None:
     def script(app):
         from kanjire.game.engine import Phase
 
+        # The script hops screens faster than the 0.12s fade: a transition
+        # still in flight makes the ScreenManager swallow the window-level
+        # touches below (and stacked same-frame transitions can wedge it).
+        # Fades are cosmetic — run the smoke without them.
+        from kivy.uix.screenmanager import NoTransition
+        app.sm.transition = NoTransition()
+
         # 1. Play tab renders.
         check("play tab is current", app.sm.current == "play")
         snap(app, "01-play")
+
+        # 1b. WINDOW-LEVEL dispatch: taps must reach bottom-band buttons.
+        # The hidden overlay toasts used to sit there full-size, and Kivy
+        # CONSUMES any touch on a disabled widget — an invisible shield
+        # that made the Multiplayer button (and bottom rows everywhere)
+        # unclickable on devices. Direct widget calls can't catch that
+        # class of bug; only a touch through the real window can.
+        from kivy.tests.common import UnitTestTouch
+        from kanjire.kivyui.widgets import ThemedButton as _TB
+
+        def find_btn(w, needle):
+            if isinstance(w, _TB) and needle in (w.text or ""):
+                return w
+            for c in w.children:
+                r = find_btn(c, needle)
+                if r is not None:
+                    return r
+            return None
+
+        mp_btn = find_btn(app.sm.get_screen("play"), "対戦")
+        check("mp button found", mp_btn is not None)
+        wx, wy = mp_btn.to_window(*mp_btn.center)
+        t = UnitTestTouch(wx, wy)
+        t.touch_down()
+        t.touch_up()
+        check("window tap opens multiplayer (no ghost overlay eats it)",
+              app.sm.current == "multiplayer")
+        app.sm.get_screen("multiplayer").leave()
+        check("left multiplayer", app.sm.current == "play")
 
         # 2. Start a default game.
         app.go_game()
@@ -77,6 +113,25 @@ def main() -> None:
 
         def later(delay, fn):
             Clock.schedule_once(lambda *_: fn(), delay)
+
+        # 2b. A window-level tap on the LOWEST card's lower half — the strip
+        # the hidden sentence toast used to blanket — must select it.
+        # Runs DELAYED: the ScreenManager blocks touches while its fade
+        # transition is still in flight.
+        def step_window_card():
+            low = min(gs._cards.values(), key=lambda w: w.center_y)
+            lx, ly = low.to_window(low.center_x,
+                                   low.y + low.height * 0.25)
+            t2 = UnitTestTouch(lx, ly)
+            t2.touch_down()
+            t2.touch_up()
+            check("window tap selects a bottom card (toast is ghost)",
+                  e.cards[low.card.id].selected)
+            t3 = UnitTestTouch(lx, ly)   # toggle back off, state clean
+            t3.touch_down()
+            t3.touch_up()
+            check("window tap deselects it again",
+                  not e.cards[low.card.id].selected)
 
         # 3. Complete group 0 card by card.
         def step_complete_group():
@@ -458,7 +513,9 @@ def main() -> None:
             gs._quit()
             app.stop()
 
-        later(0.4, step_complete_group)  # let the fade transition finish
+        # let the fade transition finish before window-level touches
+        later(0.4, step_window_card)
+        later(0.6, step_complete_group)
 
     Clock.schedule_once(run_script, 1.0)
     app.run()

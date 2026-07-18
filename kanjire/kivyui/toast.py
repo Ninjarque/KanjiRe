@@ -15,10 +15,10 @@ from kivy.uix.boxlayout import BoxLayout
 
 from kanjire.i18n import tr
 from kanjire.kivyui.theming import rgba, theme
-from kanjire.kivyui.widgets import JPLabel, ThemedButton
+from kanjire.kivyui.widgets import GhostWhenHidden, JPLabel, ThemedButton
 
 
-class InviteToast(BoxLayout):
+class InviteToast(GhostWhenHidden, BoxLayout):
     def __init__(self, app, **kw):
         kw.setdefault("orientation", "vertical")
         kw.setdefault("size_hint", (None, None))
