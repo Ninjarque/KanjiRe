@@ -433,6 +433,9 @@ class MultiplayerScreen(Screen):
         body.add_widget(SectionLabel(text=tr("MP_TURNS")))
         body.add_widget(chips([(n, str(n)) for n in TURNS_CHOICES],
                               int(s.get("turns_each", 10)), "turns_each"))
+        body.add_widget(SectionLabel(text=tr("SEC_PASSES")))
+        body.add_widget(chips([(n, f"×{n}") for n in (1, 2, 3, 5)],
+                              int(s.get("passes", 1)), "passes"))
         body.add_widget(SectionLabel(text=tr("SEC_WRITING")))
         body.add_widget(chips(
             [("off", tr("WRITE_HORIZ")), ("random", tr("WRITE_MIX")),
@@ -440,7 +443,7 @@ class MultiplayerScreen(Screen):
             s.get("writing", "off"), "writing"))
         body.add_widget(SectionLabel(text=tr("SEC_FONTS")))
         body.add_widget(chips(
-            [("fixed", tr("WRITE_HORIZ")), ("random", tr("WRITE_MIX"))],
+            [("fixed", tr("FONT_SINGLE")), ("random", tr("FONT_RANDOM"))],
             s.get("fonts", "fixed"), "fonts"))
 
         # invite friends (host with a room code)
@@ -559,14 +562,18 @@ class MultiplayerScreen(Screen):
     def _sync_board(self, state: dict) -> None:
         if getattr(self, "board", None) is None or self.stage != "play":
             return
+        # With passes > 1 the server sends None for a cleared group's slots:
+        # honest gaps that shuffle along with the cards.
         board = state.get("board") or []
-        sig = tuple(c["id"] for c in board)
+        sig = tuple((c["id"] if c else None) for c in board)
         if sig != self._board_sig:
             self.board.clear_widgets()
             self.cards = {}
             self._board_sig = sig
             self._pointer_shown = None
             for i, d in enumerate(board):
+                if d is None:
+                    continue
                 w = _MPCardWidget(_MPCard(d), self, size_hint=(None, None))
                 self.cards[d["id"]] = w
                 self.board.add_widget(w)
@@ -574,6 +581,8 @@ class MultiplayerScreen(Screen):
             self._layout_cards()
         else:
             for d in board:
+                if d is None:
+                    continue
                 w = self.cards.get(d["id"])
                 if w is not None:
                     w.card.matched = bool(d.get("matched"))
@@ -593,16 +602,18 @@ class MultiplayerScreen(Screen):
         self._pointer_shown = pointer
 
     def _layout_cards(self) -> None:
+        # Grid positions come from the slot list (blanks included in passes
+        # mode), so a gap keeps holding its place on every screen.
         if not self.cards:
             return
-        n = len(self.cards)
+        n = len(self._board_sig) or len(self.cards)
         gap = dp(8)
         aw, ah = self.board.width, self.board.height
         if aw < 50 or ah < 50:
             return
         cols, rows, cw, ch = choose_grid(n, aw, ah, gap=gap)
-        for i, cid in enumerate(self._board_sig):
-            w = self.cards.get(cid)
+        for i, cid in enumerate(self._board_sig or list(self.cards)):
+            w = self.cards.get(cid) if cid is not None else None
             if w is None:
                 continue
             cx, cy = slot_center(i, cols, rows, cw, ch, self.board.x,
@@ -624,21 +635,23 @@ class MultiplayerScreen(Screen):
             mark = "★" if st.get("turn") == i else ""
             bits.append(f"{mark}{name} {sc}")
         self._hud_scores.text = "   ".join(bits)
+        left_txt = tr("MP_TURNS_LEFT", n=st.get("turns_left", 0))
+        if int(st.get("passes") or 1) > 1:
+            left_txt = (tr("MP_PASS", cur=int(st.get("pass_no") or 1),
+                           total=int(st.get("passes")))
+                        + "  ·  " + left_txt)
         if st.get("paused"):
             self._hud_turn.text = tr("MP_PAUSED")
             self._hud_turn.color = rgba(theme.GOLD)
         elif st.get("turn") == self.me:
-            self._hud_turn.text = (tr("MP_YOUR_TURN") + "  ·  "
-                                   + tr("MP_TURNS_LEFT",
-                                        n=st.get("turns_left", 0)))
+            self._hud_turn.text = tr("MP_YOUR_TURN") + "  ·  " + left_txt
             self._hud_turn.color = rgba(theme.SUCCESS)
         else:
             turn = st.get("turn")
             name = (players[turn] if isinstance(turn, int)
                     and turn < len(players) else "?")
-            self._hud_turn.text = (tr("MP_THEIR_TURN", name=name) + "  ·  "
-                                   + tr("MP_TURNS_LEFT",
-                                        n=st.get("turns_left", 0)))
+            self._hud_turn.text = (tr("MP_THEIR_TURN", name=name)
+                                   + "  ·  " + left_txt)
             self._hud_turn.color = rgba(theme.MUTED)
         if getattr(self, "_pause_btn", None) is not None:
             self._pause_btn.disabled = self.me != 0

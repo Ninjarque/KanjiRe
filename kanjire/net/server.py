@@ -34,7 +34,11 @@ import time
 
 #: 2 = lobby settings (create carries settings, start carries the pool),
 #: plus pause / resume / back-to-lobby. Old clients are rejected at hello.
-PROTOCOL = 2
+#: 3 = passes: with passes > 1 the board snapshot may contain null entries
+#: (cleared groups leave blanks that shuffle like cards), plus
+#: pass_no/passes fields. Old clients would crash on a null card, so they
+#: are rejected at hello and told to update.
+PROTOCOL = 3
 DEFAULT_PORT = 24857
 
 #: Per-group score, multiplied by the scorer's combo (mirrors solo play).
@@ -67,7 +71,14 @@ DEFAULT_SETTINGS = {
     "turns_each": 10,
     "writing": "off",    # horizontal | mixed | vertical  ("off" == horizontal)
     "fonts": "fixed",    # fixed | random
+    #: How many times the same word-set is played before fresh words appear.
+    #: With passes > 1 cleared groups leave BLANKS (no rolling refill) that
+    #: shuffle along with the cards; clearing the whole board re-deals the
+    #: same words for the next pass, and after the last pass new words come.
+    "passes": 1,
 }
+
+_PASSES_VALUES = (1, 2, 3, 5)
 
 #: Accepted values for the presentation settings (kept in sync with the menu's
 #: WRITING_OPTIONS so multiplayer and single player speak the same language).
@@ -113,7 +124,14 @@ class Room:
         self.turns_total = 0
 
         self.cards: dict[int, dict] = {}
-        self.board: list[int] = []
+        #: Board slots: card ids, or None for a blank (passes > 1 only —
+        #: a cleared group's spots stay on the board and shuffle like cards).
+        self.board: list[int | None] = []
+        #: The word entries of the current round, kept so passes 2..n re-deal
+        #: the SAME words; pass_no counts up to passes.
+        self.round_entries: list[dict] = []
+        self.passes = 1
+        self.pass_no = 1
         self.selection: list[int] = []
         self.current_group: int | None = None
         #: A completed group being shown to everyone before it's cleared.
@@ -149,6 +167,8 @@ class Room:
                 s["faces_sel"] = list(FACES_BY_MODE[int(d["cards"])])
             if d.get("turns_each") in (5, 10, 15):
                 s["turns_each"] = int(d["turns_each"])
+            if d.get("passes") in _PASSES_VALUES:
+                s["passes"] = int(d["passes"])
             if d.get("writing") in _WRITING_VALUES:
                 s["writing"] = str(d["writing"])
             if d.get("fonts") in _FONT_VALUES:
@@ -237,9 +257,19 @@ class Room:
                               if self.connected[i]), 0)
             self.turns_total = self.turns_each * sum(
                 1 for c in self.connected if c)
-            for _ in range(min(self.board_size, len(self.pool))):
-                self._deal_group(self.pool.pop())
-            self.rng.shuffle(self.board)
+            self.passes = int(self.settings.get("passes", 1))
+            self._deal_round()
+
+    def _deal_round(self) -> None:
+        """Draw a fresh word-set from the pool and deal it (pass 1)."""
+        self.board = []
+        self.round_entries = []
+        self.pass_no = 1
+        for _ in range(min(self.board_size, len(self.pool))):
+            entry = self.pool.pop()
+            self.round_entries.append(entry)
+            self._deal_group(entry)
+        self.rng.shuffle(self.board)
 
     def set_paused(self, paused: bool) -> None:
         with self.lock:
@@ -261,6 +291,8 @@ class Room:
             self.pending_at = None
             self.pointer = None
             self.pool = []
+            self.round_entries = []
+            self.pass_no = 1
             self.turn = 0
             self.turns_used = 0
             self.turns_total = 0
@@ -281,7 +313,7 @@ class Room:
         self.pointer = None      # never leave one player's pointer on another's turn
         for cid in self.cards:
             self.cards[cid]["selected"] = False
-        if self._turns_left() <= 0 or not self.board:
+        if self._turns_left() <= 0 or not self.cards:
             self.finished = True
             return
         # Next connected player who still has turns owed to them.
@@ -396,6 +428,28 @@ class Room:
             return True
 
     def _clear_revealed(self) -> None:
+        if self.passes > 1:
+            # No rolling refill: the cleared group's spots become BLANKS
+            # that keep shuffling with the cards. Clearing the whole board
+            # re-deals the SAME words (next pass); after the last pass a
+            # fresh word-set is drawn.
+            for cid in self.pending_clear:
+                self.cards.pop(cid, None)
+                if cid in self.board:
+                    self.board[self.board.index(cid)] = None
+            self.pending_clear = []
+            self.pending_at = None
+            if not self.cards:
+                if self.pass_no < self.passes:
+                    self.pass_no += 1
+                    self.board = []
+                    for entry in self.round_entries:
+                        self._deal_group(entry)
+                elif self.pool:
+                    self._deal_round()
+            self.rng.shuffle(self.board)
+            self._advance_turn()
+            return
         for cid in self.pending_clear:
             self.cards.pop(cid, None)
             if cid in self.board:
@@ -441,7 +495,10 @@ class Room:
                 "turns_left": self._turns_left() if self.started else 0,
                 "faces": list(self.faces),
                 "pool_left": len(self.pool),
-                "board": [dict(self.cards[cid]) for cid in self.board],
+                "pass_no": self.pass_no,
+                "passes": self.passes,
+                "board": [dict(self.cards[cid]) if cid is not None else None
+                          for cid in self.board],
             }
 
     def broadcast(self, event: dict | None = None) -> None:

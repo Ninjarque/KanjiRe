@@ -12,6 +12,19 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Multiplayer has passes now.** A new ×1/×2/×3/×5 row in the lobby:
+  with more than one pass, the same words play that many times before
+  fresh ones appear. A cleared group leaves its spots EMPTY — the gaps
+  keep shuffling with the cards instead of new words filling in — and
+  once the board is cleared the same words come back re-shuffled for the
+  next pass. The turn bar shows "Pass 1/2". Great for locking words in
+  together. (Everyone needs this version to play together — the update
+  banner will say so.)
+- Fixed the multiplayer lobby's FONTS row on Android showing the writing
+  labels ("Horiz. / Mix") instead of Single / Random.
+
+## 0.28.0 — 2026-07-18
+
 - **Android: buttons and cards now respond wherever you tap.** Taps used
   to land offset from what you saw (a known Android quirk when the status
   bar is visible), so buttons only worked near their edges — worst at the

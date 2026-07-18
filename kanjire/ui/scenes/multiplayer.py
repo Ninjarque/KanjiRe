@@ -178,12 +178,13 @@ class MultiplayerScene(Scene):
         self.lbl_s_words = srow("SEC_WORDS")
         self.lbl_s_cards = srow("SEC_CARDS")
         self.lbl_s_turns = srow("MP_TURNS")
+        self.lbl_s_passes = srow("SEC_PASSES")
         self.lbl_s_writing = srow("SEC_WRITING")
         self.lbl_s_fonts = srow("SEC_FONTS")
         self.settings_labels = [self.lbl_s_deck, self.lbl_s_level,
                                 self.lbl_s_words, self.lbl_s_cards,
-                                self.lbl_s_turns, self.lbl_s_writing,
-                                self.lbl_s_fonts]
+                                self.lbl_s_turns, self.lbl_s_passes,
+                                self.lbl_s_writing, self.lbl_s_fonts]
 
         decks = []
         try:
@@ -226,6 +227,14 @@ class MultiplayerScene(Scene):
                        accent=theme.GOLD, font_size=13))
             for n in TURNS_CHOICES
         ]
+        # Passes: like solo repetitions — the same words play N times, with
+        # cleared groups left as blanks in the shuffle until the board clears.
+        self.passes_btns = [
+            (n, Button(f"×{n}", lambda n=n: self._set_setting("passes", n),
+                       self.batch, self.g_bg, self.g_text,
+                       accent=theme.GOLD, font_size=13))
+            for n in (1, 2, 3, 5)
+        ]
         # Presentation, with the same options (and the same words) as the
         # single-player Advanced tab.
         self.writing_btns = [
@@ -242,8 +251,8 @@ class MultiplayerScene(Scene):
         ]
         self.setting_btns = (self.deck_btns + self.level_btns
                              + self.words_btns + self.cards_btns
-                             + self.lturns_btns + self.writing_btns
-                             + self.fonts_btns)
+                             + self.lturns_btns + self.passes_btns
+                             + self.writing_btns + self.fonts_btns)
 
         # ---- in-game host controls ---- #
         self.pause_btn = Button("", self._pause, self.batch, self.g_bg,
@@ -476,6 +485,8 @@ class MultiplayerScene(Scene):
             b.set_selected(face in faces_now)
         for n, b in self.lturns_btns:
             b.set_selected(n == s.get("turns_each"))
+        for n, b in self.passes_btns:
+            b.set_selected(n == int(s.get("passes") or 1))
         for v, b in self.writing_btns:
             b.set_selected(v == (s.get("writing") or "off"))
         for v, b in self.fonts_btns:
@@ -835,6 +846,7 @@ class MultiplayerScene(Scene):
             c.delete()
         self.cards.clear()
         self._board_sig = ()
+        self._slots = []
         self._pointer_shown = None   # the card it referred to is gone
 
     def _card_style(self, d: dict) -> tuple[str | None, str]:
@@ -863,12 +875,17 @@ class MultiplayerScene(Scene):
         return font, direction
 
     def _sync_board(self, state: dict) -> None:
+        # With passes > 1 the server sends None for a cleared group's slots:
+        # honest gaps that shuffle along with the cards.
         board = state.get("board") or []
-        sig = tuple(c["id"] for c in board)
+        sig = tuple((c["id"] if c else None) for c in board)
         if sig != self._board_sig:
             self._clear_cards()
             self._board_sig = sig
+            self._slots = list(sig)
             for d in board:
+                if d is None:
+                    continue
                 font, direction = self._card_style(d)
                 self.cards[d["id"]] = CardView(
                     _MPCard(d), self.batch, self.g_glow, self.g_bg,
@@ -884,6 +901,8 @@ class MultiplayerScene(Scene):
                              delay=delay)
         else:
             for d in board:
+                if d is None:
+                    continue
                 cv = self.cards.get(d["id"])
                 if cv is not None:
                     was = cv.model.selected
@@ -918,7 +937,10 @@ class MultiplayerScene(Scene):
             cv.scale = 1.05
 
     def _layout_cards(self) -> None:
-        n = len(self.cards)
+        # Grid positions come from the SLOT list (which includes blanks in
+        # passes mode), so a gap keeps holding its place on every screen.
+        slots = getattr(self, "_slots", None) or list(self.cards.keys())
+        n = len(slots)
         if not n:
             return
         s = self._s
@@ -929,7 +951,10 @@ class MultiplayerScene(Scene):
         cols, rows, cw, ch = choose_grid(n, area_w, area_h, 16)
         cw = min(cw, 320)
         ch = min(ch, 280)
-        for i, c in enumerate(self.cards.values()):
+        for i, cid in enumerate(slots):
+            c = self.cards.get(cid) if cid is not None else None
+            if c is None:
+                continue
             cx, cy = slot_center(i, cols, rows, cw, ch, area_x, area_y,
                                  area_w, area_h, 16, count=n)
             c.set_slot(cx, cy, cw, ch)
@@ -984,7 +1009,11 @@ class MultiplayerScene(Scene):
             if left is None:
                 left = max(0, (st.get("turns_total") or 0)
                            - (st.get("turns_used") or 0))
-            self.turns_left_lbl.text = tr("MP_TURNS_LEFT", n=int(left))
+            txt = tr("MP_TURNS_LEFT", n=int(left))
+            if int(st.get("passes") or 1) > 1:
+                txt = tr("MP_PASS", cur=int(st.get("pass_no") or 1),
+                         total=int(st.get("passes"))) + "   " + txt
+            self.turns_left_lbl.text = txt
         elif self.phase == "done":
             self.turn_lbl.text = ""
             self.turns_left_lbl.text = ""
@@ -1127,6 +1156,7 @@ class MultiplayerScene(Scene):
                 (self.lbl_s_words, self.words_btns, 62 * s),
                 (self.lbl_s_cards, self.cards_btns, 128 * s),
                 (self.lbl_s_turns, self.lturns_btns, 62 * s),
+                (self.lbl_s_passes, self.passes_btns, 62 * s),
                 (self.lbl_s_writing, self.writing_btns, 92 * s),
                 (self.lbl_s_fonts, self.fonts_btns, 108 * s),
             ]

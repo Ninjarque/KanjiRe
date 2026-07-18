@@ -45,6 +45,7 @@ def check(name: str, ok: bool) -> None:
 def main() -> None:
     app = A.KanjiReApp()
     guest = {"client": None}
+    passes = {"words": set(), "slots": 0, "left": 0}
 
     def run_script(_dt):
         try:
@@ -134,18 +135,27 @@ def main() -> None:
 
     def complete_group_via_ui(mp):
         board = (mp.state or {}).get("board") or []
-        target = board[0]["group"]
+        target = next(d["group"] for d in board
+                      if d and not d.get("matched"))
         for d in board:
-            if d["group"] == target:
+            if d and d["group"] == target:
                 mp.card_tapped(d["id"])
 
     def complete_group_via_guest(mp):
         g = guest["client"]
         board = (mp.state or {}).get("board") or []
-        target = board[0]["group"]
+        target = next(d["group"] for d in board
+                      if d and not d.get("matched"))
         for d in board:
-            if d["group"] == target:
+            if d and d["group"] == target:
                 g.send({"t": "select", "card": d["id"]})
+
+    def complete_any_group(mp):
+        """Whoever's turn it is clears one group."""
+        if (mp.state or {}).get("turn") == mp.me:
+            complete_group_via_ui(mp)
+        else:
+            complete_group_via_guest(mp)
 
     def step_scored(mp, who):
         pump_guest()
@@ -155,6 +165,70 @@ def main() -> None:
         check("reveal holds the group", bool(st.get("revealing"))
               or all(not d.get("matched") for d in st.get("board") or []))
         app.screenshot(str(OUT / "05-scored.png"))
+        # ---- passes: same words twice, blanks instead of refills -------- #
+        mp._replay()                      # back to lobby, players stay
+        later(0.8, lambda: step_passes_lobby(mp))
+
+    def step_passes_lobby(mp):
+        pump_guest()
+        check("back in lobby for passes", mp.stage == "lobby")
+        mp._set_setting("passes", 2)
+        later(0.6, lambda: step_passes_start(mp))
+
+    def step_passes_start(mp):
+        pump_guest()
+        check("passes setting broadcast",
+              int(mp._settings().get("passes") or 1) == 2)
+        mp._start()
+        later(1.0, lambda: step_passes_play(mp))
+
+    def step_passes_play(mp):
+        pump_guest()
+        st = mp.state or {}
+        board = st.get("board") or []
+        passes["words"] = {d["text"] for d in board
+                           if d and d["face"] == "kanji"}
+        passes["slots"] = len(board)
+        check("passes game started",
+              mp.stage == "play" and st.get("passes") == 2
+              and len(board) > 0)
+        complete_any_group(mp)
+        later(3.0, lambda: step_passes_blanks(mp))   # past the 2s reveal
+
+    def step_passes_blanks(mp):
+        pump_guest()
+        st = mp.state or {}
+        board = st.get("board") or []
+        faces_n = len(st.get("faces") or [])
+        check("cleared group left blanks (no refill)",
+              len(board) == passes["slots"]
+              and board.count(None) == faces_n)
+        check("client renders only live cards",
+              len(mp.cards) == len(board) - board.count(None))
+        check("pass HUD shown", "1/2" in (mp._hud_turn.text or ""))
+        app.screenshot(str(OUT / "06-passes-blanks.png"))
+        passes["left"] = len({d["group"] for d in board if d})
+        step_passes_grind(mp)
+
+    def step_passes_grind(mp):
+        """Clear the remaining groups of pass 1, one reveal at a time."""
+        if passes["left"] <= 0:
+            later(0.5, lambda: step_passes_redeal(mp))
+            return
+        passes["left"] -= 1
+        complete_any_group(mp)
+        later(3.0, lambda: (pump_guest(), step_passes_grind(mp)))
+
+    def step_passes_redeal(mp):
+        pump_guest()
+        st = mp.state or {}
+        board = st.get("board") or []
+        words = {d["text"] for d in board if d and d["face"] == "kanji"}
+        check("pass 2 re-deals the SAME words",
+              st.get("pass_no") == 2 and board.count(None) == 0
+              and words == passes["words"] and not st.get("finished"))
+        check("pass HUD advanced", "2/2" in (mp._hud_turn.text or ""))
+        app.screenshot(str(OUT / "07-passes-redeal.png"))
         # Guest walks away; host survives.
         guest["client"].close()
         guest["client"] = None

@@ -1009,6 +1009,49 @@ def run() -> int:
             guard += 1
         assert mp.state["turn"] == 0, "host did not get the turn back"
 
+        # 21b) Passes: same words twice, cleared groups leave BLANKS in the
+        # shuffle (no rolling refill) until the board clears, then a re-deal.
+        mp._to_lobby()
+        guard = 0
+        while mp.phase != "lobby" and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.phase == "lobby"
+        mp._set_setting("passes", 2)
+        guard = 0
+        while int(mp._settings().get("passes") or 1) != 2 and guard < 100:
+            frames2(2)
+            guard += 1
+        assert int(mp._settings()["passes"]) == 2
+        mp._start()
+        guard = 0
+        while mp.phase != "play" and guard < 100:
+            frames2(2)
+            guard += 1
+        assert mp.phase == "play"
+        st = mp.state
+        expect = len(st["board"])
+        faces_n = len(st["faces"])
+        g0 = next(c["group"] for c in st["board"] if c)
+        for cid in [c["id"] for c in st["board"]
+                    if c and c["group"] == g0]:
+            cv = mp.cards[cid]
+            mp.on_mouse_press(cv.cx, cv.cy, mouse.LEFT, 0)
+            frames2(4)
+        deadline = time.time() + REVEAL_SECONDS + 5
+        while (mp.state["board"].count(None) == 0
+               and time.time() < deadline):
+            frames2(1)
+        st = mp.state
+        assert st["board"].count(None) == faces_n, \
+            "cleared group should leave blanks, not refill"
+        assert len(st["board"]) == expect, "slot count must not shrink"
+        assert len(mp.cards) == expect - faces_n, \
+            "client must render only the live cards"
+        assert st["pass_no"] == 1 and st["passes"] == 2
+        assert "1/2" in mp.turns_left_lbl.text, mp.turns_left_lbl.text
+        print("PASS multiplayer passes (blanks shuffle, no refill, HUD)")
+
         for closer in (ff.close, fs.close):
             try:
                 closer()
