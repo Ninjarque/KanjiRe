@@ -88,14 +88,17 @@ class KanjiReApp(App):
         if not IS_ANDROID:
             Window.size = _dev_window_size()
         Window.clearcolor = rgba(theme.BG)
-        # The soft keyboard must not cover the focused TextInput (it hid the
-        # Recall answer bar entirely) — pan the window up instead.
-        # ANDROID ONLY: on desktop Windows, ANY softinput mode makes
-        # Window.size report density-scaled pixels under DPI scaling
-        # (420→525 at 125%), corrupting screenshots and coordinate maths —
-        # and desktop has no overlaying keyboard to work around anyway.
-        if IS_ANDROID:
-            Window.softinput_mode = "below_target"
+        # NO global softinput pan mode. Kivy implements 'pan'/'below_target'
+        # as a pure RENDER translation (update_viewport shifts the modelview
+        # by keyboard_height) and never counter-shifts touches — so whenever
+        # p4a's get_keyboard_height() misreports (system bars/cutouts counted
+        # as "keyboard", a known Android quirk, worse on foldables and in
+        # fullscreen), the whole scene draws offset from its hitboxes and
+        # buttons only respond near one edge — worst near the screen bottom.
+        # That was THE long-standing "hard to press" bug. Screens that need
+        # the keyboard use top-anchored layouts (Recall additionally uses
+        # 'resize' while active, which shrinks Window.size — render and
+        # touch stay consistent there).
         # Android back button (and desktop Esc) arrives as key 27.
         Window.bind(on_keyboard=self._on_hard_key)
 
@@ -157,6 +160,20 @@ class KanjiReApp(App):
         root.add_widget(self.banner)
         Window.bind(size=lambda *_: self._place_toast())
         self._place_toast()
+
+        # Touch-marker debug overlay (Settings → Display): draws a ring at
+        # every touch Kivy receives, so any "taps land in the wrong place"
+        # report becomes a screenshot we can read numbers off.
+        from kanjire.kivyui.touchprobe import TouchProbe
+        self.touch_probe = TouchProbe(self, root)
+        self.touch_probe.set_on(
+            self.state.setting("touch_debug", "off") == "on")
+
+        # Player-chosen immersive fullscreen (Android): applied at runtime,
+        # never baked into the build. Delayed so the activity is settled.
+        if IS_ANDROID and self.state.setting("fullscreen", "off") == "on":
+            from kanjire.kivyui.androidui import set_immersive
+            Clock.schedule_once(lambda dt: set_immersive(True), 1.0)
 
         Clock.schedule_interval(self._net_tick, 0.5)
         return root

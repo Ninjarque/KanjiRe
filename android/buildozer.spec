@@ -22,11 +22,12 @@ version.filename = %(source.dir)s/kanjire/__init__.py
 requirements = python3,kivy==2.3.1,paho-mqtt,certifi,pynacl
 
 orientation = all
-# Immersive fullscreen. With fullscreen=0 the SDL surface renders under the
-# status bar while touch coords are offset by its height (p4a #2326 / #153):
-# every button only responded near its edges, worst at the screen bottom and
-# on fold-state changes. No bar → no offset.
-fullscreen = 1
+# NOT fullscreen: players prefer the system bars, and fullscreen made the
+# touch offset WORSE — the real culprit was Kivy's softinput pan mode
+# rendering the scene shifted from its hitboxes when p4a misreports the
+# keyboard height (bigger misreport in fullscreen). Pan modes are gone
+# (kivyui/app.py); an optional immersive toggle lives in Settings.
+fullscreen = 0
 
 # REQUEST_INSTALL_PACKAGES: the self-updater downloads the new APK and hands
 # it to the system installer (the player OKs "install unknown apps" once).

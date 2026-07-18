@@ -17,10 +17,16 @@ from kanjire.kivyui.theming import rgba, theme
 from kanjire.kivyui.widgets import JPLabel, ThemedButton
 
 
-def _base(height_hint: float = 0.32) -> tuple[ModalView, BoxLayout]:
+def _base(height_hint: float = 0.32, *, top: bool = False
+          ) -> tuple[ModalView, BoxLayout]:
     view = ModalView(size_hint=(0.86, None), height=dp(10),
                      background_color=rgba(theme.BG, 0.75),
                      overlay_color=rgba(theme.BG, 0.6))
+    if top:
+        # Prompts hug the top: with no softinput pan mode the keyboard
+        # overlays the bottom of the window, and a centred dialog could
+        # end up underneath it on short screens.
+        view.pos_hint = {"center_x": 0.5, "top": 0.92}
     box = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
     from kivy.graphics import Color, RoundedRectangle
     with box.canvas.before:
@@ -71,7 +77,7 @@ def confirm(message: str, on_confirm, *, danger: bool = False,
 
 
 def prompt(message: str, on_submit, *, initial: str = "") -> None:
-    view, box = _base()
+    view, box = _base(top=True)
     box.add_widget(_message_label(message))
     field = TextInput(text=initial, multiline=False, font_name=UI_FONT,
                       font_size=sp(16), size_hint_y=None, height=dp(44),

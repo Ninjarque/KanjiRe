@@ -12,6 +12,24 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Android touch fix, the real one this time.** The app no longer uses
+  the keyboard "pan" mode that shifted the whole picture away from where
+  taps actually land whenever Android misreported the keyboard height
+  (a known quirk, worst near the bottom of the screen and on foldables).
+  That was the true cause of buttons only working near their edges — and
+  of the Multiplayer button dying entirely. Fullscreen is also back OFF:
+  your system bars are yours again, and hiding them is now a choice —
+  Settings → Display → Fullscreen.
+- **New: Settings → Display → "Touch marker (debug)".** Turn it on and a
+  small gold ring appears exactly where the game believes you touched.
+  If taps ever feel off again, flip it on and send us a screenshot with
+  your finger on a button — the ring (and the numbers above it) tell us
+  precisely what's wrong.
+- Dialogs that ask you to type (like the pairing code) now sit near the
+  top of the screen, so the keyboard can't cover them.
+
+## 0.29.0 — 2026-07-18
+
 - **Multiplayer has passes now.** A new ×1/×2/×3/×5 row in the lobby:
   with more than one pass, the same words play that many times before
   fresh ones appear. A cleared group leaves its spots EMPTY — the gaps

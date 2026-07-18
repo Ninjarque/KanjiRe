@@ -93,6 +93,25 @@ class SettingsScreen(Screen):
                   texture_size=lambda w, ts: setattr(w, "height", ts[1] + dp(8)))
         body.add_widget(hint)
 
+        # ---- display ---------------------------------------------------- #
+        body.add_widget(SectionLabel(text=tr("SEC_DISPLAY")))
+        from kanjire.kivyui.androidui import IS_ANDROID, set_immersive
+        if IS_ANDROID:
+            body.add_widget(_ToggleRow(
+                tr("SET_FULLSCREEN"),
+                app.state.setting("fullscreen", "off") == "on",
+                lambda v: (app.state.set_setting("fullscreen",
+                                                 "on" if v else "off"),
+                           set_immersive(v))))
+        # Touch marker: on every platform (costs nothing when off, and it
+        # is the tool that turns touch complaints into readable numbers).
+        body.add_widget(_ToggleRow(
+            tr("SET_TOUCH_DEBUG"),
+            app.state.setting("touch_debug", "off") == "on",
+            lambda v: (app.state.set_setting("touch_debug",
+                                             "on" if v else "off"),
+                       app.touch_probe.set_on(v))))
+
         # ---- device sync ------------------------------------------------- #
         body.add_widget(SectionLabel(text=tr("SEC_SYNC")))
         intro = JPLabel(text=tr("SYNC_INTRO"), color=rgba(theme.DIM),

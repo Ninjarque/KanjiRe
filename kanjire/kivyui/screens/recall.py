@@ -69,7 +69,10 @@ class RecallScreen(Screen):
         import os
         if "ANDROID_ARGUMENT" in os.environ:
             from kivy.core.window import Window
-            Window.softinput_mode = "below_target"
+            # Back to NO pan mode — 'below_target' renders the scene offset
+            # from its hitboxes whenever Android misreports keyboard height
+            # (see app.build). '' = keyboard overlays; layouts top-anchor.
+            Window.softinput_mode = ""
 
     # ------------------------------------------------------------------ #
     def start(self, app, config, words=None) -> None:
