@@ -12,6 +12,19 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **The loading ring spins for real now** (third time's the charm —
+  measured, this time). Profiling found two heavyweights still sitting
+  on the interface thread: card text sizing re-rendered each card's
+  text up to twenty times per card (now one or two, with repeated fits
+  remembered), and dealing a board wrote each word's "seen" stat to
+  disk with a full sync — ~20ms each, six per deal. Launches dropped
+  from a single long freeze to a handful of light frames, boards are
+  built a few cards per frame behind the deal animation, and — bonus —
+  every match mid-game also lost that ~20ms write hiccup, on the
+  computer too.
+
+## 0.31.0 — 2026-07-18
+
 - **Browse the whole dictionary.** Stats grew a Dictionary view (both
   platforms): every word in every deck — not just the ones you've
   played — searchable by kanji, reading or meaning, sorted N5-first,

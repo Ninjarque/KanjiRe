@@ -165,6 +165,11 @@ def connect(path: Path | str = DB_PATH, *, read_only: bool = False) -> sqlite3.C
         path.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(path)
         con.execute("PRAGMA journal_mode=WAL")
+        # WAL + NORMAL: commits stop fsyncing individually (the WAL is synced
+        # at checkpoints; the DB stays consistent through crashes). Every
+        # stats event used to cost a ~20ms fsync ON THE UI THREAD — six of
+        # them froze the first board deal, and each match paid one too.
+        con.execute("PRAGMA synchronous=NORMAL")
     con.row_factory = sqlite3.Row
     return con
 

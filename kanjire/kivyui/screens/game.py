@@ -74,11 +74,15 @@ class CardWidget(ButtonBehavior, Widget):
         w = max(10.0, self.width - 2 * pad)
         h = max(10.0, self.height - 2 * pad)
         wrap = self.card.face == "meaning"
-        size = fit_font_size(self._label.text, w, h, font_name=self._font,
-                             start=min(sp(30), h * 0.6),
-                             wrap=wrap or self._vertical)
-        self._label.font_size = size
-        self._label.text_size = (w, None) if wrap else (None, None)
+        # Re-fit only when the text/box actually changed: _sync fires for
+        # every pos AND size nudge, and the font fit is the expensive part.
+        fit_key = (self._label.text, round(w), round(h))
+        if fit_key != getattr(self, "_fit_key", None):
+            self._fit_key = fit_key
+            self._label.font_size = fit_font_size(
+                self._label.text, w, h, font_name=self._font,
+                start=min(sp(30), h * 0.6), wrap=wrap or self._vertical)
+            self._label.text_size = (w, None) if wrap else (None, None)
         self._label.size = (w, h)
         self._label.center = self.center
         self._sticker.size = (dp(30), dp(18))
@@ -218,27 +222,45 @@ class GameScreen(Screen):
         self._cards = {}
         cfg = self.engine.config
         variety = jp_fonts()
-        for i, card in enumerate(self.engine.board_cards):
-            # Familiarize: stable per-card style (seeded by id so a relayout
-            # doesn't reshuffle the look mid-round).
-            font = None
-            vertical = False
-            if card.face in ("kanji", "reading"):
-                rng = _random.Random(card.id)
-                if cfg.random_fonts and variety:
-                    font = rng.choice(variety)
-                if cfg.vertical_writing == "all":
-                    vertical = True
-                elif cfg.vertical_writing == "random":
-                    vertical = rng.random() < 0.5
-            w = CardWidget(card, font_name=font, vertical=vertical,
-                           size_hint=(None, None))
-            w.bind(on_release=lambda wid: self._on_card(wid))
-            self._cards[card.id] = w
-            self.board.add_widget(w)
-            w.pop_in(0.03 * i)
-        self._apply_stickers()
-        self._layout_cards()
+        cards = list(self.engine.board_cards)
+        # Chunked build: a few cards per frame instead of the whole board in
+        # one — creating a card runs font fitting on the UI thread, and 24
+        # at once froze the loading spinner (and every next-round deal).
+        # The pop-in stagger hides the chunk boundaries completely.
+        self._build_gen = getattr(self, "_build_gen", 0) + 1
+        gen = self._build_gen
+        chunk = 6
+
+        def build_from(start: int) -> None:
+            if gen != self._build_gen or self.engine is None:
+                return          # a newer deal/quit superseded this build
+            for i in range(start, min(start + chunk, len(cards))):
+                card = cards[i]
+                # Familiarize: stable per-card style (seeded by id so a
+                # relayout doesn't reshuffle the look mid-round).
+                font = None
+                vertical = False
+                if card.face in ("kanji", "reading"):
+                    rng = _random.Random(card.id)
+                    if cfg.random_fonts and variety:
+                        font = rng.choice(variety)
+                    if cfg.vertical_writing == "all":
+                        vertical = True
+                    elif cfg.vertical_writing == "random":
+                        vertical = rng.random() < 0.5
+                w = CardWidget(card, font_name=font, vertical=vertical,
+                               size_hint=(None, None))
+                w.bind(on_release=lambda wid: self._on_card(wid))
+                self._cards[card.id] = w
+                self.board.add_widget(w)
+                w.pop_in(0.03 * i)
+            self._layout_cards()
+            if start + chunk < len(cards):
+                Clock.schedule_once(lambda _dt: build_from(start + chunk), 0)
+            else:
+                self._apply_stickers()
+
+        build_from(0)
 
     def _apply_stickers(self) -> None:
         e = self.engine
