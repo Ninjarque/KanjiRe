@@ -76,6 +76,50 @@ def test_full_round_solvable_two_faces():
     assert eng.score > 0
 
 
+def test_multi_deck_union_levels_scope_jlpt_only():
+    """Selecting JLPT+corpus with N5 must keep ALL corpus words: the level
+    filter scopes to the jlpt deck (corpus rows carry jlpt = NULL and used
+    to vanish from the union)."""
+    if _skip_if_no_db():
+        return
+    con = db.connect(read_only=True)
+    try:
+        corpus = [r["name"] for r in db.list_decks(con)
+                  if r["name"].startswith("corpus:")]
+        if not corpus:
+            print("note: no corpus deck - ok")
+            return
+        n5 = db.load_words(con, decks=["jlpt"], levels=[5],
+                           require_kanji=True)
+        cor = db.load_words(con, decks=[corpus[0]], require_kanji=True)
+        union = db.load_words(con, decks=["jlpt", corpus[0]], levels=[5],
+                              require_kanji=True)
+        assert len(union) == len(n5) + len(cor)
+        assert {w.deck for w in union} == {"jlpt", corpus[0]}
+        # jlpt-only behaviour is unchanged by the scoped clause
+        assert all(w.jlpt == 5 for w in union if w.deck == "jlpt")
+    finally:
+        con.close()
+
+
+def test_settings_decks_normalisation():
+    from kanjire.game.menuconfig import normalized_settings
+    # legacy single deck still reads
+    s = normalized_settings({"deck": "corpus:wikipedia"})
+    assert s["decks"] == ["corpus:wikipedia"]
+    assert s["deck"] == "corpus:wikipedia"
+    # multi-select round-trips, mirror = first
+    s = normalized_settings({"decks": ["jlpt", "corpus:wikipedia"]})
+    assert s["decks"] == ["jlpt", "corpus:wikipedia"]
+    assert s["deck"] == "jlpt"
+    # kana is exclusive
+    s = normalized_settings({"decks": ["jlpt", "kana"]})
+    assert s["decks"] == ["kana"]
+    # junk falls back to the default
+    assert normalized_settings({"decks": []})["decks"] == ["jlpt"]
+    assert normalized_settings({})["decks"] == ["jlpt"]
+
+
 def test_corpus_deck_if_present():
     if _skip_if_no_db():
         return

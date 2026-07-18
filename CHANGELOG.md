@@ -23,6 +23,14 @@ ready" banner, so write them for players, not for the commit log.
   really just configurations. Every setting they carried (passes, fonts,
   vertical writing, and the known/less-known/unknown word mix) is now
   visible and adjustable in EVERY mode, on desktop and Android alike.
+- **Mix your dictionaries.** The deck row is now toggles, like the card
+  faces: turn on JLPT and Wikipedia (and any deck you imported) together
+  and the board draws from all of them at once. The JLPT level chips
+  keep applying to the JLPT part of the mix. Kana stays a solo pick —
+  it generates syllable drills rather than drawing from a word list.
+- **Hiragana / Katakana are toggles too.** In the Kana deck, pick
+  Hiragana, Katakana, or turn both on to match ひらがな ↔ カタカナ
+  across scripts (the old "Both").
 - **The Kana deck's script choice actually works now.** Hiragana-only and
   Katakana-only always quietly fell back to the mixed deck — pick
   Hiragana, Katakana, or Both and that's genuinely what you'll drill.

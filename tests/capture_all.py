@@ -121,10 +121,11 @@ def main() -> int:
         shot("menu_adv_recall", size)
         app.scene._set_mode("Time Attack")
         app.scene._set_subtab("quick")
-        app.scene._set_deck("kana")
+        app.scene.decks = ["jlpt"]
+        app.scene._toggle_deck("kana")
         render(6)
         shot("menu_kana", size)
-        app.scene._set_deck("jlpt")
+        app.scene._toggle_deck("jlpt")
 
         # game boards
         app.go_game(PRESETS["Zen"]().with_(decks=("jlpt",), levels=(5,),

@@ -109,9 +109,11 @@ class MenuScene(Scene):
         self.deck_rows: list[dict] = [
             {"name": kana.KANA_DECK, "kind": "kana"}
         ] + [dict(r) for r in all_decks]
-        self.deck = "jlpt" if any(r["name"] == "jlpt" for r in self.deck_rows) else (
-            self.deck_rows[0]["name"] if self.deck_rows else "jlpt"
-        )
+        #: Selected decks — an ordered multi-select drawing a UNION pool.
+        #: The synthetic kana deck is generative and stays exclusive.
+        self.decks: list[str] = (
+            ["jlpt"] if any(r["name"] == "jlpt" for r in self.deck_rows)
+            else [self.deck_rows[0]["name"]] if self.deck_rows else ["jlpt"])
         self.levels: set[int] = {5}
         self.board_size = 6
         #: The card faces in play — any subset of FACE_ORDER, minimum two.
@@ -232,7 +234,7 @@ class MenuScene(Scene):
         self.lbl_deck = self._section(tr("SEC_DECK"))
         self.deck_btns = [
             (r["name"], self._btn(_deck_label(r["name"]),
-                                  lambda n=r["name"]: self._set_deck(n)))
+                                  lambda n=r["name"]: self._toggle_deck(n)))
             for r in self.deck_rows
         ]
         self.import_btn = self._btn(
@@ -316,12 +318,15 @@ class MenuScene(Scene):
                           accent=theme.FACE_COLORS["reading"], font_size=12))
             for n in KANA_LENGTHS
         ]
+        # Two toggles like the card faces: both on = the paired hira ↔ kata
+        # matching deck ("both").
         self.lbl_kana_script = self._section(tr("SEC_KANA_SCRIPT"))
         self.kana_script_btns = [
             (val, self._btn(tr(label_key),
-                            lambda v=val: self._set_kana_script(v),
+                            lambda v=val: self._toggle_kana_script(v),
                             accent=theme.FACE_COLORS["kanji"], font_size=12))
-            for val, label_key in KANA_SCRIPTS
+            for val, label_key in (("hira", "KANA_SCRIPT_HIRA"),
+                                   ("kata", "KANA_SCRIPT_KATA"))
         ]
 
         # Survival difficulty: starting hearts + heart-bounty frequency. Shown
@@ -432,8 +437,17 @@ class MenuScene(Scene):
         # on_resize re-lays the active tab, hides the other, and re-refreshes.
         self.on_resize(self.width, self.height)
 
-    def _set_deck(self, n):
-        self.deck = n
+    def _toggle_deck(self, n):
+        """Deck toggles form a union pool; the generative kana deck is
+        exclusive (it can't blend with DB words on one board)."""
+        if n in self.decks:
+            if len(self.decks) > 1:
+                self.decks.remove(n)
+        elif n == kana.KANA_DECK:
+            self.decks = [n]                    # kana clears the others…
+        else:
+            self.decks = [d for d in self.decks
+                          if d != kana.KANA_DECK] + [n]   # …and back
         self._today_dirty = True
         self._after_change()
         # Selecting / leaving Kana changes which rows take space.
@@ -463,8 +477,16 @@ class MenuScene(Scene):
         self.kana_length = int(n)
         self._after_change()
 
-    def _set_kana_script(self, v: str) -> None:
-        self.kana_script = v
+    def _toggle_kana_script(self, v: str) -> None:
+        on = ({"hira", "kata"} if self.kana_script == "both"
+              else {self.kana_script})
+        if v in on:
+            if len(on) > 1:
+                on.discard(v)
+        else:
+            on.add(v)
+        self.kana_script = ("both" if on >= {"hira", "kata"}
+                            else "kata" if "kata" in on else "hira")
         self._after_change()
 
     def _set_hearts(self, n: int) -> None:
@@ -490,7 +512,10 @@ class MenuScene(Scene):
 
     def _settings_dict(self) -> dict:
         return {
-            "deck": self.deck,
+            "decks": list(self.decks),
+            # Legacy mirror so pre-multi-deck builds (and their synced
+            # settings) still read something sensible.
+            "deck": self.decks[0],
             "levels": sorted(self.levels),
             "board_size": self.board_size,
             "faces": list(self.faces_sel),
@@ -513,8 +538,14 @@ class MenuScene(Scene):
 
     def _apply_settings(self, d: dict) -> None:
         deck_names = {r["name"] for r in self.deck_rows}
-        if d.get("deck") in deck_names:
-            self.deck = d["deck"]
+        decks = d.get("decks")
+        if not (isinstance(decks, (list, tuple)) and decks):
+            decks = [d["deck"]] if isinstance(d.get("deck"), str) else []
+        decks = [x for x in decks if x in deck_names]
+        if kana.KANA_DECK in decks:
+            decks = [kana.KANA_DECK]           # generative: exclusive
+        if decks:
+            self.decks = list(dict.fromkeys(decks))
         levels = [lv for lv in d.get("levels", []) if lv in LEVELS]
         if levels:
             self.levels = set(levels)
@@ -542,8 +573,11 @@ class MenuScene(Scene):
             self.learn_unknown = int(d["learn_unknown"])
         if d.get("kana_length") in KANA_LENGTHS:
             self.kana_length = int(d["kana_length"])
-        if d.get("kana_script") in {v for v, _ in KANA_SCRIPTS}:
-            self.kana_script = d["kana_script"]
+        from kanjire.game.menuconfig import KANA_SCRIPT_ALIASES
+        ks = d.get("kana_script")
+        ks = KANA_SCRIPT_ALIASES.get(ks, ks)
+        if ks in {v for v, _ in KANA_SCRIPTS}:
+            self.kana_script = ks
         if d.get("start_hearts") in HEARTS_OPTIONS:
             self.start_hearts = int(d["start_hearts"])
         if d.get("bounty_freq") in _BOUNTY_CHANCE:
@@ -568,9 +602,11 @@ class MenuScene(Scene):
         # Presets (built-in or saved) also restore deck / levels / faces /
         # board size when they carry them.
         if name not in PRESETS:
-            decks = tuple(cfg.get("decks", ()))
-            if decks and decks[0] in {r["name"] for r in self.deck_rows}:
-                self.deck = decks[0]
+            names = {r["name"] for r in self.deck_rows}
+            decks = [d for d in cfg.get("decks", ()) if d in names]
+            if decks:
+                self.decks = (
+                    [kana.KANA_DECK] if kana.KANA_DECK in decks else decks)
             lv = list(cfg.get("levels") or ())
             if lv:
                 self.levels = set(lv)
@@ -661,14 +697,14 @@ class MenuScene(Scene):
         # applied to the group on the active sub-tab, so we never re-show a
         # widget that belongs to the hidden tab.
         quick = self.active_subtab == "quick"
-        is_jlpt = self.deck == "jlpt"
-        kana_deck = self.deck == kana.KANA_DECK
+        is_jlpt = "jlpt" in self.decks
+        kana_deck = kana.KANA_DECK in self.decks
 
         if quick:
             for m, b in self.mode_btns:
                 b.set_selected(m == self.mode)
             for n, b in self.deck_btns:
-                b.set_selected(n == self.deck)
+                b.set_selected(n in self.decks)
             for s, b in self.size_btns:
                 b.set_selected(s == self.board_size)
             # JLPT level row: enabled only for the JLPT deck (greyed for corpus
@@ -682,10 +718,12 @@ class MenuScene(Scene):
                 b.set_visible(kana_deck)
                 if kana_deck:
                     b.set_selected(n == self.kana_length)
+            script_on = ({"hira", "kata"} if self.kana_script == "both"
+                         else {self.kana_script})
             for v, b in self.kana_script_btns:
                 b.set_visible(kana_deck)
                 if kana_deck:
-                    b.set_selected(v == self.kana_script)
+                    b.set_selected(v in script_on)
             self.lbl_kana_length.opacity = 255 if kana_deck else 0
             self.lbl_kana_script.opacity = 255 if kana_deck else 0
             self.lbl_level.opacity = 0 if kana_deck else 255
@@ -753,7 +791,7 @@ class MenuScene(Scene):
             self.lbl_recall_preview.opacity = 255 if showing_recall else 0
 
         # availability count
-        if self.deck == kana.KANA_DECK:
+        if kana.KANA_DECK in self.decks:
             # Kana mode is generative - always "available", and the count
             # really means how many distinct syllables can appear.
             n = len(kana.KANA_SOUNDS)
@@ -762,8 +800,8 @@ class MenuScene(Scene):
         else:
             levels = tuple(self.levels) if is_jlpt else None
             try:
-                n = db.word_count(self.app.con, decks=[self.deck], levels=levels,
-                                  require_kanji=True)
+                n = db.word_count(self.app.con, decks=list(self.decks),
+                                  levels=levels, require_kanji=True)
             except Exception:
                 n = 0
             self.avail_label.text = (
@@ -811,7 +849,7 @@ class MenuScene(Scene):
     # ------------------------------------------------------------------ #
     def _current_config(self) -> GameConfig:
         """Translate every menu state field into a :class:`GameConfig`."""
-        if self.deck == kana.KANA_DECK:
+        if kana.KANA_DECK in self.decks:
             # Kana mode: script picks which kana script(s) become cards.
             #   hira / kata  -> 2-face board (script + romaji)
             #   both         -> 3-face board (hira + kata + romaji)
@@ -820,7 +858,7 @@ class MenuScene(Scene):
             levels = ()
         else:
             faces = tuple(self.faces_sel) or DEFAULT_FACES
-            levels = tuple(sorted(self.levels)) if self.deck == "jlpt" else ()
+            levels = tuple(sorted(self.levels)) if "jlpt" in self.decks else ()
         if self.mode in PRESETS:
             base = PRESETS[self.mode]()
         else:
@@ -836,7 +874,7 @@ class MenuScene(Scene):
                             v = tuple(v)
                         setattr(base, f, v)
         return base.with_(
-            decks=(self.deck,), levels=levels, faces=faces,
+            decks=tuple(self.decks), levels=levels, faces=faces,
             words_per_round=self.board_size,
             random_fonts=self.random_fonts,
             vertical_writing=self.vertical_writing,
@@ -863,8 +901,9 @@ class MenuScene(Scene):
         """Lazily (re)build the Today plan; deck/level changes invalidate it."""
         if self._today_dirty or self._today_plan is None:
             from kanjire.srs.session import TodayPlan, build_today_plan
-            decks = None if self.deck == kana.KANA_DECK else [self.deck]
-            levels = sorted(self.levels) if self.deck == "jlpt" else None
+            decks = (None if kana.KANA_DECK in self.decks
+                     else list(self.decks))
+            levels = sorted(self.levels) if "jlpt" in self.decks else None
             try:
                 self._today_plan = build_today_plan(
                     self.app.con, self.app.stats, decks=decks, levels=levels)
@@ -877,9 +916,10 @@ class MenuScene(Scene):
         plan = self._get_today_plan()
         if plan.empty:
             return
+        decks = [d for d in self.decks if d != kana.KANA_DECK] or ["jlpt"]
         cfg = GameConfig(
             name="Today",
-            decks=(self.deck if self.deck != kana.KANA_DECK else "jlpt",),
+            decks=tuple(decks),
             levels=(), faces=DEFAULT_FACES,
             words_per_round=min(6, max(2, len(plan.pool))),
             duration=None, max_mistakes=None, mismatch_penalty=0,
@@ -1035,7 +1075,7 @@ class MenuScene(Scene):
         bw, gp = 175 * s, 14 * s
         self.import_btn.set_rect(cx - bw - gp / 2, y - 13 * s, bw, 26 * s)
         self.paste_btn.set_rect(cx + gp / 2, y - 13 * s, bw, 26 * s)
-        if self.deck == kana.KANA_DECK:
+        if kana.KANA_DECK in self.decks:
             # Kana mode: KANA LENGTH + KANA SCRIPT replace the JLPT LEVEL row.
             section(self.lbl_kana_length, dy=40)
             y -= 30 * s

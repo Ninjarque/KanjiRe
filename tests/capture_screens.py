@@ -72,10 +72,11 @@ def main() -> int:
     app.scene._set_subtab("quick")
     app.scene._set_mode("Time Attack")
     # Kana deck swaps JLPT LEVEL / CARDS PER WORD for KANA LENGTH / KANA SCRIPT.
-    app.scene._set_deck("kana")
+    app.scene.decks = ["jlpt"]
+    app.scene._toggle_deck("kana")
     render(8)
     shot("menu_kana.png")
-    app.scene._set_deck("jlpt")
+    app.scene._toggle_deck("jlpt")
     render(6)
 
     app.scene._play()

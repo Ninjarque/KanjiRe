@@ -92,7 +92,7 @@ def preset_overlay(preset: dict) -> dict:
         if faces:
             out["faces"] = faces
     if isinstance(preset.get("decks"), (list, tuple)) and preset["decks"]:
-        out["deck"] = preset["decks"][0]
+        out["decks"] = list(preset["decks"])
     if isinstance(preset.get("levels"), (list, tuple)) and preset["levels"]:
         out["levels"] = list(preset["levels"])
     return out
@@ -133,8 +133,12 @@ PRESET_FIELDS = (
 )
 
 #: The per-mode settings dict, with defaults (UserState.last_for_mode shape).
+#: "decks" is an ordered multi-select (union word pool); the kana deck is
+#: generative and therefore exclusive — it never mixes with DB decks.
+#: The legacy single "deck" key is kept as a mirror (= decks[0]) so older
+#: clients on the same sync account still read a sensible value.
 DEFAULT_SETTINGS = {
-    "deck": "jlpt",
+    "decks": ["jlpt"],
     "levels": [5],
     "board_size": 6,
     "faces": ["kanji", "reading", "romaji", "meaning"],
@@ -157,8 +161,16 @@ def normalized_settings(d: dict | None) -> dict:
     """A full settings dict: persisted values where valid, defaults elsewhere."""
     s = dict(DEFAULT_SETTINGS)
     d = d or {}
-    if isinstance(d.get("deck"), str):
-        s["deck"] = d["deck"]
+    decks = d.get("decks")
+    if not (isinstance(decks, (list, tuple)) and decks):
+        decks = [d["deck"]] if isinstance(d.get("deck"), str) else []
+    decks = [x for x in decks if isinstance(x, str) and x]
+    from kanjire.kana import KANA_DECK
+    if KANA_DECK in decks:
+        decks = [KANA_DECK]          # generative: never mixes with DB decks
+    if decks:
+        s["decks"] = list(dict.fromkeys(decks))
+    s["deck"] = s["decks"][0]        # legacy mirror for older clients
     levels = [lv for lv in d.get("levels", []) if lv in LEVELS]
     if levels:
         s["levels"] = sorted(levels)
@@ -206,7 +218,7 @@ def config_for(mode: str, settings: dict, *,
     """
     s = normalized_settings(settings)
     from kanjire.kana import KANA_DECK
-    if s["deck"] == KANA_DECK:
+    if KANA_DECK in s["decks"]:
         # Kana mode decides its own faces from the script choice:
         #   hira / kata -> 2-face board (script + romaji)
         #   both        -> 3-face board (hira + kata + romaji)
@@ -214,7 +226,7 @@ def config_for(mode: str, settings: dict, *,
                  if s["kana_script"] == "both" else ("kanji", "meaning"))
     else:
         faces = tuple(s["faces"]) or DEFAULT_FACES
-    levels = tuple(s["levels"]) if s["deck"] == "jlpt" else ()
+    levels = tuple(s["levels"]) if "jlpt" in s["decks"] else ()
 
     if mode in PRESETS:
         base = PRESETS[mode]()
@@ -232,7 +244,7 @@ def config_for(mode: str, settings: dict, *,
                     setattr(base, f, v)
 
     return base.with_(
-        decks=(s["deck"],), levels=levels, faces=faces,
+        decks=tuple(s["decks"]), levels=levels, faces=faces,
         words_per_round=s["board_size"],
         random_fonts=s["random_fonts"],
         vertical_writing=s["vertical_writing"],

@@ -315,7 +315,9 @@ def load_words(
     """Load words matching the given filters.
 
     *decks*  - restrict to these deck names (default: all).
-    *levels* - restrict to these JLPT levels (default: all).
+    *levels* - restrict the JLPT deck to these levels. Words from other
+               decks are unaffected (they'd otherwise vanish from a
+               multi-deck union, since corpus words carry jlpt = NULL).
     """
     clauses = ["1=1"]
     params: list[object] = []
@@ -324,7 +326,8 @@ def load_words(
         params.extend(decks)
     if levels:
         levels = list(levels)
-        clauses.append(f"jlpt IN ({','.join('?' * len(levels))})")
+        clauses.append(
+            f"(deck <> 'jlpt' OR jlpt IN ({','.join('?' * len(levels))}))")
         params.extend(levels)
     if require_kanji:
         clauses.append("has_kanji = 1")

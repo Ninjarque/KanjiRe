@@ -109,16 +109,34 @@ class PlayScreen(Screen):
                 return d[len("corpus:"):].replace("-", " ").title()
             return d
         body.add_widget(SectionLabel(text=tr("SEC_DECK")))
-        body.add_widget(self._chips(
+        body.add_widget(ChipRow(
             [(d, deck_label(d)) for d in self._decks],
-            s["deck"], "deck"))
+            s["decks"], multi=True,
+            on_change=self._set_decks))
 
         # ---- levels (jlpt only) ---------------------------------------- #
-        if s["deck"] == "jlpt":
+        if "jlpt" in s["decks"]:
             body.add_widget(SectionLabel(text=tr("SEC_LEVEL")))
             body.add_widget(self._chips(
                 [(lv, f"N{lv}") for lv in mc.LEVELS], s["levels"],
                 "levels", multi=True))
+
+        # ---- kana controls (take the level row's spot, like desktop) ---- #
+        if kana.KANA_DECK in s["decks"]:
+            body.add_widget(SectionLabel(text=tr("SEC_KANA_LENGTH")))
+            body.add_widget(self._chips(
+                [(n, str(n)) for n in mc.KANA_LENGTHS],
+                s["kana_length"], "kana_length"))
+            # Two toggles, like the card faces: both on = the paired
+            # hira ↔ kata matching deck ("both").
+            body.add_widget(SectionLabel(text=tr("SEC_KANA_SCRIPT")))
+            sel = (["hira", "kata"] if s["kana_script"] == "both"
+                   else [s["kana_script"]])
+            body.add_widget(ChipRow(
+                [("hira", tr("KANA_SCRIPT_HIRA")),
+                 ("kata", tr("KANA_SCRIPT_KATA"))],
+                sel, multi=True, min_selected=1,
+                on_change=self._set_kana_scripts))
 
         # ---- board size ------------------------------------------------ #
         body.add_widget(SectionLabel(text=tr("SEC_WORDS")))
@@ -132,7 +150,7 @@ class PlayScreen(Screen):
         # (board modes only — recall has no cards to split into faces, and
         # the kana deck derives its faces from the script choice instead)
         from kanjire.kivyui.widgets import ChipGrid
-        if not is_recall and s["deck"] != kana.KANA_DECK:
+        if not is_recall and kana.KANA_DECK not in s["decks"]:
             body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
             body.add_widget(ChipGrid(
                 [(f, tr(k)) for f, k in mc.FACE_OPTIONS],
@@ -187,16 +205,6 @@ class PlayScreen(Screen):
             body.add_widget(self._chips(
                 [(True, tr("OPT_ON")), (False, tr("OPT_OFF"))],
                 s["recall_preview"], "recall_preview"))
-        if s["deck"] == kana.KANA_DECK:
-            body.add_widget(SectionLabel(text=tr("SEC_KANA_LENGTH")))
-            body.add_widget(self._chips(
-                [(n, str(n)) for n in mc.KANA_LENGTHS],
-                s["kana_length"], "kana_length"))
-            body.add_widget(SectionLabel(text=tr("SEC_KANA_SCRIPT")))
-            body.add_widget(self._chips(
-                [(v, tr(k)) for v, k in mc.KANA_SCRIPTS],
-                s["kana_script"], "kana_script"))
-
         scroller.add_widget(body)
         root.add_widget(scroller)
 
@@ -251,11 +259,32 @@ class PlayScreen(Screen):
     def _set(self, key: str, value) -> None:
         self.settings[key] = value
         self._app.state.set_last_for_mode(self.mode, dict(self.settings))
-        if key in ("deck", "levels"):
+        if key == "levels":
             self._today_cache = None   # Today's pool is scoped by these
-        # Deck switches change which option rows exist.
-        if key == "deck":
-            self._build()
+
+    def _set_decks(self, values) -> None:
+        """Multi-select decks; the generative kana deck stays exclusive."""
+        prev = list(self.settings["decks"])
+        vals = [v for v in (values or []) if v]
+        if not vals:
+            self._build()              # can't go empty — re-sync the chips
+            return
+        added = [v for v in vals if v not in prev]
+        if kana.KANA_DECK in added:
+            vals = [kana.KANA_DECK]    # picking kana clears DB decks…
+        elif kana.KANA_DECK in vals and len(vals) > 1:
+            vals = [v for v in vals if v != kana.KANA_DECK]  # …and back
+        self.settings["decks"] = vals
+        self.settings["deck"] = vals[0]   # legacy mirror (older clients)
+        self._app.state.set_last_for_mode(self.mode, dict(self.settings))
+        self._today_cache = None
+        self._build()                  # deck mix changes which rows exist
+
+    def _set_kana_scripts(self, values) -> None:
+        vs = set(values or ())
+        val = ("both" if vs >= {"hira", "kata"}
+               else "kata" if "kata" in vs else "hira")
+        self._set("kana_script", val)
 
     def _play(self) -> None:
         cfg = mc.config_for(self.mode, self.settings)
@@ -268,8 +297,9 @@ class PlayScreen(Screen):
         if getattr(self, "_today_cache", None) is None:
             from kanjire.srs.session import TodayPlan, build_today_plan
             s = self.settings
-            decks = None if s["deck"] == kana.KANA_DECK else [s["deck"]]
-            levels = sorted(s["levels"]) if s["deck"] == "jlpt" else None
+            decks = (None if kana.KANA_DECK in s["decks"]
+                     else list(s["decks"]))
+            levels = sorted(s["levels"]) if "jlpt" in s["decks"] else None
             try:
                 self._today_cache = build_today_plan(
                     self._app.con, self._app.stats, decks=decks,
@@ -296,9 +326,10 @@ class PlayScreen(Screen):
         if plan.empty:
             return
         s = self.settings
+        decks = [d for d in s["decks"] if d != kana.KANA_DECK] or ["jlpt"]
         cfg = GameConfig(
             name="Today",
-            decks=(s["deck"] if s["deck"] != kana.KANA_DECK else "jlpt",),
+            decks=tuple(decks),
             levels=(), faces=DEFAULT_FACES,
             words_per_round=min(6, max(2, len(plan.pool))),
             duration=None, max_mistakes=None, mismatch_penalty=0,
