@@ -176,12 +176,16 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     # Session lifecycle
     # ------------------------------------------------------------------ #
-    def start(self, app, config, pool=None, recall_words=None) -> None:
+    def start(self, app, config, pool=None, recall_words=None,
+              session=None) -> None:
+        """*session*: a prebuilt Session (the app's launch worker assembles
+        it off the UI thread so the loading spinner keeps spinning)."""
         self._app = app
         self._clear_overlay()
         #: Typed-recall epilogue after a *won* session (Journey/Today).
         self.recall_words = list(recall_words) if recall_words else []
-        self.session = build_session(app.con, app.stats, config, pool=pool)
+        self.session = session or build_session(app.con, app.stats, config,
+                                                pool=pool)
         self.engine = self.session.engine
         if self.session.error:
             self._show_overlay(self.session.error, final=False)

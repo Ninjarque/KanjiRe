@@ -211,6 +211,22 @@ def main() -> None:
             check("history rows listed", len(ss._rv.data) >= 1)
             check("history rows tappable",
                   all(d.get("row_id") for d in ss._rv.data))
+            # The full-dictionary browser: every word in every deck, played
+            # or not — vastly more rows than the stats list.
+            ss._set_view("dict")
+            check("dictionary lists the whole vocab",
+                  len(ss._rv.data) > 1000
+                  and len(ss._rv.data) > len(ss._rows))
+            check("dictionary rows carry meanings",
+                  all(d["counts"] for d in ss._rv.data[:50]))
+            check("dictionary rows are speakable",
+                  all(d.get("say") for d in ss._rv.data[:50]))
+            n_all = len(ss._rv.data)
+            ss._search.text = ss._rv.data[0]["word"].split()[0]
+            check("dictionary search filters",
+                  0 < len(ss._rv.data) < n_all)
+            ss._search.text = ""
+            snap(app, "07b-dictionary")
             ss._set_view("words")
             # Live theme swap must rebuild every tab without error.
             from kanjire.ui import theme as _theme
@@ -363,7 +379,7 @@ def main() -> None:
                              max_mistakes=None, mismatch_penalty=0,
                              repetitions=1, session_mode=True)
             app.go_game(cfg, pool=pool, recall_words=pool[:1])
-            later(0.6, step_epilogue_win)
+            later(1.2, step_epilogue_win)
 
         def step_epilogue_win():
             gs = app.sm.get_screen("game")
@@ -387,7 +403,7 @@ def main() -> None:
             # Back/Esc: in a game -> previous menu; on a tab -> play tab;
             # on the play tab -> confirm-exit modal (unless opted out).
             app.go_game()
-            later(0.5, step_back_in_game)
+            later(1.2, step_back_in_game)
 
         def step_back_in_game():
             handled = app._on_hard_key(None, 27)
@@ -414,7 +430,7 @@ def main() -> None:
                 if isinstance(w, ModalView):
                     w.dismiss()
             app.go_game()
-            later(0.6, step_grid_check)
+            later(1.2, step_grid_check)
 
         def step_grid_check():
             gs = app.sm.get_screen("game")
@@ -503,7 +519,7 @@ def main() -> None:
 
         def step_sentence_modes_entry():
             app.go_game()
-            later(0.6, lambda: step_sentence_modes(
+            later(1.2, lambda: step_sentence_modes(
                 app.sm.get_screen("game")))
 
         def step_sentence_modes(gs):
@@ -526,7 +542,7 @@ def main() -> None:
             app.stop()
 
         # deferred launch: wait for the spinner tick, then the game steps
-        later(0.5, step_game_started)
+        later(1.2, step_game_started)
 
     Clock.schedule_once(run_script, 1.0)
     app.run()

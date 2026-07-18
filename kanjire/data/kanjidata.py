@@ -24,7 +24,11 @@ def _open(path: Path) -> sqlite3.Connection | None:
     try:
         if not path.exists():
             return None
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        # check_same_thread=False: the game-launch worker thread reads these
+        # read-only connections while the UI thread idles on the spinner;
+        # access is never actually concurrent.
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True,
+                              check_same_thread=False)
         con.row_factory = sqlite3.Row
         return con
     except sqlite3.Error:
@@ -84,8 +88,17 @@ def keisei_info(kanji: str) -> dict | None:
     return out
 
 
+_series_cache: dict[str, set[str]] | None = None
+
+
 def series_map() -> dict[str, set[str]]:
-    """kanji -> set of kanji in the same phonetic series (for the sampler)."""
+    """kanji -> set of kanji in the same phonetic series (for the sampler).
+
+    Static data, but rebuilding it walked the whole keisei table on EVERY
+    game launch — cached now (treat the result as read-only)."""
+    global _series_cache
+    if _series_cache is not None:
+        return _series_cache
     kd, _ = _cons()
     out: dict[str, set[str]] = {}
     if kd is None:
@@ -94,6 +107,7 @@ def series_map() -> dict[str, set[str]]:
         members = (row["compounds"] or "").split()
         for m in members:
             out.setdefault(m, set()).update(x for x in members if x != m)
+    _series_cache = out
     return out
 
 

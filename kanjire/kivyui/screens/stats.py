@@ -35,11 +35,13 @@ class WordRow(ButtonBehavior, BoxLayout):
         kw.setdefault("padding", [dp(6), 0])
         super().__init__(**kw)
         self.row_id = None
+        self.say = ""
         self.lbl_word = JPLabel(halign="left", valign="middle",
                                 font_size=sp(15), size_hint_x=0.62)
         self.lbl_word.bind(size=self.lbl_word.setter("text_size"))
         self.lbl_counts = JPLabel(halign="right", valign="middle",
-                                  font_size=sp(12.5),
+                                  font_size=sp(12.5), shorten=True,
+                                  shorten_from="right",
                                   color=rgba(theme.MUTED), size_hint_x=0.38)
         self.lbl_counts.bind(size=self.lbl_counts.setter("text_size"))
         self.add_widget(self.lbl_word)
@@ -52,11 +54,16 @@ class WordRow(ButtonBehavior, BoxLayout):
         fset=lambda self, v: setattr(self.lbl_word, "color", v))
 
     def on_release(self):
-        if self.row_id is None:
-            return
         from kivy.app import App
         app = App.get_running_app()
-        app.sm.get_screen("stats")._history_tapped(self.row_id)
+        if self.row_id is not None:
+            app.sm.get_screen("stats")._history_tapped(self.row_id)
+        elif self.say:
+            # Dictionary rows: tap = hear the word.
+            try:
+                app.audio.speech.say_jp(self.say)
+            except Exception:
+                pass
 
 
 Factory.register("WordRow", cls=WordRow)
@@ -91,10 +98,12 @@ class StatsScreen(Screen):
         self._lbl_acc.bind(size=self._lbl_acc.setter("text_size"))
         root.add_widget(self._lbl_acc)
 
-        # ---- view switch: words / history --------------------------------- #
+        # ---- view switch: words / dictionary / history ------------------- #
         self._view = "words"
+        self._dict_rows: list[dict] | None = None   # built on first open
         root.add_widget(ChipRow(
-            [("words", tr("INNER_WORDS")), ("history", tr("INNER_HISTORY"))],
+            [("words", tr("INNER_WORDS")), ("dict", tr("INNER_DICT")),
+             ("history", tr("INNER_HISTORY"))],
             "words", on_change=self._set_view))
 
         # ---- search + list ----------------------------------------------- #
@@ -163,13 +172,49 @@ class StatsScreen(Screen):
 
     def _set_view(self, view: str) -> None:
         self._view = view
-        self._search.hint_text = (tr("SEARCH_HISTORY") if view == "history"
-                                  else tr("SEARCH_WORDS"))
+        self._search.hint_text = {"history": tr("SEARCH_HISTORY"),
+                                  "dict": tr("SEARCH_DICT")}.get(
+            view, tr("SEARCH_WORDS"))
         self._refill()
+
+    def _dictionary(self) -> list[dict]:
+        """Every word in every deck (built once), with the player's bucket
+        colour merged in where stats exist."""
+        if self._dict_rows is None:
+            from kanjire.data import db
+            by_key = {(r.get("expression"), r.get("reading")): r
+                      for r in self._rows}
+            loc = self._app.state.locale
+            try:
+                vocab = db.load_words(self._app.con, require_kanji=True)
+            except Exception:
+                vocab = []
+            # A word can live in several decks (jlpt + a corpus): show it
+            # once, preferring the JLPT entry (level + curated meaning).
+            vocab.sort(key=lambda w: w.deck != "jlpt")
+            seen_keys: set[tuple] = set()
+            out = []
+            for w in vocab:
+                key = (w.expression, w.reading)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                st = by_key.get(key)
+                out.append({
+                    "expression": w.expression, "reading": w.reading,
+                    "meaning": w.get_meaning(loc) or "", "jlpt": w.jlpt,
+                    "bucket": classify(st) if st and st.get("seen") else None,
+                })
+            out.sort(key=lambda r: (-(r["jlpt"] or 0), r["reading"]))
+            self._dict_rows = out
+        return self._dict_rows
 
     def _refill(self) -> None:
         if self._view == "history":
             self._refill_history()
+            return
+        if self._view == "dict":
+            self._refill_dict()
             return
         q = (self._search.text or "").strip().lower()
         data = []
@@ -188,6 +233,26 @@ class StatsScreen(Screen):
                 "counts": f"正{r.get('matches', 0)}  誤{miss}",
                 "word_color": rgba(getattr(theme, _BUCKET_COL[bucket])),
                 "row_id": None,
+                "say": "",     # recycled rows must not keep a stale reading
+            })
+        self._rv.data = data
+
+    def _refill_dict(self) -> None:
+        q = (self._search.text or "").strip().lower()
+        data = []
+        for r in self._dictionary():
+            if q and not any(q in (r[f] or "").lower()
+                             for f in ("expression", "reading", "meaning")):
+                continue
+            level = f"N{r['jlpt']}  ·  " if r["jlpt"] else ""
+            color = (rgba(getattr(theme, _BUCKET_COL[r["bucket"]]))
+                     if r["bucket"] else rgba(theme.TEXT))
+            data.append({
+                "word": f"{r['expression']}  {r['reading']}",
+                "counts": level + r["meaning"],
+                "word_color": color,
+                "row_id": None,
+                "say": r["reading"],
             })
         self._rv.data = data
 
@@ -205,6 +270,7 @@ class StatsScreen(Screen):
                           f"正{row.get('matches', 0)} 誤{row.get('mistakes', 0)}",
                 "word_color": rgba(theme.TEXT),
                 "row_id": row.get("id"),
+                "say": "",
             })
         self._rv.data = data
 

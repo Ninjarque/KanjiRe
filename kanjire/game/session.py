@@ -70,12 +70,17 @@ class Session:
 
 
 def build_session(con, stats, config: GameConfig, *,
-                  pool=None, rng: random.Random | None = None) -> Session:
+                  pool=None, rng: random.Random | None = None,
+                  stats_read=None) -> Session:
     """Assemble (but don't start) a game session.
 
     *con* is the vocab DB connection, *stats* the app-wide StatsRecorder
     (either may be None only in tests). An explicit *pool* bypasses deck
-    loading (rematch flows).
+    loading (rematch flows). *stats_read*, when given, serves the
+    BUILD-TIME stats reads (bucket classification, confusion pairs,
+    hardest-seen) — a worker thread passes its own thread-local recorder
+    here, while *stats* stays the main recorder that the tally and the
+    per-deal meta_provider use during play on the UI thread.
     """
     is_kana = kana.KANA_DECK in config.decks
     error = None
@@ -92,12 +97,13 @@ def build_session(con, stats, config: GameConfig, *,
         error = None if pool else tr("NO_WORDS")
 
     rng = rng or random.Random()
+    sr = stats_read if stats_read is not None else stats
 
     # Confusability fuel for the sampler: historically-confused pairs get
     # re-paired on purpose, and kanji from the same phonetic series (keisei)
     # get juxtaposed so the sound families become visible.
     try:
-        pairs = stats.confusion_partners()
+        pairs = sr.confusion_partners()
     except Exception:
         pairs = {}
     try:
@@ -110,7 +116,7 @@ def build_session(con, stats, config: GameConfig, *,
             n, length=config.kana_length, script=config.kana_script, rng=rng,
         )
     elif any((config.learn_known, config.learn_less_known, config.learn_unknown)):
-        buckets = stats.classify_words(pool)
+        buckets = sr.classify_words(pool)
         weights = {
             "known":      LEARN_STEPS[config.learn_known],
             "less_known": LEARN_STEPS[config.learn_less_known],
@@ -134,7 +140,7 @@ def build_session(con, stats, config: GameConfig, *,
     meta_provider = None
     if config.lives_mode and not is_kana and stats is not None:
         hard_keys = {
-            (r["expression"], r["reading"]) for r in stats.hardest_seen(60)
+            (r["expression"], r["reading"]) for r in sr.hardest_seen(60)
         }
 
         def meta_provider(words):

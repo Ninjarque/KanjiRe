@@ -10,4 +10,4 @@ The :mod:`kanjire.data` package holds the SQLite access layer and the corpus
 ingestion pipeline used by the build scripts.
 """
 
-__version__ = "0.29.2"
+__version__ = "0.30.0"

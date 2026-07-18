@@ -12,6 +12,20 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Browse the whole dictionary.** Stats grew a Dictionary view (both
+  platforms): every word in every deck — not just the ones you've
+  played — searchable by kanji, reading or meaning, sorted N5-first,
+  with each word coloured by how well you know it. On the computer,
+  clicking an entry opens the full word card (components, phonetic
+  family, pitch accent, example sentence); on the phone, tapping a word
+  speaks it. Words that exist in several decks show once.
+- **The loading ring now actually spins.** Game assembly moved off the
+  interface thread, so launching a board animates smoothly instead of
+  freezing mid-spin — and launches got a bit faster too (the kanji
+  sound-family table is now computed once instead of on every launch).
+
+## 0.30.0 — 2026-07-18
+
 - **Launching a game now shows a loading spinner.** Tapping PLAY (or a
   Journey station, Today's Training, a history replay, a Recall drill)
   answers instantly with a spinning 漢 ring while the board is prepared,

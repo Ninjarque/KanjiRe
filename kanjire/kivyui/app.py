@@ -393,25 +393,47 @@ class KanjiReApp(App):
         if getattr(config, "recall_mode", False):
             self.go_recall_drill(config)
             return
-        # Show the spinner NOW, assemble the game next tick: word pool +
-        # stats classification + a board of fitted card widgets take a
-        # visible beat on phones, and the launching tap deserves feedback.
+        # Show the spinner NOW; assemble the SESSION on a worker thread so
+        # the ring keeps spinning (word pool query + stats classification
+        # are the slow part). Only the GL-bound widget building runs on the
+        # UI thread afterwards. The worker uses its OWN SQLite connections —
+        # the app's are bound to the UI thread.
         self.loading.show()
 
-        def _start(_dt):
+        def _finish(session) -> None:
             try:
                 if not self.sm.has_screen("game"):
                     from kanjire.kivyui.screens.game import GameScreen
                     self.sm.add_widget(GameScreen(name="game"))
                 screen = self.sm.get_screen("game")
                 screen.start(self, config, pool=pool,
-                             recall_words=recall_words)
+                             recall_words=recall_words, session=session)
                 self._show_nav(False)
                 self.sm.current = "game"
             finally:
                 self.loading.hide()
 
-        Clock.schedule_once(_start, 0.03)
+        def _work() -> None:
+            session = None
+            try:
+                from kanjire.data.stats import StatsRecorder
+                from kanjire.game.session import build_session
+                from kanjire.paths import STATS_DB_PATH as _SP
+                con2 = db.connect(read_only=True)
+                scon2 = db.connect(_SP)
+                try:
+                    session = build_session(
+                        con2, self.stats, config, pool=pool,
+                        stats_read=StatsRecorder(scon2))
+                finally:
+                    con2.close()
+                    scon2.close()
+            except Exception:
+                session = None   # _finish falls back to a UI-thread build
+            Clock.schedule_once(lambda _dt: _finish(session), 0)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="kanjire-launch").start()
 
     def go_recall_drill(self, config, words=None):
         """The typed-recall screen: standalone mode, or a session epilogue

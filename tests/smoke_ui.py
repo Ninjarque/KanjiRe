@@ -332,9 +332,28 @@ def run() -> int:
         app2.scene._set_tab("Kanji")
         frames2(4)
         assert len(app2.scene._filtered["Kanji"]) > 0
+        # Dictionary tab: the ENTIRE vocab (played or not), searchable, and
+        # a row click opens the same detail overlay as the Words tab.
+        app2.scene._set_tab("Dict")
+        frames2(4)
+        n_dict = len(app2.scene._filtered["Dict"])
+        assert n_dict > 1000, f"dictionary too small: {n_dict}"
+        assert n_dict > len(app2.scene._all_words), \
+            "the dictionary must list more than the played words"
+        app2.scene._on_search("Dict", "水")
+        frames2(2)
+        assert 0 < len(app2.scene._filtered["Dict"]) < n_dict
+        assert all("水" in r["expression"] or "水" in (r["meaning"] or "")
+                   for r in app2.scene._filtered["Dict"])
+        app2.scene._open_detail(app2.scene._filtered["Dict"][0])
+        assert app2.scene._detail_open
+        frames2(4)
+        app2.scene.on_key_press(pkey.ESCAPE, 0)
+        assert not app2.scene._detail_open
+        app2.scene._on_search("Dict", "")
         app2.scene._set_tab("Overview")
         frames2(4)
-        print("PASS stats scene Overview + Words render")
+        print("PASS stats scene Overview + Words + Dictionary render")
 
         # 13b) Activity heatmap has cells and today registers step 12's events
         # (1 match + 2 confuse rows); the word-detail overlay opens and closes.
