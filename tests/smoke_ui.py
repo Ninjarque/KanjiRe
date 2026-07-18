@@ -1088,6 +1088,16 @@ def run() -> int:
 
         friend = RoomClient(transport=LoopbackTransport(broker))
         assert friend.connect("friend") is None
+        # The smoke pumps the friend only occasionally, but a silent guest
+        # gets REAPED by the host after PEER_TIMEOUT_SECONDS (15s) — this
+        # section takes longer than that on a loaded machine, and a reaped
+        # friend can never receive the turn ("the reveal never ended").
+        # A real client heartbeats every frame; keep this one alive too.
+        _ff2 = frames2
+
+        def frames2(n: int) -> None:   # noqa: F811 — section-local shadow
+            friend.tick()
+            _ff2(n)
         friend.send({"t": "join", "room": code.lower()})   # code only!
         assert any(m.get("t") == "welcome" and m.get("player") == 1
                    for m in friend.poll())
@@ -1165,6 +1175,7 @@ def run() -> int:
             the host's per-frame tick is what ends it)."""
             end = time.time() + REVEAL_SECONDS + 5
             while mp2.state["turn"] != who and time.time() < end:
+                friend.tick()      # keep the guest heartbeating (see above)
                 frames2(1)
             assert mp2.state["turn"] == who, why
 
