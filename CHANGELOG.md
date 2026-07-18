@@ -12,6 +12,14 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+- **Launching a game now shows a loading spinner.** Tapping PLAY (or a
+  Journey station, Today's Training, a history replay, a Recall drill)
+  answers instantly with a spinning 漢 ring while the board is prepared,
+  instead of the menu freezing for a beat. Extra taps during the load
+  are swallowed, so you can't accidentally double-launch.
+
+## 0.29.2 — 2026-07-18
+
 - **The unclickable buttons are fixed — for real, with proof.** Thanks
   to the touch-marker screenshots, the culprit turned out to be OUR
   hidden overlays: the invisible invite popup, the after-match sentence

@@ -100,19 +100,31 @@ def main() -> None:
         app.sm.get_screen("multiplayer").leave()
         check("left multiplayer", app.sm.current == "play")
 
-        # 2. Start a default game.
+        def later(delay, fn):
+            Clock.schedule_once(lambda *_: fn(), delay)
+
+        # 2. Start a default game. Launch is DEFERRED one tick behind the
+        # loading spinner, so the assertions run in a delayed step.
+        gs = None
+        e = None
         app.go_game()
-        check("game screen shown", app.sm.current == "game")
-        gs = app.sm.get_screen("game")
-        e = gs.engine
-        check("engine playing", e is not None and e.phase is Phase.PLAYING)
-        check("board has cards", len(gs._cards) == len(e.board))
+        check("loading spinner shows on launch", app.loading.opacity == 1)
 
         def tap(cid):
             gs._on_card(gs._cards[cid])
 
-        def later(delay, fn):
-            Clock.schedule_once(lambda *_: fn(), delay)
+        def step_game_started():
+            nonlocal gs, e
+            check("game screen shown", app.sm.current == "game")
+            gs = app.sm.get_screen("game")
+            e = gs.engine
+            check("engine playing",
+                  e is not None and e.phase is Phase.PLAYING)
+            check("board has cards", len(gs._cards) == len(e.board))
+            check("loading spinner hidden after launch",
+                  app.loading.opacity == 0)
+            later(0.4, step_window_card)
+            later(0.6, step_complete_group)
 
         # 2b. A window-level tap on the LOWEST card's lower half — the strip
         # the hidden sentence toast used to blanket — must select it.
@@ -513,9 +525,8 @@ def main() -> None:
             gs._quit()
             app.stop()
 
-        # let the fade transition finish before window-level touches
-        later(0.4, step_window_card)
-        later(0.6, step_complete_group)
+        # deferred launch: wait for the spinner tick, then the game steps
+        later(0.5, step_game_started)
 
     Clock.schedule_once(run_script, 1.0)
     app.run()

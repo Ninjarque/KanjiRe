@@ -7,7 +7,7 @@ convention).
 """
 from __future__ import annotations
 
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, Line, Rectangle, RoundedRectangle
 from kivy.metrics import dp, sp
 from kivy.properties import ListProperty, NumericProperty
 from kivy.uix.behaviors import ButtonBehavior
@@ -235,6 +235,85 @@ class ChipGrid(GridLayout):
     def values(self):
         sel = [c.value for c in self._chips if c.selected]
         return sel if self._multi else (sel[0] if sel else None)
+
+
+class LoadingOverlay(GhostWhenHidden, Widget):
+    """Full-window scrim + spinning arc, shown while a game assembles.
+
+    Launching a board does real work (word pool query, stats
+    classification, 24 card widgets with font fitting) — without this the
+    tap on PLAY just froze the menu for a beat. show() paints within a
+    frame; the launcher defers the heavy work one tick so the player sees
+    immediate feedback. Visible = swallows all input (no double-launch);
+    hidden = GhostWhenHidden (never a tap shield — see kivy-touch-traps).
+    """
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.opacity = 0
+        self._ev = None
+        self._angle = 0.0
+        from kivy.graphics import Ellipse
+        with self.canvas:
+            self._scrim_col = Color(*rgba(theme.BG, 0.0))
+            self._scrim = Rectangle(pos=self.pos, size=self.size)
+            self._arc_col = Color(*rgba(theme.ACCENT, 0.0))
+            self._arc = Line(width=dp(3.5), cap="round",
+                             circle=(0, 0, dp(26), 0, 280))
+        self._glyph = JPLabel(text="漢", font_size=sp(20), bold=True,
+                              color=rgba(theme.ACCENT, 0.0),
+                              size_hint=(None, None), size=(dp(40), dp(40)))
+        self.add_widget(self._glyph)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *_):
+        self._scrim.pos = self.pos
+        self._scrim.size = self.size
+        self._glyph.center = self.center
+        self._draw_arc()
+
+    def _draw_arc(self):
+        cx, cy = self.center
+        self._arc.circle = (cx, cy, dp(26),
+                            self._angle, self._angle + 280)
+
+    def _spin(self, dt):
+        self._angle = (self._angle + 360 * dt) % 360
+        self._draw_arc()
+
+    def show(self) -> None:
+        from kivy.clock import Clock
+        self.opacity = 1
+        self._scrim_col.rgba = rgba(theme.BG, 0.6)
+        self._arc_col.rgba = rgba(theme.ACCENT, 1.0)
+        self._glyph.color = rgba(theme.ACCENT, 1.0)
+        if self._ev is None:
+            self._ev = Clock.schedule_interval(self._spin, 1 / 60)
+
+    def hide(self) -> None:
+        self.opacity = 0
+        self._scrim_col.rgba = rgba(theme.BG, 0.0)
+        self._arc_col.rgba = rgba(theme.ACCENT, 0.0)
+        self._glyph.color = rgba(theme.ACCENT, 0.0)
+        if self._ev is not None:
+            self._ev.cancel()
+            self._ev = None
+
+    # Visible: swallow everything (a mid-launch tap must not re-launch).
+    def on_touch_down(self, touch):
+        if self.opacity > 0:
+            return True
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if self.opacity > 0:
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self.opacity > 0:
+            return True
+        return super().on_touch_up(touch)
 
 
 class NavBar(GhostWhenHidden, BoxLayout):

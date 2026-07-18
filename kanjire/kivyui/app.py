@@ -161,6 +161,13 @@ class KanjiReApp(App):
         Window.bind(size=lambda *_: self._place_toast())
         self._place_toast()
 
+        # Loading spinner: game assembly takes a visible beat on phones —
+        # this paints instantly on the launching tap (go_game defers the
+        # heavy work one tick so the frame gets out first).
+        from kanjire.kivyui.widgets import LoadingOverlay
+        self.loading = LoadingOverlay()
+        root.add_widget(self.loading)
+
         # Touch-marker debug overlay (Settings → Display): draws a ring at
         # every touch Kivy receives, so any "taps land in the wrong place"
         # report becomes a screenshot we can read numbers off.
@@ -386,23 +393,43 @@ class KanjiReApp(App):
         if getattr(config, "recall_mode", False):
             self.go_recall_drill(config)
             return
-        if not self.sm.has_screen("game"):
-            from kanjire.kivyui.screens.game import GameScreen
-            self.sm.add_widget(GameScreen(name="game"))
-        screen = self.sm.get_screen("game")
-        screen.start(self, config, pool=pool, recall_words=recall_words)
-        self._show_nav(False)
-        self.sm.current = "game"
+        # Show the spinner NOW, assemble the game next tick: word pool +
+        # stats classification + a board of fitted card widgets take a
+        # visible beat on phones, and the launching tap deserves feedback.
+        self.loading.show()
+
+        def _start(_dt):
+            try:
+                if not self.sm.has_screen("game"):
+                    from kanjire.kivyui.screens.game import GameScreen
+                    self.sm.add_widget(GameScreen(name="game"))
+                screen = self.sm.get_screen("game")
+                screen.start(self, config, pool=pool,
+                             recall_words=recall_words)
+                self._show_nav(False)
+                self.sm.current = "game"
+            finally:
+                self.loading.hide()
+
+        Clock.schedule_once(_start, 0.03)
 
     def go_recall_drill(self, config, words=None):
         """The typed-recall screen: standalone mode, or a session epilogue
         over explicit *words* (Journey stations / Today's hardest reviews)."""
-        if not self.sm.has_screen("recall"):
-            from kanjire.kivyui.screens.recall import RecallScreen
-            self.sm.add_widget(RecallScreen(name="recall"))
-        self._show_nav(False)
-        self.sm.current = "recall"
-        self.sm.get_screen("recall").start(self, config, words=words)
+        self.loading.show()
+
+        def _start(_dt):
+            try:
+                if not self.sm.has_screen("recall"):
+                    from kanjire.kivyui.screens.recall import RecallScreen
+                    self.sm.add_widget(RecallScreen(name="recall"))
+                self._show_nav(False)
+                self.sm.current = "recall"
+                self.sm.get_screen("recall").start(self, config, words=words)
+            finally:
+                self.loading.hide()
+
+        Clock.schedule_once(_start, 0.03)
 
     def go_multiplayer(self, join_room: str = ""):
         if not self.sm.has_screen("multiplayer"):
