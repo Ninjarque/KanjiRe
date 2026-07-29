@@ -17,7 +17,9 @@ from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 
 from kanjire.data import db
+from kanjire.data.genres import BY_KEY, GENRES
 from kanjire.data.stats import classify, knowledge_score
+from kanjire.game import genreprogress
 from kanjire.game.config import GameConfig
 from kanjire.i18n import tr
 from kanjire.ui import theme
@@ -31,13 +33,21 @@ from kanjire.ui.widgets.tabs import TabBar
 STATION_SIZE = 15
 CLEAR_AT = 12          # known words needed to clear a station
 BOSS_EVERY = 5
-COLS = 6
+#: Five wide on every platform, deliberately: with BOSS_EVERY = 5 the 鬼
+#: bosses then stack in one column instead of drifting diagonally across
+#: the grid. Keep this in sync with kanjire.kivyui.screens.journey.COLS.
+COLS = 5
 ROWS_VISIBLE = 5
 
 
 class JourneyScene(Scene):
-    def __init__(self, app) -> None:
+    def __init__(self, app, tab: str = "road") -> None:
         super().__init__(app)
+        #: "road" = the frequency-ordered line of stations; "genres" = the
+        #: same idea spread over forty topics, each split by JLPT level.
+        self.tab = "genres" if tab == "genres" else "road"
+        #: Which genre's level rows are open (None = the genre grid).
+        self.sel_genre: str | None = None
         self.batch = pyglet.graphics.Batch()
         self.g_bg = OrderedGroup(0)
         self.g_text = OrderedGroup(1)
@@ -96,11 +106,145 @@ class JourneyScene(Scene):
         self.labels = [self.title, self.progress, self.hover_info]
         cleared = sum(1 for n in self._known_counts if n >= CLEAR_AT)
         known_total = sum(self._known_counts)
-        self.progress.text = tr("JOURNEY_PROGRESS", cleared=cleared,
-                                total=len(self.stations), words=known_total)
+        self._road_progress = tr("JOURNEY_PROGRESS", cleared=cleared,
+                                 total=len(self.stations), words=known_total)
+        self.progress.text = self._road_progress
+
+        # Road / Genres switch, in the same style as the Stats sub-tabs.
+        self.subtabs = TabBar(
+            [(tr("JOURNEY_TAB_ROAD"), lambda: self._set_tab("road")),
+             (tr("JOURNEY_TAB_GENRES"), lambda: self._set_tab("genres"))],
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.GOLD, font_size=12,
+        )
+        self.subtabs.set_active(0 if self.tab == "road" else 1)
+
+        # Genre progress shares the road's pool and stats snapshot, so the
+        # whole browser costs one extra pass over the words already loaded.
+        self._genre_progress = genreprogress.build(pool, rows)
+        self._genre_buttons: list[tuple[str, Button]] = []
+        self._level_buttons: list[tuple[object, Button]] = []
+        self.back_btn = Button(tr("GENRE_BACK"), self._close_genre,
+                               self.batch, self.g_bg, self.g_text,
+                               accent=theme.DIM, font_size=12)
+        self.use_btn = Button(tr("GENRE_USE"), self._use_genre,
+                              self.batch, self.g_bg, self.g_text,
+                              accent=theme.GOLD, font_size=12)
 
         self._node_buttons: list[tuple[int, Button]] = []
         self._rebuild_nodes()
+        self._rebuild_genre_nodes()
+        self._sync_header()
+
+    # -- genres --------------------------------------------------------- #
+    def _set_tab(self, tab: str) -> None:
+        self.tab = tab
+        self.sel_genre = None
+        self._sync_header()
+        self._rebuild_genre_nodes()
+        self.on_resize(self.width, self.height)
+
+    def _sync_header(self) -> None:
+        """Title and progress line follow the active tab."""
+        if self.tab == "genres":
+            if self.sel_genre:
+                g = BY_KEY[self.sel_genre]
+                cell = self._genre_progress[self.sel_genre][None]
+                self.title.text = f"{g.icon}  {tr(g.tr)}"
+                self.progress.text = tr("GENRE_NODE", known=cell.known,
+                                        total=cell.total)
+            else:
+                self.title.text = tr("GENRES_TITLE")
+                self.progress.text = self._genres_summary()
+        else:
+            self.title.text = tr("JOURNEY_TITLE")
+            self.progress.text = self._road_progress
+
+    def _genres_summary(self) -> str:
+        started, complete, known = genreprogress.totals(self._genre_progress)
+        return tr("GENRES_PROGRESS", started=started, complete=complete,
+                  total=len(GENRES), words=known)
+
+    def _open_genre(self, key: str) -> None:
+        self.sel_genre = key
+        self._sync_header()
+        self._rebuild_genre_nodes()
+        self.on_resize(self.width, self.height)
+
+    def _close_genre(self) -> None:
+        self.sel_genre = None
+        self._sync_header()
+        self._rebuild_genre_nodes()
+        self.on_resize(self.width, self.height)
+
+    def _use_genre(self) -> None:
+        """Make the open genre the Play tab's filter, then go there."""
+        if not self.sel_genre:
+            return
+        state = self.app.state
+        mode = state.last_mode or "Time Attack"
+        settings = dict(state.last_for_mode(mode) or {})
+        settings["genres"] = [self.sel_genre]
+        state.set_last_for_mode(mode, settings)
+        self.app.go_menu()
+
+    def _genre_accent(self, cell) -> tuple:
+        if not cell.playable:
+            return theme.PANEL_HI
+        if cell.complete:
+            return theme.SUCCESS
+        if cell.known:
+            return theme.GOLD
+        return theme.DIM
+
+    def _rebuild_genre_nodes(self) -> None:
+        for _k, b in self._genre_buttons:
+            b.delete()
+        for _k, b in self._level_buttons:
+            b.delete()
+        self._genre_buttons.clear()
+        self._level_buttons.clear()
+        visible = self.tab == "genres"
+        self.back_btn.set_visible(visible and self.sel_genre is not None)
+        self.use_btn.set_visible(visible and self.sel_genre is not None)
+        if not visible:
+            return
+        if self.sel_genre is None:
+            for g in GENRES:
+                cell = self._genre_progress[g.key][None]
+                b = Button(f"{g.icon} {tr(g.tr)}",
+                           lambda k=g.key: self._open_genre(k),
+                           self.batch, self.g_bg, self.g_text,
+                           accent=self._genre_accent(cell), font_size=11)
+                b.enabled = cell.playable
+                self._genre_buttons.append((g.key, b))
+        else:
+            rows = self._genre_progress[self.sel_genre]
+            for lvl in genreprogress.LEVELS:
+                cell = rows[lvl]
+                b = Button(f"N{lvl}  {cell.known}/{cell.total}",
+                           lambda c=cell: self._play_genre(c),
+                           self.batch, self.g_bg, self.g_text,
+                           accent=self._genre_accent(cell), font_size=13)
+                b.enabled = cell.playable
+                self._level_buttons.append((lvl, b))
+
+    def _play_genre(self, cell) -> None:
+        """A finite session over one genre at one level — a genre 'station'."""
+        if not cell.playable:
+            return
+        words = list(cell.words)
+        cfg = GameConfig(
+            name=f"{cell.genre} N{cell.level}",
+            decks=("jlpt",), levels=(),
+            words_per_round=min(6, len(words)),
+            duration=None, max_mistakes=None, mismatch_penalty=0,
+            repetitions=1, session_mode=True,
+            genres=(cell.genre,),
+        )
+        hard = sorted(words, key=lambda w: knowledge_score(
+            self._stats_rows.get((w.expression, w.reading)) or {}))
+        self.app.go_game(cfg, pool=words, recall_words=hard[:5])
 
     # ------------------------------------------------------------------ #
     def _is_boss(self, i: int) -> bool:
@@ -169,13 +313,29 @@ class JourneyScene(Scene):
     def on_mouse_press(self, x, y, button, modifiers) -> None:
         if self.nav.on_mouse_press(x, y):
             return
-        for _i, b in self._node_buttons:
+        if self.subtabs.on_mouse_press(x, y):
+            return
+        for b in self._active_buttons():
             if b.enabled and b.contains(x, y):
                 b.click()
                 return
 
+    def _active_buttons(self):
+        """The buttons the current tab actually shows."""
+        if self.tab == "genres":
+            extra = ([self.back_btn, self.use_btn]
+                     if self.sel_genre is not None else [])
+            return [b for _k, b in self._genre_buttons] +                    [b for _k, b in self._level_buttons] + extra
+        return [b for _i, b in self._node_buttons]
+
     def on_mouse_motion(self, x, y, dx, dy) -> None:
         self.nav.on_mouse_motion(x, y)
+        self.subtabs.on_mouse_motion(x, y)
+        if self.tab == "genres":
+            self.hover_info.text = ""
+            for b in self._active_buttons():
+                b.set_hover(b.contains(x, y))
+            return
         hover = None
         for i, b in self._node_buttons:
             over = b.contains(x, y)
@@ -193,6 +353,8 @@ class JourneyScene(Scene):
                 known=n, total=len(self.stations[hover]))
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y) -> None:
+        if self.tab == "genres":
+            return                       # the genre grid fits without scrolling
         max_row = max(0, (len(self.stations) - 1) // COLS
                       - self._rows_fit() + 1)
         self.scroll_row = max(0, min(max_row,
@@ -202,18 +364,22 @@ class JourneyScene(Scene):
     def on_key_press(self, symbol, modifiers) -> None:
         from pyglet.window import key
         if symbol == key.ESCAPE:
+            if self.tab == "genres" and self.sel_genre is not None:
+                self._close_genre()     # back out of a genre before the tab
+                return
             self.app.go_menu()
 
     # ------------------------------------------------------------------ #
     def on_resize(self, width, height) -> None:
         s = scale_for(width, height)
         self._s = s
-        # More (or fewer) rows fit after a resize: rebuild the node window.
-        want = min(COLS * self._rows_fit(),
-                   max(0, len(self.stations) - self.scroll_row * COLS))
-        if want != len(self._node_buttons):
-            self._rebuild_nodes()   # re-enters on_resize once, then stable
-            return
+        if self.tab == "road":
+            # More (or fewer) rows fit after a resize: rebuild the node window.
+            want = min(COLS * self._rows_fit(),
+                       max(0, len(self.stations) - self.scroll_row * COLS))
+            if want != len(self._node_buttons):
+                self._rebuild_nodes()   # re-enters on_resize once, then stable
+                return
         for lbl in self.labels:
             lbl.font_size = max(8, round(lbl._base_fs * s))
         self.nav.set_scale(s)
@@ -221,6 +387,14 @@ class JourneyScene(Scene):
         self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
         self.title.x, self.title.y = cx, height - 92 * s
         self.progress.x, self.progress.y = cx, height - 118 * s
+        self.subtabs.set_scale(s)
+        self.subtabs.set_rect(cx - 130 * s, height - 158 * s, 260 * s, 30 * s)
+
+        if self.tab == "genres":
+            self._layout_genres(cx, height, s)
+            self._set_road_visible(False)
+            return
+        self._set_road_visible(True)
 
         bw, bh = 96 * s, 46 * s
         gapx, gapy = 18 * s, 22 * s
@@ -234,6 +408,37 @@ class JourneyScene(Scene):
                        bw, bh)
         self.hover_info.x, self.hover_info.y = cx, 48 * s
 
+    def _set_road_visible(self, visible: bool) -> None:
+        for _i, b in self._node_buttons:
+            b.set_visible(visible)
+
+    def _layout_genres(self, cx, height, s) -> None:
+        """Genre grid, or one genre's JLPT rows once it's open."""
+        y0 = height - 200 * s
+        if self.sel_genre is None:
+            # Five wide, like the road — same shape, same reading rhythm.
+            # Wide enough for the longest label ("Speech & Language") with
+            # its kanji badge — narrower and three of them clipped.
+            bw, bh = 168 * s, 40 * s
+            gapx, gapy = 8 * s, 10 * s
+            grid_w = COLS * bw + (COLS - 1) * gapx
+            x0 = cx - grid_w / 2
+            for idx, (_key, b) in enumerate(self._genre_buttons):
+                r, c = divmod(idx, COLS)
+                b.set_scale(s)
+                b.set_rect(x0 + c * (bw + gapx), y0 - r * (bh + gapy) - bh,
+                           bw, bh)
+            return
+        bw, bh = 240 * s, 44 * s
+        for idx, (_lvl, b) in enumerate(self._level_buttons):
+            b.set_scale(s)
+            b.set_rect(cx - bw / 2, y0 - idx * (bh + 10 * s) - bh, bw, bh)
+        foot = y0 - len(self._level_buttons) * (bh + 10 * s) - 28 * s
+        self.back_btn.set_scale(s)
+        self.use_btn.set_scale(s)
+        self.back_btn.set_rect(cx - 190 * s, foot - 15 * s, 170 * s, 30 * s)
+        self.use_btn.set_rect(cx + 20 * s, foot - 15 * s, 170 * s, 30 * s)
+
     def draw(self) -> None:
         h = round(64 * getattr(self, "_s", 1.0))
         fill_quad(0, self.height - h, self.width, h, theme.PANEL)
@@ -242,5 +447,12 @@ class JourneyScene(Scene):
 
     def on_exit(self) -> None:
         self.nav.delete()
+        self.subtabs.delete()
+        self.back_btn.delete()
+        self.use_btn.delete()
         for _i, b in self._node_buttons:
+            b.delete()
+        for _k, b in self._genre_buttons:
+            b.delete()
+        for _k, b in self._level_buttons:
             b.delete()

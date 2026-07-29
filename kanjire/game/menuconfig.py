@@ -26,6 +26,12 @@ KANA_SCRIPTS = (("hira", "KANA_SCRIPT_HIRA"),
 KANA_SCRIPT_ALIASES = {"hiragana": "hira", "katakana": "kata",
                        "mixed": "both"}
 LEARN_STEPS = (0, 1, 2, 3)
+#: The clustering affinity dials share the learn dials' 0-3 scale, so both
+#: UIs can reuse the same four-way selector widget and label set.
+AFFINITY_STEPS_UI = (0, 1, 2, 3)
+#: settings key -> GameConfig field, for the three clustering dials.
+AFFINITY_KEYS = {"aff_meaning": "AFF_MEANING", "aff_looks": "AFF_LOOKS",
+                 "aff_sound": "AFF_SOUND"}
 HEARTS_OPTIONS = (2, 3, 5)
 HEARTS_MAX = {2: 4, 3: 5, 5: 6}
 BOUNTY_OPTIONS = (("none", "BOUNTY_NONE"), ("low", "BOUNTY_LOW"),
@@ -45,6 +51,27 @@ PRESET_TR = {
     "Familiarize": "MODE_FAMILIAR",
     "Learn": "MODE_LEARN",
 }
+
+#: The three modes on the front row of the Play tab, plus the ``+`` that makes
+#: a custom one. Six equal buttons was too many to choose between, so the row
+#: now shows the three people actually start from; everything else moved one
+#: row down as a *factory mode* rather than being removed. Nothing became
+#: unreachable and no saved state changed meaning.
+FRONT_MODES = ("Time Attack", "Survival", "Learn")
+#: Shipped configurations listed beside the player's own custom modes. Two are
+#: rulesets (config.PRESETS keys) and one is a built-in preset — the menu
+#: doesn't care, because ``config_for`` resolves either kind by name.
+FACTORY_MODES = ("Zen", "Recall", "Familiarize")
+
+
+def second_row_modes(state) -> list[str]:
+    """Factory modes then the player's own, as displayed under the front row."""
+    try:
+        user = [p["name"] for p in state.presets if p.get("name")]
+    except Exception:
+        user = []
+    seen = set(FACTORY_MODES)
+    return list(FACTORY_MODES) + [n for n in user if n not in seen]
 
 #: The former Familiarize/Learn modes, reborn honestly: one-tap
 #: configurations of the Zen ruleset, listed beside user-saved presets.
@@ -66,6 +93,22 @@ BUILTIN_PRESETS: list[dict] = [
 ]
 
 
+def preset_from_config(cfg, name: str) -> dict:
+    """A saved-preset dict from a :class:`GameConfig`, under a new *name*.
+
+    Both UIs serialise presets through here so a mode saved on the phone and
+    one saved on the computer carry exactly the same fields.
+    """
+    out: dict = {}
+    for f in PRESET_FIELDS:
+        v = getattr(cfg, f, None)
+        if isinstance(v, tuple):
+            v = list(v)
+        out[f] = v
+    out["name"] = name
+    return out
+
+
 def all_presets(state) -> list[dict]:
     """Built-in presets first, then the user's saved ones."""
     try:
@@ -82,7 +125,8 @@ def preset_overlay(preset: dict) -> dict:
     for key in ("board_size", "repetitions", "random_fonts",
                 "vertical_writing", "learn_known", "learn_less_known",
                 "learn_unknown", "kana_length", "kana_script",
-                "recall_prompt", "recall_preview"):
+                "recall_prompt", "recall_preview",
+                "aff_meaning", "aff_looks", "aff_sound"):
         if key in preset:
             out[key] = preset[key]
     if "words_per_round" in preset:
@@ -95,6 +139,8 @@ def preset_overlay(preset: dict) -> dict:
         out["decks"] = list(preset["decks"])
     if isinstance(preset.get("levels"), (list, tuple)) and preset["levels"]:
         out["levels"] = list(preset["levels"])
+    if isinstance(preset.get("genres"), (list, tuple)):
+        out["genres"] = list(preset["genres"])
     return out
 
 #: Canonical face order; selections are stored as ordered subsets of this.
@@ -154,6 +200,11 @@ DEFAULT_SETTINGS = {
     "bounty_freq": "med",
     "recall_prompt": "mixed",
     "recall_preview": True,
+    # Clustering: no genre filter, no affinity, unless the player asks.
+    "genres": [],
+    "aff_meaning": 0,
+    "aff_looks": 0,
+    "aff_sound": 0,
 }
 
 
@@ -207,6 +258,11 @@ def normalized_settings(d: dict | None) -> dict:
         s["recall_prompt"] = d["recall_prompt"]
     if "recall_preview" in d:
         s["recall_preview"] = bool(d["recall_preview"])
+    from kanjire.data.genres import valid_genres
+    s["genres"] = list(valid_genres(d.get("genres")))
+    for key in AFFINITY_KEYS:
+        if d.get(key) in AFFINITY_STEPS_UI:
+            s[key] = int(d[key])
     return s
 
 
@@ -259,5 +315,9 @@ def config_for(mode: str, settings: dict, *,
         heart_chance=BOUNTY_CHANCE[s["bounty_freq"]],
         recall_prompt=s["recall_prompt"],
         recall_preview=s["recall_preview"],
+        genres=tuple(s["genres"]),
+        aff_meaning=s["aff_meaning"],
+        aff_looks=s["aff_looks"],
+        aff_sound=s["aff_sound"],
         name=mode,
     )

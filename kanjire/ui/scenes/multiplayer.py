@@ -41,6 +41,10 @@ from kanjire.ui.widgets.card import CardView
 from kanjire.ui.widgets.textinput import TextInput
 
 HUD_H = 110
+#: 0-3 dial labels, shared with the solo menu's knowledge mix.
+_AFF_LABELS = {0: "LEARN_NONE", 1: "LEARN_FEW", 2: "LEARN_SOME",
+               3: "LEARN_MANY"}
+
 POOL_SIZE = 140
 #: Dwell this long on a card and the room is told you're looking at it.
 POINT_DELAY = 1.0
@@ -179,6 +183,10 @@ class MultiplayerScene(Scene):
         self.lbl_s_cards = srow("SEC_CARDS")
         self.lbl_s_turns = srow("MP_TURNS")
         self.lbl_s_passes = srow("SEC_PASSES")
+        self.lbl_s_aff = {k: srow(t) for k, t in
+                          (("aff_meaning", "AFF_MEANING"),
+                           ("aff_looks", "AFF_LOOKS"),
+                           ("aff_sound", "AFF_SOUND"))}
         self.lbl_s_writing = srow("SEC_WRITING")
         self.lbl_s_fonts = srow("SEC_FONTS")
         self.settings_labels = [self.lbl_s_deck, self.lbl_s_level,
@@ -249,10 +257,26 @@ class MultiplayerScene(Scene):
                        accent=theme.ACCENT, font_size=13))
             for v, key in (("fixed", "FONT_SINGLE"), ("random", "FONT_RANDOM"))
         ]
+        # Clustering dials, same 0-3 scale as solo. The genre filter itself
+        # is inherited from the host's solo settings (host_defaults): there is
+        # no room for forty genre badges beside eight other rows here.
+        self.aff_btns = {}
+        for key, accent in (("aff_meaning", theme.FACE_COLORS["meaning"]),
+                            ("aff_looks", theme.FACE_COLORS["kanji"]),
+                            ("aff_sound", theme.FACE_COLORS["reading"])):
+            self.aff_btns[key] = [
+                (n, Button(tr(_AFF_LABELS[n]),
+                           lambda k=key, n=n: self._set_setting(k, n),
+                           self.batch, self.g_bg, self.g_text,
+                           accent=accent, font_size=11))
+                for n in (0, 1, 2, 3)
+            ]
         self.setting_btns = (self.deck_btns + self.level_btns
                              + self.words_btns + self.cards_btns
                              + self.lturns_btns + self.passes_btns
-                             + self.writing_btns + self.fonts_btns)
+                             + self.writing_btns + self.fonts_btns
+                             + [b for row in self.aff_btns.values()
+                                for b in row])
 
         # ---- in-game host controls ---- #
         self.pause_btn = Button("", self._pause, self.batch, self.g_bg,
@@ -530,28 +554,10 @@ class MultiplayerScene(Scene):
     def _sample_pool(self, settings: dict) -> list[dict]:
         """The host contributes the room's words, drawn from the settings it
         just chose (the server itself stays data-free)."""
-        from kanjire.kana import hira_to_romaji
-        rng = random.Random()
-        deck = settings.get("deck") or "jlpt"
-        levels = settings.get("levels") or [5]
-        try:
-            words = db.load_words(self.app.con, decks=[deck],
-                                  levels=levels if deck == "jlpt" else None,
-                                  require_kanji=True)
-        except Exception:
-            words = []
-        picked = weighted_sample_words(words, POOL_SIZE, bias=0.4, rng=rng,
-                                       confusable=False)
-        loc = self.app.state.locale
-        out = []
-        for w in picked:
-            out.append({
-                "kanji": w.expression,
-                "reading": w.reading,
-                "romaji": hira_to_romaji(w.reading),
-                "meaning": w.get_meaning(loc),
-            })
-        return out
+        from kanjire.game.mppool import sample_pool
+
+        return sample_pool(self.app.con, settings, size=POOL_SIZE,
+                           locale=self.app.state.locale)
 
     def _make_client(self, addr: str):
         """Room-code-only by default (relay, no setup); a direct server
@@ -586,8 +592,10 @@ class MultiplayerScene(Scene):
             return
         # Settings are tuned in the lobby (where everyone can watch); the
         # word pool is sampled from them at Start.
-        client.send({"t": "create",
-                     "settings": {"turns_each": self.turns_each}})
+        from kanjire.game.mppool import host_defaults
+        settings = {"turns_each": self.turns_each}
+        settings.update(host_defaults(self.app.state))
+        client.send({"t": "create", "settings": settings})
 
     def _join(self) -> None:
         code = self.in_code.text.strip().upper()
@@ -1157,6 +1165,12 @@ class MultiplayerScene(Scene):
                 (self.lbl_s_cards, self.cards_btns, 128 * s),
                 (self.lbl_s_turns, self.lturns_btns, 62 * s),
                 (self.lbl_s_passes, self.passes_btns, 62 * s),
+                (self.lbl_s_aff["aff_meaning"],
+                 self.aff_btns["aff_meaning"], 66 * s),
+                (self.lbl_s_aff["aff_looks"],
+                 self.aff_btns["aff_looks"], 66 * s),
+                (self.lbl_s_aff["aff_sound"],
+                 self.aff_btns["aff_sound"], 66 * s),
                 (self.lbl_s_writing, self.writing_btns, 92 * s),
                 (self.lbl_s_fonts, self.fonts_btns, 108 * s),
             ]

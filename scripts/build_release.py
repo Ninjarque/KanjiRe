@@ -81,7 +81,8 @@ def _add_data_args() -> list[str]:
     args: list[str] = []
     db = DATA_DIR / "kanjire.db"
     args += ["--add-data", f"{db}{sep}kanjire/data"]
-    for sidecar in ("glosses.db", "kanjidata.db", "sentences.db"):
+    for sidecar in ("glosses.db", "kanjidata.db", "sentences.db",
+                    "clusters.db"):
         path = DATA_DIR / sidecar
         if path.exists():
             args += ["--add-data", f"{path}{sep}kanjire/data"]
@@ -209,7 +210,8 @@ def _check_bundle(folder: Path) -> int:
 #: fails if a data file is missing or is not byte-for-byte the current source,
 #: so we can never silently ship stale or absent data.
 _REQUIRED_DATA = ("kanjire.db",)
-_OPTIONAL_DATA = ("sentences.db", "kanjidata.db", "glosses.db")
+_OPTIONAL_DATA = ("sentences.db", "kanjidata.db", "glosses.db",
+                  "clusters.db")
 
 
 def _sha256(path: Path) -> str:

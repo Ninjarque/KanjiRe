@@ -38,6 +38,8 @@ _BOUNTY_CHANCE = {"none": 0.0, "low": 0.35, "med": 0.6, "high": 0.9}
 #: Stable English preset keys → translation keys for their displayed labels.
 from kanjire.game.menuconfig import MODE_TR as _MODE_TR
 from kanjire.game.menuconfig import PRESET_TR as _PRESET_TR
+from kanjire.game.menuconfig import FACTORY_MODES, FRONT_MODES, second_row_modes
+from kanjire.data.genres import GENRES, valid_genres
 
 
 def _mode_label(name: str) -> str:
@@ -56,15 +58,10 @@ def _deck_label(name: str, description: str = "") -> str:
     return name
 
 
-_PRESET_FIELDS = (
-    "decks", "levels", "faces", "words_per_round", "frequency_bias",
-    "duration", "max_mistakes", "base_points", "mismatch_penalty", "round_bonus",
-    "repetitions", "random_fonts", "vertical_writing",
-    "learn_known", "learn_less_known", "learn_unknown",
-    "lives_mode", "start_lives", "max_lives", "heart_chance",
-    "recall_mode", "recall_prompt",
-    "name",
-)
+#: Saved-preset fields. Shared with the Kivy UI (and with ``config_for``)
+#: rather than re-listed here — this file's private copy had already drifted,
+#: silently dropping ``recall_preview`` from every preset saved on desktop.
+from kanjire.game.menuconfig import PRESET_FIELDS as _PRESET_FIELDS  # noqa: E402
 
 #: (state value, translation key) for the Recall prompt-style row.
 RECALL_PROMPT_OPTIONS = (("typed", "RECALL_P_TYPED"),
@@ -76,13 +73,8 @@ RECALL_PROMPT_OPTIONS = (("typed", "RECALL_P_TYPED"),
 
 def _config_to_dict(cfg: GameConfig) -> dict:
     """JSON-serialisable subset of a :class:`GameConfig` for saved presets."""
-    out: dict = {}
-    for f in _PRESET_FIELDS:
-        v = getattr(cfg, f)
-        if isinstance(v, tuple):
-            v = list(v)
-        out[f] = v
-    return out
+    from kanjire.game.menuconfig import preset_from_config
+    return preset_from_config(cfg, cfg.name)
 
 
 class MenuScene(Scene):
@@ -123,6 +115,11 @@ class MenuScene(Scene):
         self.vertical_writing = "off"
         self.repetitions = 1
         # Learn-mode bucket mix (only shown when "Learn" is the active mode).
+        # Clustering state: no genre filter, dials off, until asked for.
+        self.genres: list[str] = []
+        self.aff_meaning = 0
+        self.aff_looks = 0
+        self.aff_sound = 0
         self.learn_known = 0
         self.learn_less_known = 0
         self.learn_unknown = 0
@@ -220,17 +217,30 @@ class MenuScene(Scene):
         )
 
         self.lbl_mode = self._section(tr("SEC_MODE"))
-        self.mode_btns: list[tuple[str, Button]] = [
-            (m, self._btn(_mode_label(m), lambda m=m: self._set_mode(m))) for m in PRESETS
+        # Front row: the three modes people actually start from, plus the +
+        # that turns the current settings into a custom mode of their own.
+        self.front_mode_btns: list[tuple[str, Button]] = [
+            (m, self._btn(_mode_label(m), lambda m=m: self._set_mode(m)))
+            for m in FRONT_MODES
         ]
-        # Presets ride alongside: the built-ins (ex-modes Familiarize/Learn)
-        # then any the player saved. Gold = "this is a configuration".
-        for p in self._all_presets:
-            n = p["name"]
-            self.mode_btns.append(
-                (n, self._btn(_mode_label(n), lambda n=n: self._set_mode(n),
-                              accent=theme.GOLD))
-            )
+        self.new_mode_btn = self._btn(tr("BTN_NEW_MODE"),
+                                      self._save_preset_dialog,
+                                      accent=theme.SUCCESS)
+        # Second row: factory modes (Zen / Recall / Familiarize) then the
+        # player's own. Gold = "this is a configuration, not a ruleset".
+        self.saved_mode_btns: list[tuple[str, Button]] = [
+            (n, self._btn(_mode_label(n), lambda n=n: self._set_mode(n),
+                          accent=theme.GOLD, font_size=12))
+            for n in second_row_modes(self.app.state)
+        ]
+        # Every mode button, for hit-testing and selection refresh.
+        self.mode_btns: list[tuple[str, Button]] = (
+            self.front_mode_btns + self.saved_mode_btns)
+        # Only shown while a *custom* mode is selected — the factory ones
+        # can't be deleted.
+        self.delete_mode_btn = self._btn(tr("BTN_DELETE_MODE"),
+                                         self._delete_current_mode,
+                                         accent=theme.DANGER, font_size=12)
         self.lbl_deck = self._section(tr("SEC_DECK"))
         self.deck_btns = [
             (r["name"], self._btn(_deck_label(r["name"]),
@@ -303,6 +313,36 @@ class MenuScene(Scene):
                           accent=theme.GOLD, font_size=11))
             for n in LEARN_STEPS
         ]
+        # Clustering: three affinity dials on the same 0-3 scale as the
+        # knowledge mix, plus a genre filter drawn as its kanji badges (40
+        # names would never fit; 40 single glyphs do, in two tidy rows).
+        self.lbl_affinity = self._section(tr("ROW_AFFINITY"))
+        self.aff_btns: dict[str, list] = {}
+        for key, accent in (("aff_meaning", theme.FACE_COLORS["meaning"]),
+                            ("aff_looks", theme.FACE_COLORS["kanji"]),
+                            ("aff_sound", theme.FACE_COLORS["reading"])):
+            self.aff_btns[key] = [
+                (n, self._btn(tr(_LEARN_LABEL_KEYS[n]),
+                              lambda k=key, n=n: self._set_affinity(k, n),
+                              accent=accent, font_size=11))
+                for n in LEARN_STEPS
+            ]
+        self.lbl_aff_rows = {
+            "aff_meaning": self._section(tr("AFF_MEANING")),
+            "aff_looks": self._section(tr("AFF_LOOKS")),
+            "aff_sound": self._section(tr("AFF_SOUND")),
+        }
+        # Genres are *chosen* in the Genres browser (icons, per-level
+        # progress, room to breathe). This tab only shows what's selected and
+        # offers a way in and a way out — forty badges here collided with the
+        # footer, and duplicated a screen that does the job far better.
+        self.lbl_genre = self._section(tr("ROW_GENRE"))
+        self.genre_pick_btn = self._btn(
+            tr("GENRE_PICK_TITLE"), lambda: self.app.go_journey(tab="genres"),
+            accent=theme.GOLD, font_size=11)
+        self.genre_clear_btn = self._btn(
+            tr("GENRE_ALL"), self._clear_genres,
+            accent=theme.DIM, font_size=11)
         self.unknown_btns = [
             (n, self._btn(tr(_LEARN_LABEL_KEYS[n]),
                           lambda n=n: self._set_learn("unknown", n),
@@ -359,10 +399,8 @@ class MenuScene(Scene):
             for val, key in ((True, "OPT_ON"), (False, "OPT_OFF"))
         ]
 
-        self.save_preset_btn = self._btn(
-            tr("BTN_SAVE_PRESET"), self._save_preset_dialog,
-            accent=theme.GOLD, font_size=12,
-        )
+        # (The old footer "Save as preset…" button is gone: the + in the mode
+        # row does exactly the same thing, where modes are chosen.)
         self.mp_btn = self._btn(tr("BTN_MULTIPLAYER"),
                                 lambda: self.app.go_multiplayer(),
                                 accent=theme.DANGER, font_size=12)
@@ -393,7 +431,8 @@ class MenuScene(Scene):
         self._quick_buttons = _btns(
             self.mode_btns, self.deck_btns, self.level_btns,
             self.kana_length_btns, self.kana_script_btns, self.size_btns,
-        ) + [self.import_btn, self.paste_btn]
+        ) + [self.import_btn, self.paste_btn, self.new_mode_btn,
+             self.delete_mode_btn]
         self._quick_labels = [
             self.lbl_mode, self.lbl_deck, self.lbl_level,
             self.lbl_kana_length, self.lbl_kana_script, self.lbl_size,
@@ -403,18 +442,30 @@ class MenuScene(Scene):
             self.repeat_btns,
             self.known_btns, self.less_known_btns, self.unknown_btns,
             self.hearts_btns, self.bounty_btns, self.recall_prompt_btns,
-            self.recall_preview_btns,
-        )
+            self.recall_preview_btns, *self.aff_btns.values(),
+        ) + [self.genre_pick_btn, self.genre_clear_btn]
         self._adv_labels = [
             self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat,
             self.lbl_known, self.lbl_less_known, self.lbl_unknown,
             self.lbl_hearts, self.lbl_bounty, self.lbl_recall_prompt,
-            self.lbl_recall_preview,
+            self.lbl_recall_preview, self.lbl_genre, self.lbl_affinity,
+            *self.lbl_aff_rows.values(),
         ]
 
     # ------------------------------------------------------------------ #
     # State changes
     # ------------------------------------------------------------------ #
+    def _set_affinity(self, key: str, value: int) -> None:
+        setattr(self, key, int(value))
+        self._persist()
+        self._refresh()
+
+    def _clear_genres(self) -> None:
+        """Back to every genre — the filter's off switch."""
+        self.genres = []
+        self._persist()
+        self._refresh()
+
     def _set_mode(self, m):
         self.mode = m
         # Restore the player's last-used settings for this mode if we have any,
@@ -534,6 +585,10 @@ class MenuScene(Scene):
             "bounty_freq": self.bounty_freq,
             "recall_prompt": self.recall_prompt,
             "recall_preview": self.recall_preview,
+            "genres": list(self.genres),
+            "aff_meaning": self.aff_meaning,
+            "aff_looks": self.aff_looks,
+            "aff_sound": self.aff_sound,
         }
 
     def _apply_settings(self, d: dict) -> None:
@@ -586,6 +641,11 @@ class MenuScene(Scene):
             self.recall_prompt = d["recall_prompt"]
         if "recall_preview" in d:
             self.recall_preview = bool(d["recall_preview"])
+        if "genres" in d:
+            self.genres = list(valid_genres(d.get("genres")))
+        for key in ("aff_meaning", "aff_looks", "aff_sound"):
+            if d.get(key) in LEARN_STEPS:
+                setattr(self, key, int(d[key]))
 
     def _sync_from_mode(self, name: str) -> None:
         """Update toggle state from the chosen mode (built-in or saved)."""
@@ -599,6 +659,9 @@ class MenuScene(Scene):
         self.learn_less_known = int(cfg.get("learn_less_known", 0))
         self.learn_unknown = int(cfg.get("learn_unknown", 0))
         self.recall_prompt = cfg.get("recall_prompt", "mixed")
+        self.genres = list(valid_genres(cfg.get("genres", ())))
+        for key in ("aff_meaning", "aff_looks", "aff_sound"):
+            setattr(self, key, int(cfg.get(key, 0) or 0))
         # Presets (built-in or saved) also restore deck / levels / faces /
         # board size when they carry them.
         if name not in PRESETS:
@@ -703,6 +766,9 @@ class MenuScene(Scene):
         if quick:
             for m, b in self.mode_btns:
                 b.set_selected(m == self.mode)
+            # The red delete button belongs only to the player's own modes.
+            self.delete_mode_btn.set_visible(
+                self.mode in self._user_preset_names)
             for n, b in self.deck_btns:
                 b.set_selected(n in self.decks)
             for s, b in self.size_btns:
@@ -748,6 +814,21 @@ class MenuScene(Scene):
             # in EVERY mode (they always silently did — now they're visible
             # and steerable everywhere instead of hidden outside Learn).
             showing_learn = True
+            # Clustering rows: dials, badges, and a label that spells out the
+            # selection (the badges alone are pretty but not self-explaining).
+            for key, btns in self.aff_btns.items():
+                for n, b in btns:
+                    b.set_selected(n == getattr(self, key))
+            picked = set(self.genres)
+            self.genre_clear_btn.enabled = bool(picked)
+            if picked:
+                names = [tr(g.tr) for g in GENRES if g.key in picked]
+                shown = ", ".join(names[:3])
+                if len(names) > 3:
+                    shown += f" +{len(names) - 3}"
+                self.lbl_genre.text = f"{tr('ROW_GENRE')}: {shown}"
+            else:
+                self.lbl_genre.text = f"{tr('ROW_GENRE')}: {tr('GENRE_ALL')}"
             for n, b in self.known_btns:
                 b.set_visible(showing_learn)
                 if showing_learn:
@@ -879,6 +960,10 @@ class MenuScene(Scene):
             random_fonts=self.random_fonts,
             vertical_writing=self.vertical_writing,
             repetitions=self.repetitions,
+            genres=tuple(self.genres),
+            aff_meaning=self.aff_meaning,
+            aff_looks=self.aff_looks,
+            aff_sound=self.aff_sound,
             learn_known=self.learn_known,
             learn_less_known=self.learn_less_known,
             learn_unknown=self.learn_unknown,
@@ -950,6 +1035,11 @@ class MenuScene(Scene):
             if b.enabled and b.contains(x, y):
                 b.click()
                 break
+
+    def _delete_current_mode(self) -> None:
+        """The red button under a custom mode (Android has no right-click)."""
+        if self.mode in self._user_preset_names:
+            self._confirm_delete_preset(self.mode)
 
     def _confirm_delete_preset(self, name: str) -> None:
         def apply() -> None:
@@ -1064,10 +1154,22 @@ class MenuScene(Scene):
 
         section(self.lbl_mode, dy=10)
         y -= 30 * s
-        n = max(1, len(self.mode_btns))
         budget = min(1080 * s, self.width - 80 * s)
-        mode_w = max(80 * s, min(150 * s, (budget - (n - 1) * 12 * s) / n))
-        self._row(self.mode_btns, y, mode_w, 40 * s, gap=12 * s)
+
+        def fit(count, cap):
+            return max(80 * s, min(cap, (budget - (count - 1) * 12 * s) / count))
+
+        front = [*self.front_mode_btns, ("", self.new_mode_btn)]
+        self._row(front, y, fit(len(front), 150 * s), 40 * s, gap=12 * s)
+        if self.saved_mode_btns:
+            y -= 42 * s
+            self._row(self.saved_mode_btns,
+                      y, fit(len(self.saved_mode_btns), 130 * s),
+                      32 * s, gap=10 * s)
+        if self.mode in self._user_preset_names:
+            y -= 34 * s
+            self.delete_mode_btn.set_rect(cx - 90 * s, y - 11 * s,
+                                          180 * s, 24 * s)
         section(self.lbl_deck)
         y -= 30 * s
         self._row(self.deck_btns, y, 150 * s, 40 * s, gap=12 * s)
@@ -1146,6 +1248,16 @@ class MenuScene(Scene):
                 x0 = cx - row_w / 2
                 for i, (_v, b) in enumerate(btns):
                     b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+            # Recall draws from the same clustered pools as the board modes.
+            for key in ("aff_meaning", "aff_looks", "aff_sound"):
+                y -= 38 * s
+                lbl = self.lbl_aff_rows[key]
+                lbl.anchor_x = "right"
+                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
+                x0 = cx - row_w / 2
+                for i, (_v, b) in enumerate(self.aff_btns[key]):
+                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+            self._layout_genres(cx, y, s)
             return
 
         self._set_group_visible(*recall_widgets, False)
@@ -1183,30 +1295,44 @@ class MenuScene(Scene):
         row_w = 4 * bw2 + 3 * gap2
         for lbl, btns in ((self.lbl_known, self.known_btns),
                           (self.lbl_less_known, self.less_known_btns),
-                          (self.lbl_unknown, self.unknown_btns)):
+                          (self.lbl_unknown, self.unknown_btns),
+                          (self.lbl_aff_rows["aff_meaning"],
+                           self.aff_btns["aff_meaning"]),
+                          (self.lbl_aff_rows["aff_looks"],
+                           self.aff_btns["aff_looks"]),
+                          (self.lbl_aff_rows["aff_sound"],
+                           self.aff_btns["aff_sound"])):
             y -= 40 * s
             lbl.anchor_x = "right"
             lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
             x0 = cx - row_w / 2
             for i, (_v, b) in enumerate(btns):
                 b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+        self._layout_genres(cx, y, s)
+
+    def _layout_genres(self, cx, y, s) -> float:
+        """One compact line: what's selected, plus in and out."""
+        y -= 36 * s
+        self.lbl_genre.anchor_x = "right"
+        self.lbl_genre.x, self.lbl_genre.y = cx - 8 * s, y
+        bw, bh, gap = 108 * s, 24 * s, 8 * s
+        self.genre_pick_btn.set_rect(cx + 16 * s, y - bh / 2, bw, bh)
+        self.genre_clear_btn.set_rect(cx + 16 * s + bw + gap, y - bh / 2,
+                                      70 * s, bh)
+        return y
 
     def _layout_footer(self, cx, s) -> None:
         # Persistent footer, bottom-anchored so the buttons sit in the same
         # place on both sub-tabs. Today's Training and PLAY share one row (the
         # same vertical envelope as the old lone PLAY button, so the tab
-        # content above never collides); save-preset tucks into the corner.
+        # content above never collides).
         #
-        # The update banner is its own bottom strip, so everything here rides up
-        # by its height while it's showing - it used to sit straight on top of
-        # Multiplayer, Save-as-preset and the streak line.
         # The update banner is an app-level strip along the bottom, so the
         # footer rides up by its height while it's showing (it used to sit
-        # straight on top of Multiplayer, Save-as-preset and the streak line).
+        # straight on top of Multiplayer and the streak line).
         lift = self.app.banner.height()
         self.today_btn.set_rect(cx - 340 * s, 120 * s + lift, 330 * s, 56 * s)
         self.play_btn.set_rect(cx + 10 * s, 120 * s + lift, 330 * s, 56 * s)
-        self.save_preset_btn.set_rect(16 * s, 16 * s + lift, 180 * s, 26 * s)
         self.mp_btn.set_rect(self.width - 196 * s, 16 * s + lift, 180 * s, 26 * s)
         self.avail_label.x, self.avail_label.y = cx, 90 * s + lift
         self.hiscore_label.x, self.hiscore_label.y = cx, 64 * s + lift

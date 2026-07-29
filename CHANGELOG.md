@@ -12,6 +12,31 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.32.0 — 2026-07-29
+
+- **Games with genres.** Every word in the dictionary has been sorted into
+  40 named topics — Food & Drink, Weather & Sky, The Body, Travel, Set
+  Phrases — and the Journey tab has a new **Genres** view to explore them:
+  one tile per topic, coloured by how much of it you know, opening onto its
+  five JLPT levels so you can work through *food at N5* and watch it fill
+  up, exactly like the stations on the road.
+- **Boards that group themselves.** Three new dials — Meaning, Looks and
+  Sound — decide what the words on a board have in common. Turn up *Looks*
+  and you get 待 持 侍 時 on one board, so you finally learn to tell them
+  apart; turn up *Sound* and you get 病院 入院 工員; turn up *Meaning* and
+  the whole board is one topic. They stack, and they work in multiplayer
+  too — your friend doesn't even need to have updated for you to host a
+  themed room.
+- **A shorter mode list.** The Play tab now leads with the three modes you
+  actually start from — Time Attack, Survival, Learn — plus a **＋** that
+  turns whatever you've set up into a custom mode of your own (with a red
+  delete button when you want it gone). Zen, Recall and Familiarize are
+  still there, one row down, as ready-made modes.
+- The Journey map is five wide on every device now, so the 鬼 boss stations
+  line up in a column instead of wandering across the grid.
+
+## 0.31.1 — 2026-07-19
+
 - **The loading ring spins for real now** (third time's the charm —
   measured, this time). Profiling found two heavyweights still sitting
   on the interface thread: card text sizing re-rendered each card's

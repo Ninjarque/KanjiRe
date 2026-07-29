@@ -59,6 +59,18 @@ class GameConfig:
     learn_less_known: int = 0
     learn_unknown:    int = 0
 
+    # ---- clustering: what a board's words have in common --------------- #
+    #: Genre keys (kanjire.data.genres) the pool is restricted to. Empty =
+    #: every genre, which is also what happens when a deck has no genre data
+    #: (an imported corpus): the filter can only ever narrow a known pool.
+    genres: tuple[str, ...] = ()
+    #: Affinity dials, 0-3 like the learn buckets (None/Few/Some/Many). Each
+    #: pulls a board toward words that share something with what's already on
+    #: it: a topic, a look, or a sound. They stack.
+    aff_meaning: int = 0     # same genre  -> themed boards
+    aff_looks:   int = 0     # lookalike kanji -> "tell these apart" boards
+    aff_sound:   int = 0     # soundalike readings -> listening confusions
+
     # ---- gamified lives (Survival) ------------------------------------- #
     #: When True the engine uses a real hearts counter that moves UP (bounties)
     #: and DOWN (errors on already-learned words), instead of the one-way
@@ -109,6 +121,10 @@ class GameConfig:
             raise ValueError(f"unknown vertical_writing: {self.vertical_writing!r}")
         if self.recall_prompt not in RECALL_PROMPTS:
             raise ValueError(f"unknown recall_prompt: {self.recall_prompt!r}")
+        from kanjire.data.genres import valid_genres
+        self.genres = valid_genres(self.genres)
+        for dial in ("aff_meaning", "aff_looks", "aff_sound"):
+            setattr(self, dial, max(0, min(3, int(getattr(self, dial)))))
         self.repetitions = max(1, int(self.repetitions))
         self.start_lives = max(1, int(self.start_lives))
         self.max_lives = max(self.start_lives, int(self.max_lives))

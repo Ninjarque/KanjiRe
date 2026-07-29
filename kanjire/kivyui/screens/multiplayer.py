@@ -313,8 +313,10 @@ class MultiplayerScreen(Screen):
         client = self._make_client()
         if client is None:
             return
-        client.send({"t": "create",
-                     "settings": {"turns_each": self._turns_each}})
+        from kanjire.game.mppool import host_defaults
+        settings = {"turns_each": self._turns_each}
+        settings.update(host_defaults(self._app.state))
+        client.send({"t": "create", "settings": settings})
 
     def _join(self, code: str = "") -> None:
         code = (code or (self.in_code.text if getattr(self, "in_code", None)
@@ -436,6 +438,25 @@ class MultiplayerScreen(Screen):
         body.add_widget(SectionLabel(text=tr("SEC_PASSES")))
         body.add_widget(chips([(n, f"×{n}") for n in (1, 2, 3, 5)],
                               int(s.get("passes", 1)), "passes"))
+        # Clustering: same genre filter and dials as solo play. Resolved by
+        # the host before the pool ships, so guests need no new protocol.
+        from kanjire.data import clusters as _clusters
+        if _clusters.available():
+            from kanjire.data.genres import GENRES
+            body.add_widget(SectionLabel(text=tr("ROW_GENRE")))
+            ggrid = ChipGrid(
+                [(g.key, f"{g.icon} {tr(g.tr)}") for g in GENRES],
+                list(s.get("genres") or []), cols=2, multi=True,
+                on_change=lambda v: self._set_setting("genres", list(v)))
+            ggrid.disabled = not is_host
+            body.add_widget(ggrid)
+            for key, tkey in (("aff_meaning", "AFF_MEANING"),
+                              ("aff_looks", "AFF_LOOKS"),
+                              ("aff_sound", "AFF_SOUND")):
+                body.add_widget(SectionLabel(text=tr(tkey)))
+                body.add_widget(chips(
+                    [(n, "○" if n == 0 else "●" * n) for n in (0, 1, 2, 3)],
+                    int(s.get(key, 0) or 0), key))
         body.add_widget(SectionLabel(text=tr("SEC_WRITING")))
         body.add_widget(chips(
             [("off", tr("WRITE_HORIZ")), ("random", tr("WRITE_MIX")),
@@ -479,24 +500,10 @@ class MultiplayerScreen(Screen):
         self.client.send({"t": "config", "settings": s})
 
     def _sample_pool(self, settings: dict) -> list[dict]:
-        rng = random.Random()
-        deck = settings.get("deck") or "jlpt"
-        levels = settings.get("levels") or [5]
-        try:
-            words = db.load_words(self._app.con, decks=[deck],
-                                  levels=levels if deck == "jlpt" else None,
-                                  require_kanji=True)
-        except Exception:
-            words = []
-        picked = weighted_sample_words(words, POOL_SIZE, bias=0.4, rng=rng,
-                                       confusable=False)
-        loc = self._app.state.locale
-        return [{
-            "kanji": w.expression,
-            "reading": w.reading,
-            "romaji": hira_to_romaji(w.reading),
-            "meaning": w.get_meaning(loc),
-        } for w in picked]
+        from kanjire.game.mppool import sample_pool
+
+        return sample_pool(self._app.con, settings, size=POOL_SIZE,
+                           locale=self._app.state.locale)
 
     def _start(self) -> None:
         if self.client is None or self.me != 0:

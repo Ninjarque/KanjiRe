@@ -11,18 +11,26 @@ Two concerns are handled here:
 2. **Solvability** - within a single round every card face must be unique, or
    the player could not tell which reading/meaning belongs to which kanji. We
    therefore reject any candidate that collides with an already-chosen word on
-   its expression, reading or meaning.
+   its expression, reading, or *any single sense* of its meaning.
 
 3. **Confusability** - a board of mutually-unrelated words is a weak
    recognition test (any half-remembered cue solves it). Once a word is
    chosen, candidates that *share a kanji* with it (and, mildly, same-JLPT
    words) are boosted, so boards trend toward genuinely confusable sets -
    recognition hardened toward recall.
+
+4. **Clustering** - the same mechanism, but under the player's control: an
+   :class:`Affinity` carries their genre / lookalike / soundalike dials and
+   the precomputed maps behind them, so a board can be themed ("all food"),
+   visually treacherous (待 持 侍 時), or an ear-training trap. These are
+   boosts, never filters: an over-tuned dial makes a board harder to fill,
+   never impossible.
 """
 from __future__ import annotations
 
 import random
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 from kanjire.jputil import kanji_chars
 from kanjire.model.vocab import Word
@@ -51,6 +59,110 @@ _PAIR_BOOST = 30.0
 #: sound family). Teaches the series by juxtaposition.
 _SERIES_BOOST = 5.0
 
+#: The player-facing affinity dials (0-3) as multipliers.
+#:
+#: These have to be *big*. Frequency weighting spans orders of magnitude
+#: (``10 ** (freq * bias)`` reaches ~10**2.8 for the commonest words), so the
+#: first draft's 15x boost was quietly losing to "this other word is simply
+#: more common" — measured on the real deck, the themed boards came out no
+#: more themed than random ones. "Some" now roughly cancels the frequency
+#: spread and "Many" overwhelms it, while still being a boost and not a
+#: filter: a board short on matches falls back to unrelated words instead of
+#: coming up empty.
+AFFINITY_STEPS: tuple[float, ...] = (1.0, 8.0, 60.0, 500.0)
+
+
+@dataclass(frozen=True)
+class Affinity:
+    """The clustering pull applied while a board is assembled.
+
+    Each dial is 0-3 (None/Few/Some/Many) and needs its matching map to do
+    anything; a dial without data is silently inert, which is exactly what an
+    imported deck with no precomputed genres should feel like.
+    """
+    #: (expression, reading) -> genre keys
+    genre_map: dict[tuple[str, str], tuple[str, ...]] = field(
+        default_factory=dict)
+    #: kanji -> kanji that look alike
+    shape_map: dict[str, set[str]] = field(default_factory=dict)
+    #: (expression, reading) -> keys that sound alike
+    sound_map: dict[tuple[str, str], set[tuple[str, str]]] = field(
+        default_factory=dict)
+    meaning: int = 0
+    looks: int = 0
+    sound: int = 0
+
+    @property
+    def active(self) -> bool:
+        return bool((self.meaning and self.genre_map)
+                    or (self.looks and self.shape_map)
+                    or (self.sound and self.sound_map))
+
+
+#: Shared empty instance — the overwhelmingly common case.
+NO_AFFINITY = Affinity()
+
+
+def affinity_for(config) -> Affinity:
+    """Build the :class:`Affinity` a :class:`~kanjire.game.config.GameConfig`
+    asks for, loading only the cluster maps its dials actually use.
+
+    Returns :data:`NO_AFFINITY` when every dial is off or the clustering
+    sidecar is absent, so nothing here can fail a game launch.
+    """
+    meaning = int(getattr(config, "aff_meaning", 0) or 0)
+    looks = int(getattr(config, "aff_looks", 0) or 0)
+    sound = int(getattr(config, "aff_sound", 0) or 0)
+    if not (meaning or looks or sound):
+        return NO_AFFINITY
+    try:
+        from kanjire.data import clusters
+        return Affinity(
+            genre_map=clusters.genre_index() if meaning else {},
+            shape_map=clusters.shape_map() if looks else {},
+            sound_map=clusters.sound_map() if sound else {},
+            meaning=meaning, looks=looks, sound=sound,
+        )
+    except Exception:  # noqa: BLE001 — clustering is a bonus, never a blocker
+        return NO_AFFINITY
+
+
+def filter_by_genres(pool: Sequence[Word], genres) -> list[Word]:
+    """The words of *pool* belonging to any of *genres*.
+
+    An empty genre selection returns the pool untouched. So does a selection
+    that matches nothing at all in this pool — a deck with no genre data
+    (freshly imported corpus) must still be playable, and silently handing
+    back an empty board would look like a bug to the player.
+    """
+    pool = list(pool)
+    if not genres:
+        return pool
+    try:
+        from kanjire.data import clusters
+        members = clusters.members_of(genres)
+    except Exception:  # noqa: BLE001
+        return pool
+    if not members:
+        return pool
+    kept = [w for w in pool if (w.expression, w.reading) in members]
+    return kept or pool
+
+
+def _glosses(meaning: str) -> frozenset[str]:
+    """The individual senses of a gloss, for collision checks.
+
+    Two words sharing *any* sense make a board unsolvable, not merely hard:
+    if 閉める is "To close, to shut" and 閉まる is "To shut, to be closed",
+    no player can tell which meaning card belongs to which kanji. Exact-string
+    equality misses that, and the meaning-affinity dial makes such neighbours
+    far more likely to be drawn together, so the check has to be per-sense.
+    """
+    return frozenset(
+        part.strip() for part in meaning.lower().replace(";", ",").split(",")
+        if part.strip()
+    )
+
 
 def _weight(word: Word, bias: float) -> float:
     # 10 ** (freq * bias): bias=1 -> proportional to real frequency,
@@ -62,13 +174,14 @@ def _dedupe_by_face(words: Sequence[Word]) -> list[Word]:
     out: list[Word] = []
     seen_e, seen_r, seen_m = set(), set(), set()
     for w in words:
-        m = w.meaning.strip().lower()
-        if w.expression in seen_e or w.reading in seen_r or m in seen_m:
+        senses = _glosses(w.meaning)
+        if (w.expression in seen_e or w.reading in seen_r
+                or senses & seen_m):
             continue
         out.append(w)
         seen_e.add(w.expression)
         seen_r.add(w.reading)
-        seen_m.add(m)
+        seen_m |= senses
     return out
 
 
@@ -83,6 +196,7 @@ def learn_sample_words(
     penalize: frozenset[tuple[str, str]] | None = None,
     pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
     series_map: dict[str, set[str]] | None = None,
+    affinity: Affinity | None = None,
 ) -> list[Word]:
     """Pick *n* words honouring a per-bucket mix.
 
@@ -105,7 +219,8 @@ def learn_sample_words(
         return list(weighted_sample_words(pool, n, bias=bias, rng=rng,
                                           penalize=penalize,
                                           pair_boost=pair_boost,
-                                          series_map=series_map))
+                                          series_map=series_map,
+                                          affinity=affinity))
 
     # Initial target counts proportional to weights, with rounding fixed up.
     targets: dict[str, int] = {b: int(round(n * w / total)) for b, w in weights.items()}
@@ -136,7 +251,8 @@ def learn_sample_words(
         b_bias = 0.0 if b in REVIEW_BUCKETS else bias
         chosen = weighted_sample_words(avail, take, bias=b_bias, rng=rng,
                                        penalize=penalize, pair_boost=pair_boost,
-                                       series_map=series_map)
+                                       series_map=series_map,
+                                       affinity=affinity)
         for w in chosen:
             used_keys.add((w.expression, w.reading))
         selected.extend(chosen)
@@ -152,7 +268,8 @@ def learn_sample_words(
                      if (w.expression, w.reading) not in used_keys]
         more = weighted_sample_words(remainder, shortfall, bias=bias, rng=rng,
                                      penalize=penalize, pair_boost=pair_boost,
-                                     series_map=series_map)
+                                     series_map=series_map,
+                                     affinity=affinity)
         selected.extend(_dedupe_by_face([*selected, *more])[len(selected):])
 
     rng.shuffle(selected)
@@ -169,6 +286,7 @@ def weighted_sample_words(
     confusable: bool = True,
     pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
     series_map: dict[str, set[str]] | None = None,
+    affinity: Affinity | None = None,
 ) -> list[Word]:
     """Pick up to *n* distinct, mutually-unambiguous words from *pool*.
 
@@ -183,20 +301,24 @@ def weighted_sample_words(
     down-weight (recently-shown words), so they rarely reappear back-to-back
     but can still be chosen if the pool would otherwise run dry.
     ``confusable=False`` disables every affinity boost (pure frequency draw).
+
+    ``affinity`` adds the player's own clustering dials (genre / lookalike /
+    soundalike) on top of the built-in confusability boosts.
     """
     rng = rng or random
     if n <= 0 or not pool:
         return []
     penalize = penalize or frozenset()
+    aff = affinity if (affinity is not None and affinity.active) else None
 
     base: list[float] = []
-    norm_meanings: list[str] = []
+    senses: list[frozenset[str]] = []
     for w in pool:
         if (w.expression, w.reading) in penalize:
             base.append(_RECENT_PENALTY)    # absolute floor — sink to the bottom
         else:
             base.append(_weight(w, bias))
-        norm_meanings.append(w.meaning.strip().lower())
+        senses.append(_glosses(w.meaning))
 
     chosen: list[Word] = []
     seen_expr: set[str] = set()
@@ -206,6 +328,9 @@ def weighted_sample_words(
     picked_levels: set[int] = set()
     picked_partners: set[tuple[str, str]] = set()
     picked_series: set[str] = set()
+    picked_genres: set[str] = set()
+    picked_lookalikes: set[str] = set()
+    picked_soundalikes: set[tuple[str, str]] = set()
 
     alive = list(range(len(pool)))
     for _ in range(n):
@@ -213,16 +338,17 @@ def weighted_sample_words(
         total = 0.0
         for i in alive:
             w = pool[i]
+            key = (w.expression, w.reading)
             if (
                 w.expression in seen_expr
                 or w.reading in seen_reading
-                or norm_meanings[i] in seen_meaning
+                or senses[i] & seen_meaning
             ):
                 weights.append(0.0)
                 continue
             wt = base[i]
             if confusable and chosen:
-                if (w.expression, w.reading) in picked_partners:
+                if key in picked_partners:
                     wt *= _PAIR_BOOST
                 if picked_kanji and any(ch in picked_kanji for ch in w.expression):
                     wt *= _KANJI_SHARE_BOOST
@@ -231,6 +357,25 @@ def weighted_sample_words(
                     wt *= _SERIES_BOOST
                 if w.jlpt is not None and w.jlpt in picked_levels:
                     wt *= _LEVEL_MATCH_BOOST
+            if aff is not None and chosen:
+                # The dials stack: a word that is both on-topic and a
+                # lookalike is the best distractor a board can have.
+                if aff.meaning and picked_genres and (
+                        set(aff.genre_map.get(key, ())) & picked_genres):
+                    wt *= AFFINITY_STEPS[aff.meaning]
+                if aff.looks and picked_lookalikes:
+                    chars = kanji_chars(w.expression)
+                    if chars:
+                        # Scale by *how much* of the word is confusable. One
+                        # shared component inside a two-kanji compound barely
+                        # registers to the eye, so it earns a fraction of the
+                        # boost; 待 next to 持 earns all of it.
+                        ratio = sum(ch in picked_lookalikes
+                                    for ch in chars) / len(chars)
+                        if ratio:
+                            wt *= AFFINITY_STEPS[aff.looks] ** ratio
+                if aff.sound and key in picked_soundalikes:
+                    wt *= AFFINITY_STEPS[aff.sound]
             weights.append(wt)
             total += wt
         if total <= 0.0:
@@ -239,16 +384,31 @@ def weighted_sample_words(
         idx = alive.pop(pick)
         w = pool[idx]
         chosen.append(w)
+        key = (w.expression, w.reading)
         seen_expr.add(w.expression)
         seen_reading.add(w.reading)
-        seen_meaning.add(w.meaning.strip().lower())
+        seen_meaning |= senses[idx]
         picked_kanji.update(kanji_chars(w.expression))
         if w.jlpt is not None:
             picked_levels.add(w.jlpt)
         if pair_boost:
-            picked_partners |= pair_boost.get((w.expression, w.reading), set())
+            picked_partners |= pair_boost.get(key, set())
         if series_map:
             for ch in kanji_chars(w.expression):
                 picked_series |= series_map.get(ch, set())
+        if aff is not None:
+            if aff.meaning and not picked_genres:
+                # The theme is set by the first word that has one, and then
+                # held. Accumulating each pick's genres instead let the theme
+                # dissolve: words carry up to two genres, so after three picks
+                # half the deck "matched" and the board looked random again.
+                mine = aff.genre_map.get(key, ())
+                if mine:
+                    picked_genres.add(mine[0])
+            if aff.looks:
+                for ch in kanji_chars(w.expression):
+                    picked_lookalikes |= aff.shape_map.get(ch, set())
+            if aff.sound:
+                picked_soundalikes |= aff.sound_map.get(key, set())
 
     return chosen

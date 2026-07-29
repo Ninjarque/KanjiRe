@@ -1,11 +1,12 @@
-﻿"""One-shot data setup: dictionary, fonts, French glosses, JLPT deck, corpus.
+"""One-shot data setup: dictionary, fonts, French glosses, JLPT deck, corpus.
 
-Runs the five preparation steps in order so a fresh checkout is ready to play::
+Runs the eight preparation steps in order so a fresh checkout is ready to play::
 
     python scripts/setup_data.py
 
 Steps: jamdict dictionary DB -> bundled fonts -> French gloss sidecar ->
-JLPT deck (the only fatal step) -> Wikipedia sample corpus.
+JLPT deck (the only fatal step) -> Wikipedia sample corpus -> clustering
+(genres, lookalikes, soundalikes).
 Pass ``--no-corpus`` to skip the (slower) Wikipedia sample ingestion.
 """
 from __future__ import annotations
@@ -67,16 +68,29 @@ def main(argv=None) -> int:
         print("Sentence fetch failed (non-fatal); no example sentences.")
 
     if args.no_corpus:
-        print("\n[7/7] Skipped sample corpus (--no-corpus).")
-        return 0
+        print("\n[7/8] Skipped sample corpus (--no-corpus).")
+    else:
+        print("\n" + "=" * 60)
+        print("[7/8] Fetching & ingesting Wikipedia sample corpus")
+        print("=" * 60)
+        import fetch_sample_corpus
 
+        if fetch_sample_corpus.main([]) != 0:
+            print("Sample corpus failed (non-fatal); "
+                  "you can still play the JLPT deck.")
+
+    # Last on purpose: it clusters whatever vocabulary the earlier steps
+    # produced, so any corpus ingested above gets genres too.
     print("\n" + "=" * 60)
-    print("[7/7] Fetching & ingesting Wikipedia sample corpus")
+    print("[8/8] Clustering sidecar (genres / lookalikes / soundalikes)")
     print("=" * 60)
-    import fetch_sample_corpus
+    import build_clusters
 
-    if fetch_sample_corpus.main([]) != 0:
-        print("Sample corpus failed (non-fatal); you can still play the JLPT deck.")
+    try:
+        if build_clusters.main(["--force"]) != 0:
+            print("Clustering failed (non-fatal); genre features stay hidden.")
+    except build_clusters.BuildError as exc:
+        print(f"Clustering skipped (non-fatal): {exc}")
 
     print("\nAll set! Launch the game with:  python main.py")
     return 0

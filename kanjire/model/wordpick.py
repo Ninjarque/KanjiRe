@@ -11,7 +11,8 @@ from __future__ import annotations
 import random
 
 from kanjire.data import db
-from kanjire.model.sampling import learn_sample_words, weighted_sample_words
+from kanjire.model.sampling import (affinity_for, filter_by_genres,
+                                    learn_sample_words, weighted_sample_words)
 
 #: The Learn/Survival bucket steps (0-3) as concrete integer weights. Mirrors
 #: menu._LEARN_STEPS so the menu selectors mean the same thing here.
@@ -22,8 +23,9 @@ def candidate_pool(app, config) -> list:
     """Every word the config could draw from (deck + level filtered)."""
     levels = config.levels or None
     try:
-        return db.load_words(app.con, decks=list(config.decks), levels=levels,
+        pool = db.load_words(app.con, decks=list(config.decks), levels=levels,
                              require_kanji=True)
+        return filter_by_genres(pool, config.genres)
     except Exception:  # noqa: BLE001 - a bad deck must not crash the caller
         return []
 
@@ -46,6 +48,7 @@ def sample_words(app, config, n: int, *, rng: random.Random | None = None) -> li
     except Exception:  # noqa: BLE001
         pairs = {}
 
+    affinity = affinity_for(config)
     wants_mix = any((config.learn_known, config.learn_less_known,
                      config.learn_unknown))
     if wants_mix:
@@ -60,6 +63,6 @@ def sample_words(app, config, n: int, *, rng: random.Random | None = None) -> li
         }
         return learn_sample_words(pool, n, buckets=buckets, weights=weights,
                                   bias=config.frequency_bias, rng=rng,
-                                  pair_boost=pairs)
+                                  pair_boost=pairs, affinity=affinity)
     return weighted_sample_words(pool, n, bias=config.frequency_bias, rng=rng,
-                                 pair_boost=pairs)
+                                 pair_boost=pairs, affinity=affinity)

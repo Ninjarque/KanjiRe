@@ -56,6 +56,33 @@ def test_a_current_bundle_passes(tmp_path, br):
     assert br._check_data_bundled(bundle) == 0
 
 
+def test_every_guarded_file_is_actually_bundled(br):
+    """The guard list and the --add-data list must not drift apart.
+
+    They are two separate literals: adding a sidecar to one and forgetting
+    the other either ships nothing (guard-only) or ships it unverified
+    (--add-data only). Both have happened to other data files.
+    """
+    from kanjire.paths import DATA_DIR
+
+    flags = " ".join(br._add_data_args())
+    for name in br._REQUIRED_DATA + br._OPTIONAL_DATA:
+        if (DATA_DIR / name).exists():
+            assert name in flags, f"{name} is guarded but never bundled"
+
+
+def test_android_packaging_includes_the_data_files():
+    """Android has no build-time guard, so pin the two lines that matter."""
+    spec = (_ROOT / "android" / "buildozer.spec").read_text(encoding="utf-8")
+    exts = next(line for line in spec.splitlines()
+                if line.startswith("source.include_exts"))
+    assert "db" in [e.strip() for e in exts.split("=")[1].split(",")]
+    excluded = next((line for line in spec.splitlines()
+                     if line.startswith("source.exclude_patterns")), "")
+    for name in ("kanjire.db", "clusters.db", "kanjidata.db", "sentences.db"):
+        assert name not in excluded, f"{name} is excluded from the APK"
+
+
 def test_a_missing_required_file_fails(tmp_path, br):
     from kanjire.paths import DATA_DIR
 

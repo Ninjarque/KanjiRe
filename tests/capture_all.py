@@ -328,6 +328,16 @@ def main() -> int:
         app.go_journey()
         render(8)
         shot("journey", size)
+        # Genres browser: the 5-wide grid, then one genre's JLPT rows.
+        app.go_journey(tab="genres")
+        render(8)
+        shot("journey_genres", size)
+        try:
+            app.scene._open_genre("food")
+            render(6)
+            shot("journey_genre_levels", size)
+        except Exception:
+            pass
 
         # Recall v2 stages: study-first preview (stress it with a big drill)
         # and the multiple-choice prompt.

@@ -76,9 +76,19 @@ DEFAULT_SETTINGS = {
     #: shuffle along with the cards; clearing the whole board re-deals the
     #: same words for the next pass, and after the last pass new words come.
     "passes": 1,
+    #: Clustering, exactly as in solo play: a genre filter and the three
+    #: affinity dials (0-3). These need NO protocol bump — the host resolves
+    #: them into an ordinary word list before it ships the pool, so a guest
+    #: on an older build just receives words that happen to go together, and
+    #: an older client ignores settings keys it doesn't know.
+    "genres": [],
+    "aff_meaning": 0,
+    "aff_looks": 0,
+    "aff_sound": 0,
 }
 
 _PASSES_VALUES = (1, 2, 3, 5)
+_AFFINITY_KEYS = ("aff_meaning", "aff_looks", "aff_sound")
 
 #: Accepted values for the presentation settings (kept in sync with the menu's
 #: WRITING_OPTIONS so multiplayer and single player speak the same language).
@@ -173,6 +183,12 @@ class Room:
                 s["writing"] = str(d["writing"])
             if d.get("fonts") in _FONT_VALUES:
                 s["fonts"] = str(d["fonts"])
+            if isinstance(d.get("genres"), list):
+                from kanjire.data.genres import valid_genres
+                s["genres"] = list(valid_genres(d["genres"]))
+            for key in _AFFINITY_KEYS:
+                if d.get(key) in (0, 1, 2, 3):
+                    s[key] = int(d[key])
 
     # ---- membership -------------------------------------------------- #
     def add_player(self, handler: "Handler", name: str, code: str = "") -> int:

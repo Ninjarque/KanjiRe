@@ -309,10 +309,10 @@ class GameApp:
             self, raw_text=text, display_name=display_name,
         ))
 
-    def go_journey(self) -> None:
+    def go_journey(self, tab: str = "road") -> None:
         from kanjire.ui.scenes.journey import JourneyScene
 
-        self.set_scene(JourneyScene(self))
+        self.set_scene(JourneyScene(self, tab=tab))
 
     def go_friends(self) -> None:
         from kanjire.ui.scenes.friends import FriendsScene

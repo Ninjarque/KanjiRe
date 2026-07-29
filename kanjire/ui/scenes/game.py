@@ -14,7 +14,8 @@ from kanjire.data.stats import knowledge_score
 from kanjire.game.config import GameConfig
 from kanjire.game.engine import GameEngine, Phase
 from kanjire.i18n import tr
-from kanjire.model.sampling import learn_sample_words, weighted_sample_words
+from kanjire.model.sampling import (affinity_for, filter_by_genres,
+                                    learn_sample_words, weighted_sample_words)
 from kanjire.ui import theme
 from kanjire.ui.anim import (
     Animator,
@@ -116,8 +117,10 @@ class GameScene(Scene):
             self.error = None
         else:
             levels = config.levels or None
-            self.pool = db.load_words(
-                app.con, decks=list(config.decks), levels=levels, require_kanji=True
+            self.pool = filter_by_genres(
+                db.load_words(app.con, decks=list(config.decks), levels=levels,
+                              require_kanji=True),
+                config.genres,
             )
             self.error = None if self.pool else tr("NO_WORDS")
 
@@ -139,6 +142,8 @@ class GameScene(Scene):
             series = kanjidata.series_map()
         except Exception:
             series = {}
+        # The player's own clustering dials (genre / lookalike / soundalike).
+        affinity = affinity_for(config)
         if self.is_kana:
             sampler = lambda pool, n, *, bias, rng, penalize=None: kana.sample(
                 n, length=config.kana_length, script=config.kana_script, rng=rng,
@@ -153,13 +158,15 @@ class GameScene(Scene):
             sampler = lambda pool, n, *, bias, rng, penalize=None: learn_sample_words(
                 pool, n, buckets=buckets, weights=weights, bias=bias, rng=rng,
                 penalize=penalize, pair_boost=pairs, series_map=series,
+                affinity=affinity,
             )
         else:
             sampler = (
                 lambda pool, n, *, bias, rng, penalize=None:
                     weighted_sample_words(pool, n, bias=bias, rng=rng,
                                           penalize=penalize, pair_boost=pairs,
-                                          series_map=series)
+                                          series_map=series,
+                                          affinity=affinity)
             )
 
         # Survival (lives_mode): per-deal new/bounty metadata from the player's

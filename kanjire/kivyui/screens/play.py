@@ -14,13 +14,17 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
 
 from kanjire import kana
-from kanjire.data import db
+from kanjire.data import clusters, db
+from kanjire.data.genres import GENRES
 from kanjire.game import menuconfig as mc
 from kanjire.i18n import tr
 from kanjire.kivyui.theming import rgba, theme
 from kanjire.kivyui.widgets import ChipRow, JPLabel, SectionLabel, ThemedButton
 
-_MODES = list(mc.MODE_TR.items())  # [(preset key, tr key)]
+def _mode_label(name: str) -> str:
+    """Display label: built-ins localised, custom modes verbatim."""
+    key = mc.MODE_TR.get(name) or mc.PRESET_TR.get(name)
+    return tr(key) if key else name
 
 
 class PlayScreen(Screen):
@@ -29,6 +33,8 @@ class PlayScreen(Screen):
         self._app = app
         self._presets = mc.all_presets(app.state)
         self._preset_names = {p["name"] for p in self._presets}
+        # Only the player's own modes are deletable — not the factory ones.
+        self._user_preset_names = {p.get("name") for p in app.state.presets}
         self.mode = app.state.last_mode or "Time Attack"
         if self.mode not in mc.MODE_TR and self.mode not in self._preset_names:
             self.mode = "Time Attack"
@@ -75,27 +81,38 @@ class PlayScreen(Screen):
                           padding=[0, 0, 0, dp(8)])
         body.bind(minimum_height=body.setter("height"))
 
-        # ---- modes (rulesets), then presets (configurations) ----------- #
+        # ---- modes: the three you start from, plus + ------------------- #
         body.add_widget(SectionLabel(text=tr("SEC_MODE")))
         grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
-        for key, tkey in _MODES:
+        for key in mc.FRONT_MODES:
             b = ThemedButton(
-                text=tr(tkey), font_size=sp(15), height=dp(46),
+                text=_mode_label(key), font_size=sp(15), height=dp(46),
                 fill=theme.ACCENT if key == self.mode else theme.PANEL_HI)
             b.bind(on_release=lambda w, k=key: self._set_mode(k))
             grid.add_widget(b)
-        for p in self._presets:
-            n = p["name"]
-            label = mc.PRESET_TR.get(n)
+        add = ThemedButton(text=tr("BTN_NEW_MODE"), font_size=sp(15),
+                           height=dp(46), fill=theme.PANEL_HI,
+                           text_color=theme.SUCCESS)
+        add.bind(on_release=lambda *_: self._new_mode())
+        grid.add_widget(add)
+        # Factory modes then the player's own — gold, one row down.
+        for n in mc.second_row_modes(self._app.state):
             b = ThemedButton(
-                text=tr(label) if label else n, font_size=sp(15),
-                height=dp(46),
+                text=_mode_label(n), font_size=sp(13), height=dp(40),
                 fill=theme.GOLD if n == self.mode else theme.PANEL_HI,
                 text_color=None if n == self.mode else theme.GOLD)
             b.bind(on_release=lambda w, k=n: self._set_mode(k))
             grid.add_widget(b)
         body.add_widget(grid)
+        if self.mode in self._user_preset_names:
+            # Custom modes are deletable; the factory ones are not. (Phones
+            # have no right-click, so this button is the only way in.)
+            rm = ThemedButton(text=tr("BTN_DELETE_MODE"), font_size=sp(13),
+                              height=dp(38), fill=theme.PANEL_HI,
+                              text_color=theme.DANGER)
+            rm.bind(on_release=lambda *_: self._delete_mode())
+            body.add_widget(rm)
 
         s = self.settings
 
@@ -181,6 +198,22 @@ class PlayScreen(Screen):
             body.add_widget(self._chips(
                 [(n, "○" if n == 0 else "●" * n) for n in mc.LEARN_STEPS],
                 s[skey], skey))
+
+        # ---- clustering: genre filter + the three affinity dials -------- #
+        if clusters.available() and kana.KANA_DECK not in s["decks"]:
+            body.add_widget(SectionLabel(text=tr("ROW_GENRE")))
+            body.add_widget(ChipGrid(
+                [(g.key, f"{g.icon} {tr(g.tr)}") for g in GENRES],
+                s["genres"], cols=2, multi=True,
+                on_change=lambda v: self._set("genres", list(v))))
+            for skey, tkey in (("aff_meaning", "AFF_MEANING"),
+                               ("aff_looks", "AFF_LOOKS"),
+                               ("aff_sound", "AFF_SOUND")):
+                body.add_widget(SectionLabel(text=tr(tkey)))
+                body.add_widget(self._chips(
+                    [(n, "○" if n == 0 else "●" * n)
+                     for n in mc.AFFINITY_STEPS_UI],
+                    s[skey], skey))
         if ruleset == "Survival":
             body.add_widget(SectionLabel(text=tr("SEC_HEARTS")))
             body.add_widget(self._chips(
@@ -285,6 +318,42 @@ class PlayScreen(Screen):
         val = ("both" if vs >= {"hira", "kata"}
                else "kata" if "kata" in vs else "hira")
         self._set("kana_script", val)
+
+    # -- custom modes ---------------------------------------------------- #
+    def _new_mode(self) -> None:
+        """Turn the settings on screen into a named mode of the player's own."""
+        def save(name: str) -> None:
+            name = (name or "").strip()
+            # Don't let a custom mode shadow a built-in one: config_for
+            # resolves built-ins first, so the custom one would never load.
+            if not name or name in mc.MODE_TR or name in mc.FACTORY_MODES:
+                return
+            cfg = mc.config_for(self.mode, self.settings)
+            self._app.state.save_preset(mc.preset_from_config(cfg, name))
+            self._refresh_presets()
+            self._set_mode(name)
+
+        self._app.prompt(tr("PRESET_PROMPT"), save,
+                         initial=f"My {_mode_label(self.mode)}")
+
+    def _delete_mode(self) -> None:
+        name = self.mode
+        if name not in self._user_preset_names:
+            return
+
+        def apply() -> None:
+            self._app.state.delete_preset(name)
+            self._refresh_presets()
+            self._set_mode("Time Attack")
+
+        self._app.confirm(tr("DELETE_PRESET_MSG", name=name), apply,
+                          danger=True)
+
+    def _refresh_presets(self) -> None:
+        self._presets = mc.all_presets(self._app.state)
+        self._preset_names = {p["name"] for p in self._presets}
+        self._user_preset_names = {p.get("name")
+                                   for p in self._app.state.presets}
 
     def _play(self) -> None:
         cfg = mc.config_for(self.mode, self.settings)
