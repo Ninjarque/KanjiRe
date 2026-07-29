@@ -18,3 +18,17 @@
 2026-07-29T20:40:18 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
 2026-07-29T20:40:18 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
 2026-07-29T20:40:19 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:01:41 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169
+2026-07-30T01:02:17 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169
+2026-07-30T01:02:17 READ-COUNTED   id=34907 chars=23 source=tanaka reason=next-button @ stats.py:419 <- reading.py:312
+2026-07-30T01:02:18 advance-nolog  reason=dial had=None @ reading.py:320 <- reading.py:184
+2026-07-30T01:02:18 advance-nolog  reason=dial had=None @ reading.py:320 <- reading.py:184
+2026-07-30T01:02:18 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:02:19 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:02:19 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:02:20 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:02:21 advance-nolog  reason=learn-word had=None @ reading.py:320 <- reading.py:205
+2026-07-30T01:03:41 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169
+2026-07-30T01:04:17 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169
+2026-07-30T01:04:59 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169
+2026-07-30T01:05:44 advance-nolog  reason=open-tab had=None @ reading.py:320 <- reading.py:169

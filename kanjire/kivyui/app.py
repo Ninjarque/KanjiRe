@@ -521,6 +521,10 @@ class KanjiReApp(App):
         from kanjire.kivyui import modal
         modal.prompt(message, on_submit, **kw)
 
+    def info(self, message) -> None:
+        from kanjire.kivyui import modal
+        modal.info(message)
+
     def _show_nav(self, visible: bool) -> None:
         from kivy.metrics import dp
         self.nav.height = dp(56) if visible else 0

@@ -1,0 +1,248 @@
+"""The diglot-weave reader: tokenising, the crutch rule, and the library."""
+from __future__ import annotations
+
+import pytest
+
+from kanjire.data import db
+from kanjire.data.library import Library
+from kanjire.data.stats import StatsRecorder
+from kanjire.data.weave import (Lexicon, Token, WeaveState, hold_for,
+                                split_sentences, starts_in_english)
+
+
+# --------------------------------------------------------------------------- #
+# Sentence splitting
+# --------------------------------------------------------------------------- #
+def test_splits_on_japanese_and_ascii_enders():
+    got = split_sentences("私は本を読む。今日は暑い！なぜ？")
+    assert got == ["私は本を読む。", "今日は暑い！", "なぜ？"]
+
+
+def test_newlines_split_prose_without_punctuation():
+    # Pasted prose often has no 。 at all — line breaks are all we get.
+    assert split_sentences("一行目\n二行目\n") == ["一行目", "二行目"]
+
+
+def test_a_trailing_fragment_is_kept():
+    assert split_sentences("終わりのない文") == ["終わりのない文"]
+
+
+def test_blank_input_yields_nothing():
+    for junk in ("", "   ", "\n\n", None):
+        assert split_sentences(junk) == []
+
+
+# --------------------------------------------------------------------------- #
+# Tokenising (no MeCab: Android has none)
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="module")
+def lex():
+    con = db.connect(read_only=True)
+    try:
+        yield Lexicon(con)
+    finally:
+        con.close()
+
+
+def test_tokenizer_finds_real_words(lex):
+    toks = lex.tokenize("私は大学の本を読みます。")
+    words = [t.expression for t in toks if t.known_word]
+    assert "大学" in words, words
+    assert "本" in words, words
+
+
+def test_longest_match_wins(lex):
+    """大学 must not be read as 大 + 学 — both are entries too."""
+    assert lex.match_at("大", 0) is not None      # the trap really exists
+    toks = lex.tokenize("大学")
+    assert [t.expression for t in toks if t.known_word] == ["大学"]
+
+
+def test_the_passage_survives_tokenising(lex):
+    text = "私は本を読む。今日は暑い！"
+    assert "".join(t.text for t in lex.tokenize(text)) == text
+
+
+def test_bare_single_kana_are_not_words(lex):
+    """と/に/の are particles here; matching them would make every sentence
+    a wall of tappable noise."""
+    toks = lex.tokenize("本を読むとき")
+    for t in toks:
+        if t.known_word:
+            assert len(t.expression) > 1 or any(
+                ord(c) > 0x4DFF for c in t.expression), t.expression
+
+
+def test_matched_tokens_carry_a_gloss(lex):
+    toks = [t for t in lex.tokenize("日本語の本") if t.known_word]
+    assert toks and all(t.meaning for t in toks)
+
+
+def test_empty_text_tokenizes_to_nothing(lex):
+    assert lex.tokenize("") == []
+
+
+# --------------------------------------------------------------------------- #
+# The crutch rule
+# --------------------------------------------------------------------------- #
+KNOWN = {"seen": 9, "matches": 9, "current_streak": 5,
+         "mistakes_kanji": 0, "mistakes_reading": 0, "mistakes_meaning": 0}
+SHAKY = {"seen": 6, "matches": 2, "current_streak": 0,
+         "mistakes_kanji": 4, "mistakes_reading": 0, "mistakes_meaning": 0}
+
+
+def test_an_unknown_word_holds_longer_than_a_known_one():
+    assert hold_for(None, 5) > hold_for(KNOWN, 5)
+
+
+def test_a_harder_word_holds_longer():
+    assert hold_for(None, 1) > hold_for(None, 5)
+
+
+def test_re_tapping_extends_the_hold():
+    assert hold_for(SHAKY, 3, taps=2) > hold_for(SHAKY, 3, taps=0)
+
+
+def test_the_hold_is_bounded():
+    from kanjire.data.weave import MAX_HOLD
+    assert 1 <= hold_for(None, 1, taps=99) <= MAX_HOLD
+
+
+def test_hard_and_unknown_words_start_in_english():
+    assert starts_in_english(None, 1) is True
+    assert starts_in_english(None, 2) is True
+    # Easy-but-unknown stays Japanese: that is the word you are here to meet.
+    assert starts_in_english(None, 5) is False
+    # Known-but-hard needs no crutch either.
+    assert starts_in_english(KNOWN, 1) is False
+
+
+# --------------------------------------------------------------------------- #
+# WeaveState: tap, decay, flip back
+# --------------------------------------------------------------------------- #
+def _tok(expr="大学", jlpt=5):
+    return Token(expr, expr, "だいがく", "College; university", jlpt)
+
+
+def test_a_tap_switches_later_appearances_to_english():
+    st, tok = WeaveState(), _tok()
+    assert st.show_english(tok, KNOWN) is False
+    st.tapped(tok, KNOWN)
+    assert st.show_english(tok, KNOWN) is True
+
+
+def test_the_crutch_wears_off_after_enough_appearances():
+    st, tok = WeaveState(), _tok()
+    hold = st.tapped(tok, KNOWN)
+    for _ in range(hold):
+        assert st.show_english(tok, KNOWN) is True
+        st.consume(tok)
+    assert st.show_english(tok, KNOWN) is False, \
+        "the word never returned to Japanese"
+
+
+def test_a_word_you_keep_tapping_stays_english_longer():
+    st, tok = WeaveState(), _tok()
+    first = st.tapped(tok, SHAKY)
+    for _ in range(first):
+        st.consume(tok)
+    second = st.tapped(tok, SHAKY)
+    assert second > first
+
+
+def test_unmatched_text_is_never_swapped():
+    st = WeaveState()
+    assert st.show_english(Token("を"), None) is False
+
+
+def test_consuming_an_untapped_word_is_harmless():
+    st = WeaveState()
+    st.consume(_tok())          # must not raise or create a hold
+    assert st.holds == {}
+
+
+# --------------------------------------------------------------------------- #
+# The library
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def lib(tmp_path):
+    con = db.connect(tmp_path / "stats.db")
+    StatsRecorder(con)          # the real DB always has both
+    return Library(con)
+
+
+def test_adding_a_passage_splits_and_counts_it(lib):
+    book_id = lib.add("Chapter 1", "私は本を読む。今日は暑い。")
+    book = lib.get(book_id)
+    assert book["title"] == "Chapter 1"
+    assert book["n_sentences"] == 2
+    assert book["position"] == 0 and book["ratio"] == 0.0
+
+
+def test_an_empty_passage_is_refused(lib):
+    assert lib.add("Nothing", "   \n ") is None
+    assert lib.books() == []
+
+
+def test_progress_is_position_over_length(lib):
+    book_id = lib.add("Novel", "一。二。三。四。")
+    lib.save_position(book_id, 2)
+    book = lib.get(book_id)
+    assert book["position"] == 2
+    assert lib.books()[0]["ratio"] == pytest.approx(0.5)
+    assert lib.books()[0]["done"] is False
+    lib.save_position(book_id, 4)
+    assert lib.books()[0]["done"] is True
+
+
+def test_reading_resumes_from_the_saved_position(lib):
+    book_id = lib.add("Novel", "一。二。三。四。五。")
+    lib.save_position(book_id, 3)
+    assert lib.sentences(book_id, lib.get(book_id)["position"])[0] == "四。"
+
+
+def test_sentences_are_windowed(lib):
+    book_id = lib.add("Long", "".join(f"文{i}。" for i in range(100)))
+    assert len(lib.sentences(book_id, 0, limit=10)) == 10
+
+
+def test_the_crutch_state_survives_a_reload(lib):
+    book_id = lib.add("Novel", "一。二。")
+    st = WeaveState()
+    st.tapped(_tok(), None)
+    lib.save_position(book_id, 1, weave=st)
+    back = lib.load_weave(book_id)
+    assert back.holds == st.holds and back.taps == st.taps
+
+
+def test_a_corrupt_crutch_blob_resets_instead_of_crashing(lib):
+    book_id = lib.add("Novel", "一。")
+    lib.con.execute("UPDATE library SET weave='{not json' WHERE id=?",
+                    (book_id,))
+    state = lib.load_weave(book_id)
+    assert state.holds == {} and state.taps == {}
+
+
+def test_deleting_a_book_removes_its_sentences(lib):
+    book_id = lib.add("Gone", "一。二。")
+    assert lib.delete(book_id) is True
+    assert lib.get(book_id) is None
+    assert lib.sentences(book_id) == []
+    assert lib.delete(book_id) is False
+
+
+def test_renaming(lib):
+    book_id = lib.add("Old", "一。")
+    lib.rename(book_id, "New")
+    assert lib.get(book_id)["title"] == "New"
+    lib.rename(book_id, "   ")          # blank is ignored, not destructive
+    assert lib.get(book_id)["title"] == "New"
+
+
+def test_most_recently_read_sorts_first(lib):
+    a = lib.add("A", "一。")
+    b = lib.add("B", "二。")
+    lib.save_position(a, 1)
+    assert lib.books()[0]["id"] == a
+    lib.save_position(b, 1)
+    assert lib.books()[0]["id"] == b

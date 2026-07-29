@@ -12,6 +12,26 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.36.0 — 2026-07-30
+
+- **New: read your own texts, in Japanese, with training wheels.** Reading
+  Room → **My texts**: paste a chapter and read it as Japanese. Tap any word
+  you don't know and it opens up (reading + meaning) — and from then on,
+  *that word appears in English* for a while, so the rest of the page stays
+  readable. Once you've met it enough times it quietly flips back to
+  Japanese. Words that are both new to you *and* hard start in English on
+  their own, so a passage above your level is readable from the first line.
+- **How long a word stays English depends on you**: how well you know it,
+  how hard it is (JLPT), and how many times you've had to tap it. Tap the
+  same word again and it holds the crutch for longer.
+- **Tapping a word teaches it.** A word you looked up while reading counts
+  as evidence — it loses its streak and comes back in your normal reviews.
+  Reading and the card games now feed the same brain.
+- **Your texts are a library.** Every passage remembers where you left off
+  and shows a progress bar, so a novel resumes on the line you stopped at
+  instead of chapter one. Delete any of them, with their progress, from the
+  same list.
+
 ## 0.35.1 — 2026-07-29
 
 - **Reading Room keeps a small trace log.** Chasing the "sentences count as

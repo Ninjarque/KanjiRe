@@ -40,9 +40,25 @@ class ReadingScreen(Screen):
         self._app = app
         self.session = None
         self._translation_shown = False
+        #: "feed" = the graded i+1 feed; "library" = your own texts.
+        self.mode = app.state.setting("read_mode", "feed")
+        if self.mode not in ("feed", "library"):
+            self.mode = "feed"
+        self._weave_view = None
         self._build()
 
+    def _set_mode(self, mode: str) -> None:
+        if mode == self.mode:
+            return
+        self.mode = mode
+        self._app.state.set_setting("read_mode", mode)
+        self._build()
+        if mode == "feed":
+            self.on_pre_enter()
+
     def on_pre_enter(self, *_):
+        if self.mode == "library":
+            return          # the library builds itself; no feed to prepare
         if self.session is None:
             self.session = ReadingSession(self._app.con, self._app.stats,
                                           self._app.state)
@@ -52,11 +68,23 @@ class ReadingScreen(Screen):
 
     # ------------------------------------------------------------------ #
     def _build(self) -> None:
+        self.clear_widgets()
         root = BoxLayout(orientation="vertical", padding=[dp(14), dp(10)],
                          spacing=dp(8))
         root.add_widget(JPLabel(text=tr("READ_TITLE"), bold=True,
                                 font_size=sp(20), size_hint_y=None,
                                 height=dp(30)))
+        # Two ways to read: the graded feed, or a text of your own.
+        root.add_widget(ChipRow(
+            [("feed", tr("READ_MODE_FEED")),
+             ("library", tr("READ_MODE_LIBRARY"))],
+            self.mode, on_change=self._set_mode))
+        if self.mode == "library":
+            from kanjire.kivyui.screens.weaveread import WeaveView
+            self._weave_view = WeaveView(self._app)
+            root.add_widget(self._weave_view)
+            self.add_widget(root)
+            return
         self._totals = JPLabel(text="", color=rgba(theme.MUTED),
                                font_size=sp(12), halign="left",
                                size_hint_y=None, height=dp(20))

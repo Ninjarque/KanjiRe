@@ -27,6 +27,7 @@ SIZES = {
 #: (label, action) pairs the walker performs, screenshotting after each.
 #: action is an app method name to call (None = already on that screen).
 WALK = [("play", None), ("play-genres", "special"), ("journey", None),
+        ("read-library", "special"), ("read-weave", "special"),
         ("journey-genres", "special"), ("journey-genre-levels", "special"),
         ("stats", None), ("settings", None),
         ("friends", None), ("game", "go_game"),
@@ -48,7 +49,29 @@ def _run_one(label: str, size: str, outdir: Path) -> None:
         "app = A.KanjiReApp()\n"
         "prefix = os.environ['KANJIRE_KIVY_CAPTURE']\n"
         "walk = %r\n"
+        "TEXT = '私は大学の本を読みます。今日は天気がいいです。彼は毎日新聞を読む。'\n"
         "def special(label):\n"
+        "    if label == 'read-library':\n"
+        "        app.switch_tab('read')\n"
+        "        rs = app.sm.get_screen('read')\n"
+        "        rs._set_mode('library')\n"
+        "        wv = rs._weave_view\n"
+        "        if not wv.library.books():\n"
+        "            wv.library.add('Chapter 1', TEXT)\n"
+        "            wv.show_library()\n"
+        "        return\n"
+        "    if label == 'read-weave':\n"
+        "        rs = app.sm.get_screen('read')\n"
+        "        wv = rs._weave_view\n"
+        "        books = wv.library.books()\n"
+        "        if books:\n"
+        "            wv.open_book(books[0]['id'])\n"
+        "            toks = [w for w in wv.walk()\n"
+        "                    if hasattr(w, 'token') and w.token.known_word]\n"
+        "            for t in toks[:3]:\n"
+        "                wv._weave.tapped(t.token, None)\n"
+        "            wv._render()\n"
+        "        return\n"
         "    if label == 'play-genres':\n"
         "        from kivy.uix.scrollview import ScrollView\n"
         "        for w in app.sm.get_screen('play').walk():\n"

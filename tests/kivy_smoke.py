@@ -147,6 +147,8 @@ def main() -> None:
         app.sm.get_screen("multiplayer").leave()
         check("left multiplayer", app.sm.current == "play")
 
+
+
         def later(delay, fn):
             Clock.schedule_once(lambda *_: fn(), delay)
 
@@ -597,7 +599,51 @@ def main() -> None:
             check("sentence toast honours off", gs._sent.opacity == 0)
             app.state.set_setting("sentence_display", "default")
             gs._quit()
+            step_weave_reader()
             app.stop()
+
+        def step_weave_reader():
+            # 0c. The weave reader: add a text, open it, tap a word. The tap must
+            # reveal it, swap later appearances to English, AND count as evidence
+            # in the normal stats (reading feeds the same brain as the games).
+            from kanjire.kivyui.screens.weaveread import WeaveWord
+            rs = app.sm.get_screen("read")
+            rs._set_mode("library")
+            wv = rs._weave_view
+            check("library starts empty", wv.library.books() == [])
+            bid = wv.library.add("Ch1", "私は大学の本を読みます。今日は天気がいい。")
+            check("a pasted text becomes a book",
+                  bid is not None and wv.library.get(bid)["n_sentences"] == 2)
+            wv.open_book(bid)
+            words = [w for w in wv.walk() if isinstance(w, WeaveWord)]
+            check("the passage renders as tokens", len(words) > 5)
+            tappable = [w for w in words if w.token.known_word]
+            check("known words are tappable", len(tappable) >= 3)
+            check("nothing is English before any tap",
+                  not any(w.english for w in words))
+            tok = tappable[0].token
+            wv._tap(tok)
+            after = [w for w in wv.walk() if isinstance(w, WeaveWord)]
+            check("a tapped word turns English",
+                  any(w.english and w.token.key == tok.key for w in after))
+            row = app.stats.get_for(tok.expression, tok.reading)
+            check("the tap counts as evidence in stats",
+                  row is not None and row["mistakes_meaning"] >= 1
+                  and row["current_streak"] == 0)
+            # The crutch must wear off, or the reader never returns to Japanese.
+            st = wv._weave
+            for _ in range(40):
+                st.consume(tok)
+            check("the crutch wears off", st.show_english(tok, row) is False)
+            wv.library.save_position(bid, 1, weave=st)
+            check("progress is remembered",
+                  wv.library.get(bid)["ratio"] > 0)
+            check("the crutch state survives a reload",
+                  wv.library.load_weave(bid).taps.get(tok.key) == 1)
+            wv.library.delete(bid)
+            wv.show_library()
+            rs._set_mode("feed")
+
 
         # deferred launch: wait for the spinner tick, then the game steps
         later(1.2, step_game_started)

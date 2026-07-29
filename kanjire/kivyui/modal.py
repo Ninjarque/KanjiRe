@@ -76,11 +76,29 @@ def confirm(message: str, on_confirm, *, danger: bool = False,
     view.open()
 
 
-def prompt(message: str, on_submit, *, initial: str = "") -> None:
+def info(message: str) -> None:
+    """A one-button note. Revealing a word is not a yes/no question, and
+    dressing it as one gives the reader a pointless 'Cancel' to think about.
+    """
+    view, box = _base()
+    box.add_widget(_message_label(message))
+    ok = ThemedButton(text=tr("DLG_OK"), fill=theme.ACCENT,
+                      size_hint_y=None, height=dp(48))
+    ok.bind(on_release=lambda *_: view.dismiss())
+    box.add_widget(ok)
+    box.bind(minimum_height=lambda w, v: setattr(view, "height", v))
+    view.open()
+
+
+def prompt(message: str, on_submit, *, initial: str = "",
+           multiline: bool = False) -> None:
+    """Ask for a line of text. ``multiline`` opens a taller box for pasting a
+    passage into the reading library, where a one-line field is useless."""
     view, box = _base(top=True)
     box.add_widget(_message_label(message))
-    field = TextInput(text=initial, multiline=False, font_name=UI_FONT,
-                      font_size=sp(16), size_hint_y=None, height=dp(44),
+    field = TextInput(text=initial, multiline=multiline, font_name=UI_FONT,
+                      font_size=sp(16), size_hint_y=None,
+                      height=dp(180) if multiline else dp(44),
                       background_color=rgba(theme.PANEL_HI),
                       foreground_color=rgba(theme.TEXT),
                       cursor_color=rgba(theme.ACCENT),

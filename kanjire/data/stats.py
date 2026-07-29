@@ -167,6 +167,40 @@ class StatsRecorder:
         if self.srs is not None:
             self.srs.update(word.expression, word.reading, rating)
 
+    def reading_lookup(self, expression: str, reading: str,
+                       meaning: str = "") -> None:
+        """The player tapped a word while reading because they didn't know it.
+
+        That is real evidence and it should count everywhere: the word gets a
+        meaning-side miss (they needed the gloss), its streak resets, and the
+        scheduler is told "again" so it surfaces in normal reviews. A word
+        looked up in a novel therefore shows up in tomorrow's practice — the
+        reading mode feeds the same brain as the card games.
+        """
+        ts = _now()
+        self.con.execute(
+            """
+            INSERT INTO word_stats (expression, reading, meaning, seen,
+                                    mistakes_meaning, last_seen_at,
+                                    last_mistake_at, current_streak)
+            VALUES (?, ?, ?, 1, 1, ?, ?, 0)
+            ON CONFLICT(expression, reading) DO UPDATE SET
+              seen             = seen + 1,
+              meaning          = COALESCE(excluded.meaning, meaning),
+              mistakes_meaning = mistakes_meaning + 1,
+              last_seen_at     = excluded.last_seen_at,
+              last_mistake_at  = excluded.last_mistake_at,
+              current_streak   = 0
+            """,
+            (expression, reading, meaning or None, ts, ts),
+        )
+        self.con.commit()
+        if self.srs is not None:
+            try:
+                self.srs.update(expression, reading, RATING_AGAIN)
+            except Exception:      # noqa: BLE001 — scheduling is a bonus
+                pass
+
     def confused(self, target: Word, offending: Word, face: str) -> None:
         """A mismatch click: ``offending`` was selected while ``target`` was the
         in-progress group, and the click was on ``offending``'s ``face`` card."""
