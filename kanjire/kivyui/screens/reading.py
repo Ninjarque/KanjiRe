@@ -46,7 +46,7 @@ class ReadingScreen(Screen):
         if self.session is None:
             self.session = ReadingSession(self._app.con, self._app.stats,
                                           self._app.state)
-            self.session.advance(log=False)
+            self.session.advance(log=False, reason="open-tab")
         self._show_current()
         self._update_totals()
 
@@ -153,7 +153,7 @@ class ReadingScreen(Screen):
     def _next(self) -> None:
         if self.session is None:
             return
-        self.session.advance(log=True)
+        self.session.advance(log=True, reason="next-button")
         self._update_totals()
         self._show_current()
 

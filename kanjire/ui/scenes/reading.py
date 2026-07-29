@@ -166,7 +166,7 @@ class ReadingScene(Scene):
         self._pop_widgets: list = []
         self._pop_open = False
 
-        self._advance(log=False)
+        self._advance(log=False, reason="open-tab")
         self._update_totals()
 
     # ------------------------------------------------------------------ #
@@ -181,7 +181,7 @@ class ReadingScene(Scene):
         self._read_ids = self.app.stats.read_sentence_ids(key)
         self._queue.clear()
         self.current = None
-        self._advance(log=False)
+        self._advance(log=False, reason="dial")
 
     def _set_new_words(self, n: int) -> None:
         self.new_words = int(n)
@@ -202,7 +202,7 @@ class ReadingScene(Scene):
         so the change is felt immediately, not five sentences later."""
         self._queue.clear()
         self.current = None
-        self._advance(log=False)
+        self._advance(log=False, reason="learn-word")
 
     def _order_pool(self, pool: list[dict]) -> list[dict]:
         """Rate a readable shortlist and order it by the difficulty preference.
@@ -305,16 +305,21 @@ class ReadingScene(Scene):
                 self._queue.extend(self._order_pool(got))
                 return
 
-    def _advance(self, log: bool = True) -> None:
+    def _advance(self, log: bool = True, reason: str = "?") -> None:
+        from kanjire import readdiag
         if log and self.current is not None:
             try:
                 self.app.stats.log_read(self.current["id"],
                                         len(self.current["ja"]),
-                                        source=self.source)
+                                        source=self.source, reason=reason)
             except Exception:
                 pass
             self._read_ids.add(self.current["id"])
             self._update_totals()
+        else:
+            readdiag.note("advance-nolog", reason=reason,
+                          had=None if self.current is None
+                          else self.current["id"])
         if len(self._queue) <= _REFILL_AT:
             self._refill()
         self._close_popup()
@@ -379,7 +384,7 @@ class ReadingScene(Scene):
                                  if self._translation_shown else "")
 
     def _next(self) -> None:
-        self._advance(log=True)
+        self._advance(log=True, reason="next-button")
 
     def _update_totals(self) -> None:
         t = self.app.stats.reading_totals()

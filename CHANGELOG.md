@@ -12,6 +12,17 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.35.1 — 2026-07-29
+
+- **Reading Room keeps a small trace log.** Chasing the "sentences count as
+  read without pressing Next" report: every sentence that IS counted now
+  records what asked for it, and every sentence change that is *not* counted
+  is recorded too. If the counter moves unexpectedly, the log names the
+  culprit. It lives beside the crash log — `%APPDATA%\KanjiRe
+eading.log`
+  on Windows, `~/.kanjire/reading.log` on Linux, and in the app's private
+  files on Android — and is capped at a few hundred lines.
+
 ## 0.35.0 — 2026-07-29
 
 - **The update banner's buttons fit inside it again.** "Restart & update"

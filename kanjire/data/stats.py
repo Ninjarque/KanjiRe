@@ -377,7 +377,13 @@ class StatsRecorder:
 
     # ---- Reading Room ------------------------------------------------ #
     def log_read(self, sentence_id: int, chars: int,
-                 source: str = "tanaka") -> None:
+                 source: str = "tanaka", reason: str = "?") -> None:
+        """Count one sentence as read. *reason* is traced, not stored: the
+        counter appeared to move without the Next button and the only way to
+        settle that is to have the app record what asked for it."""
+        from kanjire import readdiag
+        readdiag.note("READ-COUNTED", id=sentence_id, chars=chars,
+                      source=source, reason=reason)
         self.con.execute(
             "INSERT INTO read_log (ts, day, sentence_id, chars, source) "
             "VALUES (?, ?, ?, ?, ?)",

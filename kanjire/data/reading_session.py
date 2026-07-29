@@ -78,10 +78,17 @@ class ReadingSession:
         self.requeue()
 
     def requeue(self) -> None:
-        """A dial changed: rebuild the queue and surface a fresh sentence."""
+        """A dial changed: rebuild the queue and surface a fresh sentence.
+
+        The current sentence is dropped WITHOUT being counted — changing a
+        dial is not reading.
+        """
+        from kanjire import readdiag
+        readdiag.note("requeue", dropped=None if self.current is None
+                      else self.current["id"], source=self.source)
         self._queue.clear()
         self.current = None
-        self.advance(log=False)
+        self.advance(log=False, reason="requeue")
 
     # ---- pool ---------------------------------------------------------- #
     def _order_pool(self, pool: list[dict]) -> list[dict]:
@@ -175,16 +182,25 @@ class ReadingSession:
                 return
 
     # ---- flow ---------------------------------------------------------- #
-    def advance(self, log: bool = True) -> dict | None:
-        """Log the current sentence (if any) and surface the next one."""
+    def advance(self, log: bool = True, reason: str = "?") -> dict | None:
+        """Log the current sentence (if any) and surface the next one.
+
+        *reason* is only for the trace log — every caller names itself, so a
+        counter that moves without the Next button says so out loud.
+        """
+        from kanjire import readdiag
         if log and self.current is not None:
             try:
                 self.stats.log_read(self.current["id"],
                                     len(self.current["ja"]),
-                                    source=self.source)
+                                    source=self.source, reason=reason)
             except Exception:
                 pass
             self._read_ids.add(self.current["id"])
+        else:
+            readdiag.note("advance-nolog", reason=reason,
+                          had=None if self.current is None
+                          else self.current["id"])
         if len(self._queue) <= REFILL_AT:
             self._refill()
         self.current = self._queue.pop(0) if self._queue else None

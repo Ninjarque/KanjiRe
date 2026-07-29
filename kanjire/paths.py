@@ -32,6 +32,11 @@ DB_PATH = DATA_DIR / "kanjire.db"
 CORPORA_DIR = PROJECT_ROOT / "corpora"
 
 
+def user_dir() -> Path:
+    """Public alias — logs and diagnostics live here too."""
+    return _user_dir()
+
+
 def _user_dir() -> Path:
     """Return a writable per-user data directory.
 
