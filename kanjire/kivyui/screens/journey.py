@@ -183,13 +183,12 @@ class JourneyScreen(Screen):
         self._app.sm.current = "play"
 
     def _genre_fill(self, cell):
-        if not cell.playable:
-            return theme.PANEL
-        if cell.complete:
-            return theme.SUCCESS
-        if cell.known:
-            return theme.GOLD
-        return theme.PANEL_HI
+        """Base colour. How FAR you are is the progress bar's job — gold for
+        "started" read as "done", so 5 of 30 looked finished."""
+        return theme.PANEL if not cell.playable else theme.PANEL_HI
+
+    def _genre_accent(self, cell):
+        return theme.SUCCESS if cell.complete else theme.GOLD
 
     def _play_genre(self, cell) -> None:
         if not cell.playable:
@@ -223,6 +222,7 @@ class JourneyScreen(Screen):
                 b = ThemedButton(text=f"{g.icon} {tr(g.tr)}",
                                  font_size=sp(12.5), height=dp(46), fill=fill,
                                  text_color=theme.readable_on(fill))
+                b.set_progress(cell.ratio, self._genre_accent(cell))
                 b.disabled = not cell.playable
                 b.bind(on_release=lambda w, k=g.key: self._open_genre(k))
                 grid.add_widget(b)
@@ -242,6 +242,7 @@ class JourneyScreen(Screen):
             b = ThemedButton(text=f"N{lvl}   {cell.known}/{cell.total}",
                              font_size=sp(15), height=dp(48), fill=fill,
                              text_color=theme.readable_on(fill))
+            b.set_progress(cell.ratio, self._genre_accent(cell))
             b.disabled = not cell.playable
             b.bind(on_release=lambda w, c=cell: self._play_genre(c))
             body.add_widget(b)

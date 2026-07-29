@@ -13,7 +13,7 @@ import pytest
 from kanjire.game.config import GameConfig
 from kanjire.model.sampling import (AFFINITY_STEPS, Affinity, NO_AFFINITY,
                                     affinity_for, filter_by_genres,
-                                    weighted_sample_words)
+                                    learn_sample_words, weighted_sample_words)
 from kanjire.model.vocab import Word
 
 
@@ -197,3 +197,82 @@ def test_distinct_senses_still_coexist():
     ]
     picked = weighted_sample_words(pool, 2, rng=random.Random(0))
     assert len(picked) == 2
+
+
+# --------------------------------------------------------------------------- #
+# The path the game actually uses
+# --------------------------------------------------------------------------- #
+# Every mode ships a knowledge mix (the default is 1/2/1), so real boards are
+# dealt by learn_sample_words, which fills them one BUCKET at a time. Each
+# bucket used to call the sampler with a clean slate, so a six-word board
+# picked its theme three separate times and the dials felt like no-ops in the
+# app while measuring fine in isolation. These tests measure the real path.
+def _bucketed(pool, n, affinity, rng):
+    half = max(1, len(pool) // 3)
+    return learn_sample_words(
+        pool, n,
+        buckets={"known": pool[:half], "less_known": pool[half:2 * half],
+                 "unknown": pool[2 * half:]},
+        weights={"known": 1, "less_known": 2, "unknown": 1},
+        rng=rng, affinity=affinity)
+
+
+def test_context_carries_across_buckets():
+    """A word drawn for one bucket must steer the next bucket's draw."""
+    # One lookalike per bucket (the buckets are thirds of this list): that is
+    # the case the old code could not solve, because each bucket only draws
+    # one word and started with no idea what the others had picked.
+    pool = [W(1, "待つ", "まつ", "To wait"),
+            W(4, "音楽", "おんがく", "Music"),
+            W(5, "牛乳", "ぎゅうにゅう", "Milk"),
+            W(2, "持つ", "もつ", "To hold"),
+            W(6, "旅行", "りょこう", "Trip"),
+            W(7, "野菜", "やさい", "Vegetable"),
+            W(3, "時間", "じかん", "Time"),
+            W(8, "電話", "でんわ", "Phone"),
+            W(9, "銀行", "ぎんこう", "Bank")]
+    look = {"待": {"持", "時"}, "持": {"待", "時"}, "時": {"待", "持"}}
+    aff = Affinity(shape_map=look, looks=3)
+
+    def hits(affinity):
+        rng = random.Random(7)
+        total = 0
+        for _ in range(40):
+            picked = _bucketed(pool, 3, affinity, rng)
+            total += len({w.expression for w in picked}
+                         & {"待つ", "持つ", "時間"})
+        return total / 40
+
+    on, off = hits(aff), hits(None)
+    assert on > off + 0.5, f"bucketed affinity barely bit: {on:.2f} vs {off:.2f}"
+
+
+def test_context_prevents_cross_bucket_face_collisions():
+    """Two words sharing a sense must not survive in one board even when they
+    come from different buckets — the dedup used to run afterwards, which
+    dropped words and left the board short."""
+    pool = [W(1, "閉める", "しめる", "To close, to shut"),
+            W(2, "閉まる", "しまる", "To shut, to be closed"),
+            W(3, "開ける", "あける", "To open"),
+            W(4, "音楽", "おんがく", "Music")]
+    for seed in range(25):
+        picked = _bucketed(pool, 3, None, random.Random(seed))
+        exprs = {w.expression for w in picked}
+        assert not {"閉める", "閉まる"} <= exprs, f"seed {seed} dealt both"
+
+
+def test_explicit_context_seeds_the_theme():
+    pool = [W(1, "朝食", "ちょうしょく", "Breakfast"),
+            W(2, "電車", "でんしゃ", "Train")]
+    genre_map = {("食事", "しょくじ"): ("food",),
+                 ("朝食", "ちょうしょく"): ("food",),
+                 ("電車", "でんしゃ"): ("transport",)}
+    aff = Affinity(genre_map=genre_map, meaning=3)
+    seed_word = W(9, "食事", "しょくじ", "Meal")
+    hits = 0
+    for i in range(40):
+        picked = weighted_sample_words(pool, 1, rng=random.Random(i),
+                                       affinity=aff, context=[seed_word])
+        if picked and picked[0].expression == "朝食":
+            hits += 1
+    assert hits > 30, f"context word did not set the theme ({hits}/40)"

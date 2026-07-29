@@ -189,13 +189,14 @@ class JourneyScene(Scene):
         self.app.go_menu()
 
     def _genre_accent(self, cell) -> tuple:
+        """Colour says *finished or not*; the fill bar says *how far*.
+
+        Gold used to mean "you have started this", which read as "done" —
+        a genre with 5 of 30 words looked exactly like one with 30 of 30.
+        """
         if not cell.playable:
             return theme.PANEL_HI
-        if cell.complete:
-            return theme.SUCCESS
-        if cell.known:
-            return theme.GOLD
-        return theme.DIM
+        return theme.SUCCESS if cell.complete else theme.GOLD
 
     def _rebuild_genre_nodes(self) -> None:
         for _k, b in self._genre_buttons:
@@ -216,6 +217,7 @@ class JourneyScene(Scene):
                            lambda k=g.key: self._open_genre(k),
                            self.batch, self.g_bg, self.g_text,
                            accent=self._genre_accent(cell), font_size=11)
+                b.set_progress(cell.ratio)
                 b.enabled = cell.playable
                 self._genre_buttons.append((g.key, b))
         else:
@@ -226,6 +228,7 @@ class JourneyScene(Scene):
                            lambda c=cell: self._play_genre(c),
                            self.batch, self.g_bg, self.g_text,
                            accent=self._genre_accent(cell), font_size=13)
+                b.set_progress(cell.ratio)
                 b.enabled = cell.playable
                 self._level_buttons.append((lvl, b))
 
@@ -244,7 +247,13 @@ class JourneyScene(Scene):
         )
         hard = sorted(words, key=lambda w: knowledge_score(
             self._stats_rows.get((w.expression, w.reading)) or {}))
+        self._claim_return()
         self.app.go_game(cfg, pool=words, recall_words=hard[:5])
+
+    def _claim_return(self) -> None:
+        """Leaving the game this launches comes back to this exact view."""
+        self.app._return_to = "journey"
+        self.app._return_tab = self.tab
 
     # ------------------------------------------------------------------ #
     def _is_boss(self, i: int) -> bool:
@@ -276,6 +285,7 @@ class JourneyScene(Scene):
             b = Button(text, lambda i=i: self._play_station(i),
                        self.batch, self.g_bg, self.g_text,
                        accent=accent, font_size=14)
+            b.set_progress(min(1.0, n_known / STATION_SIZE))
             if i == self.frontier:
                 b.set_selected(True)
             self._node_buttons.append((i, b))
@@ -307,6 +317,7 @@ class JourneyScene(Scene):
         # Typed-recall epilogue over the station's trickiest known words.
         hard = sorted(words, key=lambda w: knowledge_score(
             self._stats_rows.get((w.expression, w.reading)) or {}))
+        self._claim_return()
         self.app.go_game(cfg, pool=words, recall_words=hard[:5])
 
     # ------------------------------------------------------------------ #

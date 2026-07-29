@@ -252,7 +252,8 @@ def learn_sample_words(
         chosen = weighted_sample_words(avail, take, bias=b_bias, rng=rng,
                                        penalize=penalize, pair_boost=pair_boost,
                                        series_map=series_map,
-                                       affinity=affinity)
+                                       affinity=affinity,
+                                       context=selected)
         for w in chosen:
             used_keys.add((w.expression, w.reading))
         selected.extend(chosen)
@@ -269,7 +270,8 @@ def learn_sample_words(
         more = weighted_sample_words(remainder, shortfall, bias=bias, rng=rng,
                                      penalize=penalize, pair_boost=pair_boost,
                                      series_map=series_map,
-                                     affinity=affinity)
+                                     affinity=affinity,
+                                     context=selected)
         selected.extend(_dedupe_by_face([*selected, *more])[len(selected):])
 
     rng.shuffle(selected)
@@ -287,6 +289,7 @@ def weighted_sample_words(
     pair_boost: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
     series_map: dict[str, set[str]] | None = None,
     affinity: Affinity | None = None,
+    context: Sequence[Word] | None = None,
 ) -> list[Word]:
     """Pick up to *n* distinct, mutually-unambiguous words from *pool*.
 
@@ -304,6 +307,14 @@ def weighted_sample_words(
 
     ``affinity`` adds the player's own clustering dials (genre / lookalike /
     soundalike) on top of the built-in confusability boosts.
+
+    ``context`` is words already on the board from an earlier call. Every
+    affinity and collision rule is seeded from them, which matters because
+    :func:`learn_sample_words` fills a board one *bucket* at a time: without
+    it each bucket started from nothing, so a six-word board picked its
+    theme three separate times and the dials barely showed. It also stops
+    cross-bucket face collisions at the source instead of deduping them out
+    afterwards and leaving the board short.
     """
     rng = rng or random
     if n <= 0 or not pool:
@@ -332,6 +343,35 @@ def weighted_sample_words(
     picked_lookalikes: set[str] = set()
     picked_soundalikes: set[tuple[str, str]] = set()
 
+    def _absorb(w: Word) -> None:
+        """Fold one already-placed word into every running set."""
+        key = (w.expression, w.reading)
+        seen_expr.add(w.expression)
+        seen_reading.add(w.reading)
+        seen_meaning.update(_glosses(w.meaning))
+        picked_kanji.update(kanji_chars(w.expression))
+        if w.jlpt is not None:
+            picked_levels.add(w.jlpt)
+        if pair_boost:
+            picked_partners.update(pair_boost.get(key, ()))
+        if series_map:
+            for ch in kanji_chars(w.expression):
+                picked_series.update(series_map.get(ch, ()))
+        if aff is not None:
+            if aff.meaning and not picked_genres:
+                mine = aff.genre_map.get(key, ())
+                if mine:
+                    picked_genres.add(mine[0])
+            if aff.looks:
+                for ch in kanji_chars(w.expression):
+                    picked_lookalikes.update(aff.shape_map.get(ch, ()))
+            if aff.sound:
+                picked_soundalikes.update(aff.sound_map.get(key, ()))
+
+    seeded = bool(context)
+    for w in (context or ()):
+        _absorb(w)
+
     alive = list(range(len(pool)))
     for _ in range(n):
         weights: list[float] = []
@@ -347,7 +387,7 @@ def weighted_sample_words(
                 weights.append(0.0)
                 continue
             wt = base[i]
-            if confusable and chosen:
+            if confusable and (chosen or seeded):
                 if key in picked_partners:
                     wt *= _PAIR_BOOST
                 if picked_kanji and any(ch in picked_kanji for ch in w.expression):
@@ -357,7 +397,7 @@ def weighted_sample_words(
                     wt *= _SERIES_BOOST
                 if w.jlpt is not None and w.jlpt in picked_levels:
                     wt *= _LEVEL_MATCH_BOOST
-            if aff is not None and chosen:
+            if aff is not None and (chosen or seeded):
                 # The dials stack: a word that is both on-topic and a
                 # lookalike is the best distractor a board can have.
                 if aff.meaning and picked_genres and (
@@ -384,31 +424,10 @@ def weighted_sample_words(
         idx = alive.pop(pick)
         w = pool[idx]
         chosen.append(w)
-        key = (w.expression, w.reading)
-        seen_expr.add(w.expression)
-        seen_reading.add(w.reading)
-        seen_meaning |= senses[idx]
-        picked_kanji.update(kanji_chars(w.expression))
-        if w.jlpt is not None:
-            picked_levels.add(w.jlpt)
-        if pair_boost:
-            picked_partners |= pair_boost.get(key, set())
-        if series_map:
-            for ch in kanji_chars(w.expression):
-                picked_series |= series_map.get(ch, set())
-        if aff is not None:
-            if aff.meaning and not picked_genres:
-                # The theme is set by the first word that has one, and then
-                # held. Accumulating each pick's genres instead let the theme
-                # dissolve: words carry up to two genres, so after three picks
-                # half the deck "matched" and the board looked random again.
-                mine = aff.genre_map.get(key, ())
-                if mine:
-                    picked_genres.add(mine[0])
-            if aff.looks:
-                for ch in kanji_chars(w.expression):
-                    picked_lookalikes |= aff.shape_map.get(ch, set())
-            if aff.sound:
-                picked_soundalikes |= aff.sound_map.get(key, set())
+        # The meaning theme is set by the first word that has one and then
+        # held (see _absorb). Accumulating every pick's genres instead let
+        # the theme dissolve: words carry up to two genres, so after three
+        # picks half the deck "matched" and the board looked random again.
+        _absorb(w)
 
     return chosen

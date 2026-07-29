@@ -112,15 +112,43 @@ class ThemedButton(ButtonBehavior, JPLabel):
         kw.setdefault("size_hint_y", None)
         kw.setdefault("height", dp(52))
         super().__init__(**kw)
+        #: 0..1 progress fill, or None for a plain button. A tile can then
+        #: say "how far in am I" rather than only "started / not started".
+        self.progress = None
         with self.canvas.before:
             self._col = Color(*rgba(self._fill))
             self._rect = RoundedRectangle(pos=self.pos, size=self.size,
                                           radius=[self.radius])
+            # Drawn over the base, under the label. A muted blend towards
+            # the accent, not the accent itself: a solid bar sliding under
+            # the text is what would make a half-done tile harder to read
+            # than an empty one.
+            self._prog_col = Color(*rgba(theme.PANEL_HI, 0))
+            self._prog_rect = RoundedRectangle(pos=self.pos, size=(0, 0),
+                                               radius=[self.radius])
         self.bind(pos=self._sync, size=self._sync, state=self._feedback)
+
+    def set_progress(self, ratio, accent=None) -> None:
+        """Show (or clear, with None) the fill bar."""
+        self.progress = (None if ratio is None
+                         else max(0.0, min(1.0, float(ratio))))
+        self._prog_accent = accent
+        self._sync_progress()
+
+    def _sync_progress(self, *_):
+        if not self.progress:
+            self._prog_col.rgba = rgba(theme.PANEL_HI, 0)
+            self._prog_rect.size = (0, 0)
+            return
+        accent = getattr(self, "_prog_accent", None) or theme.GOLD
+        self._prog_col.rgba = rgba(theme.lerp(self._fill, accent, 0.45))
+        self._prog_rect.pos = self.pos
+        self._prog_rect.size = (self.width * self.progress, self.height)
 
     def _sync(self, *_):
         self._rect.pos = self.pos
         self._rect.size = self.size
+        self._sync_progress()
 
     def _feedback(self, *_):
         c = theme.tint(self._fill, 0.18) if self.state == "down" else self._fill

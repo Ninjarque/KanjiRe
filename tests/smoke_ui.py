@@ -1052,6 +1052,46 @@ def run() -> int:
         assert len(app2.scene.saved_mode_btns) == len(before)
         print("PASS hide + restore a built-in mode")
 
+        # 19g) Leaving a game returns to WHERE IT STARTED, not the menu.
+        # A station or genre session used to dump you on Play, losing your
+        # place on the road.
+        from kanjire.ui.scenes.journey import JourneyScene as _JS
+        app2.go_journey(tab="genres")
+        jr = app2.scene
+        frames2(6)
+        pl = [k for k in (g.key for g in GENRES)
+              if jr._genre_progress[k][None].playable]
+        cell = next(c for c in (jr._genre_progress[pl[0]][lv]
+                                for lv in (5, 4, 3, 2, 1)) if c.playable)
+        jr._open_genre(pl[0])
+        jr._play_genre(cell)
+        frames2(4)
+        assert isinstance(app2.scene, GameScene)
+        app2.go_menu()                       # what Esc / the Menu button does
+        frames2(4)
+        assert isinstance(app2.scene, _JS),             f"leaving a genre game left us on {type(app2.scene).__name__}"
+        assert app2.scene.tab == "genres", "came back to the wrong sub-tab"
+        # And the road does the same.
+        app2.go_journey()
+        frames2(4)
+        app2.scene._play_station(app2.scene.frontier)
+        frames2(4)
+        assert isinstance(app2.scene, GameScene)
+        app2.go_menu()
+        frames2(4)
+        assert isinstance(app2.scene, _JS) and app2.scene.tab == "road"
+        # A game started from the menu still returns to the menu.
+        app2.go_menu()
+        frames2(4)
+        app2.scene._set_mode("Zen")
+        app2.scene._play()
+        frames2(4)
+        assert isinstance(app2.scene, GameScene)
+        app2.go_menu()
+        frames2(4)
+        assert isinstance(app2.scene, MenuScene),             "a menu-started game must still come back to the menu"
+        print("PASS leaving a game returns to where it started")
+
         # 20) Leech hunt appears on Stats once words lapse repeatedly.
         app2.stats.reset_all()
         for w in n5all[:6]:

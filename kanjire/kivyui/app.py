@@ -124,6 +124,7 @@ class KanjiReApp(App):
             threading.Thread(target=self.sync.connect, daemon=True,
                              name="kanjire-sync").start()
 
+        self._back_stack: list[str] = []
         self.root_box = BoxLayout(orientation="vertical")
         self.sm = ScreenManager(transition=FadeTransition(duration=0.12))
         # Collapsing the nav moves/resizes the manager, but ScreenManager only
@@ -302,7 +303,7 @@ class KanjiReApp(App):
             self.sm.get_screen("multiplayer").leave()
             return True
         if current != "play":
-            self.switch_tab("play")   # any other tab: back to the main one
+            self.go_home()            # back to wherever we came from
             return True
         # On the Play tab: leaving the app. Confirm, unless opted out.
         if self.state.setting("back_confirm", "on") != "on":
@@ -375,18 +376,45 @@ class KanjiReApp(App):
     # ------------------------------------------------------------------ #
     # Navigation — same verbs as the pyglet app
     # ------------------------------------------------------------------ #
+    #: Screens we can sensibly go *back* to. A game or a drill is never one
+    #: of them — backing out of a game must never land you in another game.
+    _BACK_SKIP = frozenset({"game", "recall"})
+
+    def _remember(self, name: str | None = None) -> None:
+        """Push the screen we are leaving onto the back stack."""
+        name = name or self.sm.current
+        if not name or name in self._BACK_SKIP:
+            return
+        if not self._back_stack or self._back_stack[-1] != name:
+            self._back_stack.append(name)
+            del self._back_stack[:-12]      # bounded; nobody backs 12 deep
+
     def switch_tab(self, name: str) -> None:
         if self.sm.current == "game":
             return  # tabs are hidden during a game; ignore stray taps
+        self._remember()
         self.sm.current = name
         self.nav.set_active(name)
 
     def go_home(self):
+        """Leave the current screen for wherever the player actually came
+        from — the Journey tab if a station started this game, the Play tab
+        otherwise. Everything that ends a game or a drill routes through
+        here, so they all learned this at once (backing out of a Journey
+        station used to dump you on Play, losing your place on the road).
+        """
+        target = "play"
+        while self._back_stack:
+            candidate = self._back_stack.pop()
+            if candidate != self.sm.current and self.sm.has_screen(candidate):
+                target = candidate
+                break
         self._show_nav(True)
-        self.sm.current = "play"
-        self.nav.set_active("play")
+        self.sm.current = target
+        self.nav.set_active(target)
 
     def go_game(self, config=None, pool=None, recall_words=None):
+        self._remember()
         config = config or PRESETS["Time Attack"]()
         # Recall has no card board — route it to its own screen (Play again
         # from its results comes back through here too, same as pyglet).
@@ -438,6 +466,7 @@ class KanjiReApp(App):
     def go_recall_drill(self, config, words=None):
         """The typed-recall screen: standalone mode, or a session epilogue
         over explicit *words* (Journey stations / Today's hardest reviews)."""
+        self._remember()
         self.loading.show()
 
         def _start(_dt):
@@ -454,6 +483,7 @@ class KanjiReApp(App):
         Clock.schedule_once(_start, 0.03)
 
     def go_multiplayer(self, join_room: str = ""):
+        self._remember()
         if not self.sm.has_screen("multiplayer"):
             from kanjire.kivyui.screens.multiplayer import MultiplayerScreen
             self.sm.add_widget(MultiplayerScreen(self, name="multiplayer"))

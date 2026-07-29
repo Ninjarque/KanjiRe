@@ -12,6 +12,27 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.34.0 — 2026-07-29
+
+- **The Meaning / Looks / Sound dials actually work now.** They were very
+  nearly no-ops in real games, and the reason is unglamorous: every mode
+  ships a known/less-known/unknown mix, and boards built that way are dealt
+  one group at a time — each group started from scratch, so a six-word board
+  chose its theme three separate times and the effect cancelled out. A board
+  is now built as one piece. Measured on a normal six-word board: lookalike
+  words went from 0.5 to 5.0, same-topic words from 1.8 to 4.8, and
+  soundalikes from 0.03 to 3.2. Turn *Looks* up and you will see it.
+- **Genre tiles show a progress bar.** Gold used to mean "you have started
+  this", which looked exactly like "finished" — Food & Drink at 5 of 30 was
+  the same colour as a completed topic. Each tile (and each JLPT row, and
+  each station on the road) now fills up as you learn it, and the label
+  stays readable as the bar passes under it. Green still means done.
+- **Back returns where you came from.** Leaving a Journey station — with the
+  back button, Escape, or the results screen — dropped you on the Play tab
+  and lost your place on the road. It now takes you back to the road, or to
+  the genre you were browsing. Every "leave this game" path shares this, on
+  the phone and on the computer.
+
 ## 0.33.0 — 2026-07-29
 
 - **Every option now works in every mode.** The timer used to belong to

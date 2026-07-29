@@ -233,6 +233,10 @@ class GameApp:
         self.window.modal = self.modal
         self._maybe_go_online()
         self.scene: Scene | None = None
+        #: Where "leave this game" should return to, and which sub-tab.
+        #: Set by whichever screen launched the game (Journey does).
+        self._return_to: str | None = None
+        self._return_tab: str | None = None
         self.go_menu()
 
     def confirm(self, message, on_confirm, **kw) -> None:
@@ -266,11 +270,25 @@ class GameApp:
         scene.on_resize(self.window.width, self.window.height)
 
     def go_menu(self) -> None:
+        """Back to the Play menu — unless a game was started from somewhere
+        else, in which case go back THERE.
+
+        Ending a Journey station used to drop you on the menu, losing your
+        place on the road; the same was true for a genre session. Every
+        "leave this game" path funnels through here, so they all follow the
+        origin now. Desktop and Android behave the same way.
+        """
+        origin, self._return_to = self._return_to, None
+        if origin == "journey":
+            self.go_journey(tab=self._return_tab or "road")
+            return
         from kanjire.ui.scenes.menu import MenuScene
 
         self.set_scene(MenuScene(self))
 
     def go_game(self, config, pool=None, recall_words=None) -> None:
+        # Remember where this game was launched from, so leaving it returns
+        # there (set by the Journey scene before it calls us).
         # The Recall mode has no card board - it's a typed-recall session. Route
         # it to the recall scene directly, so "Play again" from its results
         # (which comes back through go_game) lands here too.
@@ -312,6 +330,7 @@ class GameApp:
     def go_journey(self, tab: str = "road") -> None:
         from kanjire.ui.scenes.journey import JourneyScene
 
+        self._return_to = None          # arriving here clears any pending return
         self.set_scene(JourneyScene(self, tab=tab))
 
     def go_friends(self) -> None:

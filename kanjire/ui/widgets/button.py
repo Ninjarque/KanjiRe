@@ -40,16 +40,31 @@ class Button:
             0, 0, 10, 10, border=2,
             color=theme.PANEL, border_color=self.accent, batch=batch, group=bg_group,
         )
+        #: 0..1 progress fill, or None for a plain button. Drawn as a bar
+        #: growing from the left INSIDE the button, so a tile can say "how
+        #: far in am I" instead of only "started / not started" — 5 of 30
+        #: words known should not look the same as 30 of 30.
+        self.progress: float | None = None
+        self._fill = shapes.Rectangle(0, 0, 0, 0, color=self.accent,
+                                      batch=batch, group=bg_group)
+        self._fill.visible = False
         self._label = Label(
             text, font_name=JP_FONT, font_size=font_size,
             color=theme.with_alpha(theme.TEXT, 255),
             anchor_x="center", anchor_y="center", batch=batch, group=text_group,
         )
 
+    def set_progress(self, ratio: float | None) -> None:
+        """Show (or clear) the fill bar. ``ratio`` is clamped to 0..1."""
+        self.progress = (None if ratio is None
+                         else max(0.0, min(1.0, float(ratio))))
+        self._refresh()
+
     def set_rect(self, x: float, y: float, w: float, h: float) -> None:
         self.x, self.y, self.w, self.h = x, y, w, h
         self._bg.x, self._bg.y = x, y
         self._bg.width, self._bg.height = w, h
+        self._sync_fill()
         self._label.x = x + w / 2
         self._label.y = y + h / 2
         self._refresh()
@@ -90,15 +105,37 @@ class Button:
         self._bg.visible = self.visible
         self.enabled = self.visible
         self._refresh()
+        self._sync_fill()
 
     def click(self) -> None:
         if self.enabled:
             self.on_click()
 
+    def _sync_fill(self) -> None:
+        """Place the progress bar inside the border and colour it so the
+        label stays readable whether or not the bar has reached it.
+
+        The bar is a *muted* blend towards the accent rather than the accent
+        itself: a solid gold bar sliding under pale text is the one thing
+        that would make a half-finished tile harder to read than an empty
+        one, and per-character colour changes aren't possible in one Label.
+        """
+        show = bool(self.visible and self.progress)
+        self._fill.visible = show
+        if not show:
+            return
+        inset = 2
+        self._fill.x = self.x + inset
+        self._fill.y = self.y + inset
+        self._fill.width = max(0.0, (self.w - 2 * inset) * self.progress)
+        self._fill.height = max(0.0, self.h - 2 * inset)
+        self._fill.color = theme.lerp(theme.PANEL, self.accent, 0.45)
+
     def _refresh(self) -> None:
         # Colours are chosen via theme.tint / theme.readable_on so the button
         # stays legible under both dark and light palettes (lighten-on-dark vs
         # darken-on-light is handled centrally by the theme module).
+        self._sync_fill()
         if not self.visible:
             # Every branch below assigns an RGBA colour, and in pyglet setting
             # Label.color overwrites its alpha - so a plain `opacity = 0` here

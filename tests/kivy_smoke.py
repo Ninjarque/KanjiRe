@@ -67,6 +67,21 @@ def main() -> None:
         from kivy.uix.screenmanager import NoTransition
         app.sm.transition = NoTransition()
 
+        # 0. The progress fill on a button: a genre tile shows HOW FAR you
+        # are, not just that you started (gold-for-started read as "done").
+        from kanjire.kivyui.widgets import ThemedButton as _PB
+        probe = _PB(text="x")
+        probe.size = (200, 40)
+        probe.set_progress(None)
+        check("no progress bar by default", probe._prog_rect.size[0] == 0)
+        probe.set_progress(0.5)
+        check("progress bar fills half", abs(probe._prog_rect.size[0] - 100) < 1)
+        probe.set_progress(2.0)          # clamped, never overflows the button
+        check("progress bar clamps to full",
+              abs(probe._prog_rect.size[0] - 200) < 1)
+        probe.set_progress(0.0)
+        check("zero progress draws nothing", probe._prog_rect.size[0] == 0)
+
         # 1. Play tab renders.
         check("play tab is current", app.sm.current == "play")
         snap(app, "01-play")
@@ -420,8 +435,10 @@ def main() -> None:
             later(0.4, step_back_key)
 
         def step_back_key():
-            # Back/Esc: in a game -> previous menu; on a tab -> play tab;
-            # on the play tab -> confirm-exit modal (unless opted out).
+            # Back/Esc: in a game -> back to WHERE IT STARTED; on a tab ->
+            # the previous screen; on the play tab -> confirm-exit modal
+            # (unless opted out).
+            app.switch_tab("play")
             app.go_game()
             later(1.2, step_back_in_game)
 
@@ -429,7 +446,16 @@ def main() -> None:
             handled = app._on_hard_key(None, 27)
             check("back leaves the game", handled
                   and app.sm.current == "play")
-            app.switch_tab("stats")
+            # A game started from another tab comes back to THAT tab — it
+            # used to dump you on Play and lose your place on the road.
+            app.switch_tab("journey")
+            app.go_game()
+            later(1.2, step_back_to_origin)
+
+        def step_back_to_origin():
+            handled = app._on_hard_key(None, 27)
+            check("back from a journey game returns to journey",
+                  handled and app.sm.current == "journey")
             handled = app._on_hard_key(None, 27)
             check("back returns to play tab", handled
                   and app.sm.current == "play")
