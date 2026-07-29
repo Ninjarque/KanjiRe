@@ -12,6 +12,16 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.32.1 — 2026-07-29
+
+- **Custom modes keep their genre and grouping dials.** Saving one with ＋
+  quietly threw away its genre filter and its Meaning/Looks/Sound settings,
+  so re-selecting it gave you a plain board. Fixed — and if you made a
+  custom mode on 0.32.0, open it and set those again once.
+- **The Advanced tab no longer overlaps the PLAY button** on smaller
+  windows: the six dials now sit in two columns (word mix on the left,
+  grouping on the right) instead of one tall stack.
+
 ## 0.32.0 — 2026-07-29
 
 - **Games with genres.** Every word in the dictionary has been sorted into

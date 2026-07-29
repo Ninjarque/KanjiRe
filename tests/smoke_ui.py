@@ -867,6 +867,8 @@ def run() -> int:
 
         # 19) Journey map: stations built from the frequency road, frontier
         # detected, a station session launches over exactly its words.
+        from kanjire.data.genres import GENRES
+        from kanjire.ui.scenes.menu import _config_to_dict
         from kanjire.ui.scenes.journey import JourneyScene
         app2.go_journey()
         jn = app2.scene
@@ -888,6 +890,79 @@ def run() -> int:
                    for w in gj.engine.round_words)
         frames2(6)
         print("PASS journey map + station session")
+
+        # 19b) Genres browser: grid -> one genre's levels -> a real session,
+        # plus "Use in Play" writing the filter the menu will read back.
+        app2.go_journey(tab="genres")
+        jg = app2.scene
+        frames2(8)
+        assert jg.tab == "genres"
+        assert len(jg._genre_buttons) == len(GENRES), "genre grid incomplete"
+        assert not jg._level_buttons, "levels showing before a genre is opened"
+        # Every node the road drew must be hidden, or it keeps eating clicks.
+        assert all(not b.visible for _i, b in jg._node_buttons), \
+            "road stations still visible under the genre grid"
+        playable = [k for k in (g.key for g in GENRES)
+                    if jg._genre_progress[k][None].playable]
+        assert playable, "no genre has enough words to play"
+        jg._open_genre(playable[0])
+        frames2(6)
+        assert jg._level_buttons and not jg._genre_buttons
+        assert jg.back_btn.visible and jg.use_btn.visible
+        cell = next(c for c in (jg._genre_progress[playable[0]][lv]
+                                for lv in (5, 4, 3, 2, 1)) if c.playable)
+        genre_keys = {(w.expression, w.reading) for w in cell.words}
+        jg._play_genre(cell)
+        gg = app2.scene
+        assert isinstance(gg, GameScene) and gg.config.session_mode
+        assert gg.config.genres == (playable[0],)
+        assert all((w.expression, w.reading) in genre_keys
+                   for w in gg.engine.round_words), \
+            "a genre session dealt words from outside the genre"
+        frames2(6)
+        # Back out, then hand the genre to the Play tab.
+        app2.go_journey(tab="genres")
+        jg2 = app2.scene
+        jg2._open_genre(playable[0])
+        jg2._use_genre()
+        frames2(6)
+        mode_now = app2.state.last_mode or "Time Attack"
+        assert playable[0] in (app2.state.last_for_mode(mode_now) or
+                               {}).get("genres", []), \
+            "Use in Play did not set the menu's genre filter"
+        assert app2.scene.genres == [playable[0]], \
+            "the menu did not pick the filter up"
+        print("PASS genres browser (grid, levels, session, use-in-play)")
+
+        # 19c) Custom modes: + saves one, it plays, the red button deletes it.
+        mn = app2.scene
+        mn._set_mode("Zen")
+        mn.aff_looks = 3
+        mn.genres = ["food"]
+        cfg_dict = _config_to_dict(mn._current_config())
+        cfg_dict["name"] = "Smoke Mode"
+        app2.state.save_preset(cfg_dict)
+        app2.go_menu()
+        mn2 = app2.scene
+        frames2(6)
+        assert "Smoke Mode" in [n for n, _b in mn2.saved_mode_btns], \
+            "a saved custom mode is missing from the mode row"
+        mn2._set_mode("Smoke Mode")
+        frames2(6)
+        assert mn2.delete_mode_btn.visible, "no delete button on a custom mode"
+        assert mn2.aff_looks == 3 and mn2.genres == ["food"], \
+            "the custom mode lost its clustering"
+        assert mn2._current_config().genres == ("food",)
+        # Built-ins must never offer deletion.
+        mn2._set_mode("Time Attack")
+        frames2(4)
+        assert not mn2.delete_mode_btn.visible, \
+            "delete button offered for a built-in mode"
+        app2.state.delete_preset("Smoke Mode")
+        app2.go_menu()
+        frames2(6)
+        assert "Smoke Mode" not in [n for n, _b in app2.scene.saved_mode_btns]
+        print("PASS custom modes (save, reselect, clustering kept, delete)")
 
         # 20) Leech hunt appears on Stats once words lapse repeatedly.
         app2.stats.reset_all()

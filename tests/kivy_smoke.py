@@ -89,8 +89,24 @@ def main() -> None:
                     return r
             return None
 
-        mp_btn = find_btn(app.sm.get_screen("play"), "対戦")
+        play_screen = app.sm.get_screen("play")
+        mp_btn = find_btn(play_screen, "対戦")
         check("mp button found", mp_btn is not None)
+        # Force a layout pass before measuring. Kivy positions widgets from a
+        # Clock trigger, and on a loaded machine this script's 1.0s start can
+        # beat it — the button is then still at its default (0, 0, 100, 100)
+        # and the tap lands in the corner, failing as if an overlay ate it.
+        # (That flake cost real debugging time; don't remove it.)
+        for _pass in range(3):
+            for w in play_screen.walk():
+                do_layout = getattr(w, "do_layout", None)
+                if do_layout is not None:
+                    try:
+                        do_layout()
+                    except Exception:
+                        pass
+        check("play screen is laid out before the tap",
+              mp_btn.width > 100 and mp_btn.center != [50.0, 50.0])
         wx, wy = mp_btn.to_window(*mp_btn.center)
         t = UnitTestTouch(wx, wy)
         t.touch_down()

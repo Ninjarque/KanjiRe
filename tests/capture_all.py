@@ -121,6 +121,22 @@ def main() -> int:
         shot("menu_adv_recall", size)
         app.scene._set_mode("Time Attack")
         app.scene._set_subtab("quick")
+        # A custom mode: the saved row grows and the red delete appears —
+        # the one arrangement the built-in modes never show.
+        app.state.save_preset({"name": "My Mix", "learn_known": 2,
+                               "aff_looks": 3, "genres": ["food"]})
+        app.go_menu()
+        render(4)
+        app.scene._set_mode("My Mix")
+        render(6)
+        shot("menu_custom_mode", size)
+        app.scene._set_subtab("advanced")
+        render(6)
+        shot("menu_adv_custom", size)
+        app.state.delete_preset("My Mix")
+        app.go_menu()
+        render(4)
+        app.scene._set_subtab("quick")
         app.scene.decks = ["jlpt"]
         app.scene._toggle_deck("kana")
         render(6)

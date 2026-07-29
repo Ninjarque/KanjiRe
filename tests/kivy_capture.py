@@ -26,7 +26,9 @@ SIZES = {
 
 #: (label, action) pairs the walker performs, screenshotting after each.
 #: action is an app method name to call (None = already on that screen).
-WALK = [("play", None), ("stats", None), ("settings", None),
+WALK = [("play", None), ("play-genres", "special"), ("journey", None),
+        ("journey-genres", "special"), ("journey-genre-levels", "special"),
+        ("stats", None), ("settings", None),
         ("friends", None), ("game", "go_game"),
         ("recall-preview", "special"), ("recall-choice", "special")]
 
@@ -47,6 +49,19 @@ def _run_one(label: str, size: str, outdir: Path) -> None:
         "prefix = os.environ['KANJIRE_KIVY_CAPTURE']\n"
         "walk = %r\n"
         "def special(label):\n"
+        "    if label == 'play-genres':\n"
+        "        from kivy.uix.scrollview import ScrollView\n"
+        "        for w in app.sm.get_screen('play').walk():\n"
+        "            if isinstance(w, ScrollView):\n"
+        "                w.scroll_y = 0.0\n"
+        "                break\n"
+        "        return\n"
+        "    if label == 'journey-genres':\n"
+        "        app.sm.get_screen('journey')._set_tab('genres')\n"
+        "        return\n"
+        "    if label == 'journey-genre-levels':\n"
+        "        app.sm.get_screen('journey')._open_genre('food')\n"
+        "        return\n"
         "    from kanjire.game.config import PRESETS\n"
         "    if label == 'recall-preview':\n"
         "        cfg = PRESETS['Recall']().with_(words_per_round=16,\n"

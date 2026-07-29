@@ -175,6 +175,7 @@ PRESET_FIELDS = (
     "learn_known", "learn_less_known", "learn_unknown",
     "lives_mode", "start_lives", "max_lives", "heart_chance",
     "recall_mode", "recall_prompt", "recall_preview",
+    "genres", "aff_meaning", "aff_looks", "aff_sound",
     "name",
 )
 

@@ -1198,6 +1198,45 @@ class MenuScene(Scene):
         y -= 30 * s
         self._row(self.size_btns, y, 90 * s, 38 * s, gap=12 * s)
 
+    def _layout_dials(self, cx, y, s) -> float:
+        """The six 0-3 dials, in two columns: knowledge mix | clustering.
+
+        Stacked, they overran the footer at 760x600 — six rows plus the genre
+        line simply don't fit under the board options. The window is always
+        wider than it is tall, so the clustering dials sit beside the
+        knowledge mix rather than below it.
+        """
+        bw, bh, gap = 78 * s, 30 * s, 8 * s
+        block = 4 * bw + 3 * gap
+        label_w, label_gap, col_gap = 96 * s, 12 * s, 34 * s
+        total = 2 * (label_w + label_gap + block) + col_gap
+        x0 = cx - total / 2
+        left_x = x0 + label_w + label_gap
+        right_x = left_x + block + col_gap + label_w + label_gap
+
+        columns = (
+            (left_x, ((self.lbl_known, self.known_btns),
+                      (self.lbl_less_known, self.less_known_btns),
+                      (self.lbl_unknown, self.unknown_btns))),
+            (right_x, ((self.lbl_aff_rows["aff_meaning"],
+                        self.aff_btns["aff_meaning"]),
+                       (self.lbl_aff_rows["aff_looks"],
+                        self.aff_btns["aff_looks"]),
+                       (self.lbl_aff_rows["aff_sound"],
+                        self.aff_btns["aff_sound"]))),
+        )
+        bottom = y
+        for bx, rows in columns:
+            ry = y
+            for lbl, btns in rows:
+                ry -= 40 * s
+                lbl.anchor_x = "right"
+                lbl.x, lbl.y = bx - label_gap, ry
+                for i, (_v, b) in enumerate(btns):
+                    b.set_rect(bx + i * (bw + gap), ry - bh / 2, bw, bh)
+            bottom = min(bottom, ry)
+        return bottom
+
     def _layout_advanced(self, cx, y, s) -> None:
         def section(lbl, dy=42):
             nonlocal y
@@ -1237,26 +1276,8 @@ class MenuScene(Scene):
             section(self.lbl_recall_preview, dy=44)
             y -= 28 * s
             self._row(self.recall_preview_btns, y, 90 * s, 30 * s, gap=8 * s)
-            bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
-            row_w = 4 * bw2 + 3 * gap2
-            for lbl, btns in ((self.lbl_known, self.known_btns),
-                              (self.lbl_less_known, self.less_known_btns),
-                              (self.lbl_unknown, self.unknown_btns)):
-                y -= 44 * s
-                lbl.anchor_x = "right"
-                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
-                x0 = cx - row_w / 2
-                for i, (_v, b) in enumerate(btns):
-                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
             # Recall draws from the same clustered pools as the board modes.
-            for key in ("aff_meaning", "aff_looks", "aff_sound"):
-                y -= 38 * s
-                lbl = self.lbl_aff_rows[key]
-                lbl.anchor_x = "right"
-                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
-                x0 = cx - row_w / 2
-                for i, (_v, b) in enumerate(self.aff_btns[key]):
-                    b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+            y = self._layout_dials(cx, y, s)
             self._layout_genres(cx, y, s)
             return
 
@@ -1289,36 +1310,26 @@ class MenuScene(Scene):
             del bwS
         else:
             self._set_group_visible(*survival_widgets, False)
-        # Knowledge-mix dials: unified across every board mode. Compact
-        # inline rows — the stacked version collided with the footer.
-        bw2, bh2, gap2 = 78 * s, 30 * s, 8 * s
-        row_w = 4 * bw2 + 3 * gap2
-        for lbl, btns in ((self.lbl_known, self.known_btns),
-                          (self.lbl_less_known, self.less_known_btns),
-                          (self.lbl_unknown, self.unknown_btns),
-                          (self.lbl_aff_rows["aff_meaning"],
-                           self.aff_btns["aff_meaning"]),
-                          (self.lbl_aff_rows["aff_looks"],
-                           self.aff_btns["aff_looks"]),
-                          (self.lbl_aff_rows["aff_sound"],
-                           self.aff_btns["aff_sound"])):
-            y -= 40 * s
-            lbl.anchor_x = "right"
-            lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
-            x0 = cx - row_w / 2
-            for i, (_v, b) in enumerate(btns):
-                b.set_rect(x0 + i * (bw2 + gap2), y - bh2 / 2, bw2, bh2)
+        # Knowledge mix + clustering dials, side by side.
+        y = self._layout_dials(cx, y, s)
         self._layout_genres(cx, y, s)
 
     def _layout_genres(self, cx, y, s) -> float:
         """One compact line: what's selected, plus in and out."""
         y -= 36 * s
+        # Centre the whole trio (label + both buttons), not just the buttons —
+        # anchoring on cx alone pushed the row visibly right of everything
+        # above it. The pick button is sized for its longest label.
+        bh, gap = 24 * s, 8 * s
+        label_w, pick_w, clear_w = 112 * s, 132 * s, 64 * s
+        total = label_w + gap + pick_w + gap + clear_w
+        x0 = cx - total / 2
         self.lbl_genre.anchor_x = "right"
-        self.lbl_genre.x, self.lbl_genre.y = cx - 8 * s, y
-        bw, bh, gap = 108 * s, 24 * s, 8 * s
-        self.genre_pick_btn.set_rect(cx + 16 * s, y - bh / 2, bw, bh)
-        self.genre_clear_btn.set_rect(cx + 16 * s + bw + gap, y - bh / 2,
-                                      70 * s, bh)
+        self.lbl_genre.x, self.lbl_genre.y = x0 + label_w, y
+        self.genre_pick_btn.set_rect(x0 + label_w + gap, y - bh / 2,
+                                     pick_w, bh)
+        self.genre_clear_btn.set_rect(x0 + label_w + gap + pick_w + gap,
+                                      y - bh / 2, clear_w, bh)
         return y
 
     def _layout_footer(self, cx, s) -> None:
