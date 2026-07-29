@@ -104,11 +104,18 @@ def run() -> int:
     app.scene._set_mode("Recall")
     frames(4)
     assert app.scene.mode == "Recall"
-    # Its Advanced tab shows the prompt-style + word-difficulty rows, not cards.
+    # Every option row shows in EVERY mode now — the rows used to be gated on
+    # the mode's ruleset, which is precisely what stopped a custom mode being
+    # timed, hearted or turned into a drill. The card row therefore stays
+    # visible in Recall (it just doesn't apply until the drill is off).
     app.scene._set_subtab("advanced")
     frames(4)
     assert app.scene.recall_prompt_btns[0][1].visible, "no prompt-style row"
-    assert not app.scene.faces_btns[0][1].visible, "card row shown in Recall"
+    assert app.scene.faces_btns[0][1].visible, "card row hidden in Recall"
+    assert app.scene.timer_btns[0][1].visible, "timer row hidden in Recall"
+    assert app.scene.hearts_btns[0][1].visible, "hearts row hidden in Recall"
+    # ... and the drill toggle reflects the mode it came from.
+    assert app.scene._current_config().recall_mode is True
     app.scene._set_recall_prompt("typed")   # deterministic: no dictation
     app.scene._set_subtab("quick")
     frames(2)
@@ -963,6 +970,87 @@ def run() -> int:
         frames2(6)
         assert "Smoke Mode" not in [n for n, _b in app2.scene.saved_mode_btns]
         print("PASS custom modes (save, reselect, clustering kept, delete)")
+
+        # 19d) The genre picker: search filters, picks toggle BOTH ways, and
+        # clearing back to none is allowed (none selected = every genre).
+        app2.go_menu()
+        mp3 = app2.scene
+        frames2(4)
+        pk = mp3.genre_picker
+        mp3._clear_genres()          # earlier steps left a filter set
+        mp3._open_genre_picker()
+        frames2(4)
+        assert pk.visible and len(pk.badges) == len(GENRES)
+        pk._on_query("food")
+        frames2(2)
+        assert [k for k, _b in pk.badges] == ["food"], \
+            f"search did not filter: {[k for k, _b in pk.badges]}"
+        pk._toggle("food")
+        assert pk.selected == ["food"]
+        pk._on_query("")
+        frames2(2)
+        assert len(pk.badges) == len(GENRES), "clearing the query lost the grid"
+        pk._toggle("animals")
+        assert set(pk.selected) == {"food", "animals"}
+        # Tapping a selected genre must deselect it — the chips used to floor
+        # multi-select at one, so a filter could never be undone.
+        pk._toggle("animals")
+        assert pk.selected == ["food"]
+        pk._clear()
+        assert pk.selected == [], "clear-all left a genre selected"
+        pk._toggle("food")
+        pk._done()
+        frames2(4)
+        assert not pk.visible
+        assert mp3.genres == ["food"], "picker did not apply its selection"
+        # And the menu's own All button puts it back to every genre.
+        mp3._clear_genres()
+        assert mp3.genres == []
+        assert mp3._current_config().genres == ()
+        print("PASS genre picker (search, toggle off, clear-all, apply)")
+
+        # 19e) Every option row shows in every mode, and the ruleset switches
+        # actually take effect outside their home mode.
+        mp3._set_mode("Zen")
+        mp3._set_subtab("advanced")
+        frames2(4)
+        assert mp3.timer_btns[0][1].visible and mp3.hearts_btns[0][1].visible
+        assert mp3.recall_mode_btns[0][1].visible
+        # Self-contained: whatever this profile last chose for Zen is a
+        # legitimate saved setting (that persistence is the point), so drive
+        # the transitions rather than assuming a pristine default.
+        mp3._set_timer(0)
+        frames2(2)
+        assert mp3._current_config().duration is None
+        mp3._set_timer(180)
+        frames2(2)
+        assert mp3._current_config().duration == 180.0, "Zen refused a timer"
+        mp3._set_hearts(5)
+        frames2(2)
+        eff = mp3._current_config()
+        assert eff.lives_mode and eff.start_lives == 5, "Zen refused hearts"
+        mp3._set_hearts("off")
+        frames2(2)
+        assert not mp3._current_config().lives_mode
+        mp3._set_timer(0)
+        frames2(2)
+        assert mp3._current_config().duration is None
+        print("PASS every option row works in every mode")
+
+        # 19f) A built-in mode can be hidden and brought back.
+        before = list(mp3.saved_mode_btns)
+        app2.state.hide_mode("Zen")
+        app2.go_menu()
+        frames2(4)
+        assert "Zen" not in [n for n, _b in app2.scene.saved_mode_btns], \
+            "hiding a built-in mode did nothing"
+        app2.state.restore_modes()
+        app2.go_menu()
+        frames2(4)
+        assert "Zen" in [n for n, _b in app2.scene.saved_mode_btns], \
+            "restore did not bring the built-in back"
+        assert len(app2.scene.saved_mode_btns) == len(before)
+        print("PASS hide + restore a built-in mode")
 
         # 20) Leech hunt appears on Stats once words lapse repeatedly.
         app2.stats.reset_all()

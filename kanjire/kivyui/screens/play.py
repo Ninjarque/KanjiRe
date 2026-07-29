@@ -12,12 +12,14 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.textinput import TextInput
 
 from kanjire import kana
 from kanjire.data import clusters, db
 from kanjire.data.genres import GENRES
 from kanjire.game import menuconfig as mc
 from kanjire.i18n import tr
+from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
 from kanjire.kivyui.widgets import ChipRow, JPLabel, SectionLabel, ThemedButton
 
@@ -25,6 +27,14 @@ def _mode_label(name: str) -> str:
     """Display label: built-ins localised, custom modes verbatim."""
     key = mc.MODE_TR.get(name) or mc.PRESET_TR.get(name)
     return tr(key) if key else name
+
+
+def _help(text: str) -> JPLabel:
+    """A one-line explanation under a section label."""
+    lbl = JPLabel(text=text, color=rgba(theme.DIM), font_size=sp(11),
+                  size_hint_y=None, height=dp(16), halign="left")
+    lbl.bind(size=lbl.setter("text_size"))
+    return lbl
 
 
 class PlayScreen(Screen):
@@ -35,6 +45,8 @@ class PlayScreen(Screen):
         self._preset_names = {p["name"] for p in self._presets}
         # Only the player's own modes are deletable — not the factory ones.
         self._user_preset_names = {p.get("name") for p in app.state.presets}
+        #: Live filter over the forty genre chips.
+        self._genre_query = ""
         self.mode = app.state.last_mode or "Time Attack"
         if self.mode not in mc.MODE_TR and self.mode not in self._preset_names:
             self.mode = "Time Attack"
@@ -85,7 +97,7 @@ class PlayScreen(Screen):
         body.add_widget(SectionLabel(text=tr("SEC_MODE")))
         grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
-        for key in mc.FRONT_MODES:
+        for key in mc.visible_front_modes(self._app.state):
             b = ThemedButton(
                 text=_mode_label(key), font_size=sp(15), height=dp(46),
                 fill=theme.ACCENT if key == self.mode else theme.PANEL_HI)
@@ -105,14 +117,20 @@ class PlayScreen(Screen):
             b.bind(on_release=lambda w, k=n: self._set_mode(k))
             grid.add_widget(b)
         body.add_widget(grid)
-        if self.mode in self._user_preset_names:
-            # Custom modes are deletable; the factory ones are not. (Phones
-            # have no right-click, so this button is the only way in.)
+        # Any mode can go: a custom one is deleted outright, a built-in is
+        # hidden (and restored below). Only the last one standing refuses.
+        if mc.can_hide(self._app.state, self.mode):
             rm = ThemedButton(text=tr("BTN_DELETE_MODE"), font_size=sp(13),
                               height=dp(38), fill=theme.PANEL_HI,
                               text_color=theme.DANGER)
             rm.bind(on_release=lambda *_: self._delete_mode())
             body.add_widget(rm)
+        if self._app.state.hidden_modes:
+            back = ThemedButton(text=tr("BTN_RESTORE_MODES"), font_size=sp(12),
+                                height=dp(36), fill=theme.PANEL_HI,
+                                text_color=theme.MUTED)
+            back.bind(on_release=lambda *_: self._restore_modes())
+            body.add_widget(back)
 
         s = self.settings
 
@@ -160,14 +178,17 @@ class PlayScreen(Screen):
         body.add_widget(self._chips(
             [(n, str(n)) for n in mc.SIZES], s["board_size"], "board_size"))
 
-        ruleset = self._ruleset()
-        is_recall = ruleset == "Recall"
+        # Every option shows in every mode. The rows used to be gated on the
+        # mode's ruleset, which meant a custom mode could never be timed, or
+        # given hearts, or turned into a typing drill — the modes owned the
+        # rules instead of the player. The mode now only supplies defaults.
+        eff = mc.config_for(self.mode, s, user_presets=self._presets)
 
         # ---- faces: one colour-coded toggle per card face --------------- #
         # (board modes only — recall has no cards to split into faces, and
         # the kana deck derives its faces from the script choice instead)
         from kanjire.kivyui.widgets import ChipGrid
-        if not is_recall and kana.KANA_DECK not in s["decks"]:
+        if kana.KANA_DECK not in s["decks"]:
             body.add_widget(SectionLabel(text=tr("SEC_CARDS")))
             body.add_widget(ChipGrid(
                 [(f, tr(k)) for f, k in mc.FACE_OPTIONS],
@@ -177,7 +198,7 @@ class PlayScreen(Screen):
                     "faces", [f for f in mc.FACE_ORDER if f in v])))
 
         # ---- unified board rows (every board mode, desktop parity) ------ #
-        if not is_recall:
+        if True:
             body.add_widget(SectionLabel(text=tr("SEC_FONTS")))
             body.add_widget(self._chips(
                 [(False, tr("FONT_SINGLE")), (True, tr("FONT_RANDOM"))],
@@ -202,19 +223,49 @@ class PlayScreen(Screen):
         # ---- clustering: genre filter + the three affinity dials -------- #
         if clusters.available() and kana.KANA_DECK not in s["decks"]:
             body.add_widget(SectionLabel(text=tr("ROW_GENRE")))
-            body.add_widget(ChipGrid(
-                [(g.key, f"{g.icon} {tr(g.tr)}") for g in GENRES],
-                s["genres"], cols=2, multi=True,
-                on_change=lambda v: self._set("genres", list(v))))
+            body.add_widget(_help(tr("GENRE_ALL_HINT")))
+            # Forty topics is a lot to thumb through, so filter as you type.
+            search = TextInput(
+                text=self._genre_query, hint_text=tr("GENRE_SEARCH"),
+                multiline=False, font_name=UI_FONT, font_size=sp(14),
+                size_hint_y=None, height=dp(40),
+                background_color=rgba(theme.PANEL),
+                foreground_color=rgba(theme.TEXT),
+                hint_text_color=rgba(theme.DIM),
+                cursor_color=rgba(theme.ACCENT),
+                padding=[dp(10), dp(9)])
+            search.bind(text=self._on_genre_query)
+            body.add_widget(search)
+            shown = self._shown_genres()
+            if shown:
+                body.add_widget(ChipGrid(
+                    [(g.key, f"{g.icon} {tr(g.tr)}") for g in shown],
+                    s["genres"], cols=2, multi=True, min_selected=0,
+                    on_change=self._set_genres))
+            else:
+                body.add_widget(_help(tr("GENRE_NO_MATCH")))
+            body.add_widget(SectionLabel(text=tr("ROW_AFFINITY")))
+            body.add_widget(_help(tr("ROW_AFFINITY_HELP")))
             for skey, tkey in (("aff_meaning", "AFF_MEANING"),
                                ("aff_looks", "AFF_LOOKS"),
                                ("aff_sound", "AFF_SOUND")):
                 body.add_widget(SectionLabel(text=tr(tkey)))
+                body.add_widget(_help(tr(tkey + "_HELP")))
                 body.add_widget(self._chips(
                     [(n, "○" if n == 0 else "●" * n)
                      for n in mc.AFFINITY_STEPS_UI],
                     s[skey], skey))
-        if ruleset == "Survival":
+        # ---- ruleset rows: timer, hearts, typing drill ------------------ #
+        body.add_widget(SectionLabel(text=tr("SEC_TIMER")))
+        body.add_widget(self._chips(
+            [(n, tr("TIMER_OFF") if n == 0 else tr("TIMER_MIN", n=n // 60))
+             for n in mc.TIMER_OPTIONS],
+            0 if eff.duration is None else int(eff.duration), "timer"))
+        body.add_widget(SectionLabel(text=tr("SEC_LIVES")))
+        body.add_widget(self._chips(
+            [(True, tr("OPT_ON")), (False, tr("OPT_OFF"))],
+            bool(eff.lives_mode), "lives_mode"))
+        if eff.lives_mode:
             body.add_widget(SectionLabel(text=tr("SEC_HEARTS")))
             body.add_widget(self._chips(
                 [(n, "♥" * n) for n in mc.HEARTS_OPTIONS],
@@ -223,7 +274,11 @@ class PlayScreen(Screen):
             body.add_widget(self._chips(
                 [(v, tr(k)) for v, k in mc.BOUNTY_OPTIONS],
                 s["bounty_freq"], "bounty_freq"))
-        if is_recall:
+        body.add_widget(SectionLabel(text=tr("SEC_RECALL_MODE")))
+        body.add_widget(self._chips(
+            [(True, tr("OPT_ON")), (False, tr("OPT_OFF"))],
+            bool(eff.recall_mode), "recall_mode"))
+        if eff.recall_mode:
             body.add_widget(SectionLabel(text=tr("SEC_RECALL_PROMPT")))
             # Five options: wrap over two rows (one row clips at phone width).
             body.add_widget(ChipGrid(
@@ -319,6 +374,30 @@ class PlayScreen(Screen):
                else "kata" if "kata" in vs else "hira")
         self._set("kana_script", val)
 
+    def _shown_genres(self):
+        from kanjire.data.genres import search
+        return search(self._genre_query, label_of=lambda g: tr(g.tr))
+
+    def _on_genre_query(self, _widget, text: str) -> None:
+        # Rebuilding on every keystroke would drop focus mid-word; only the
+        # chip grid depends on the query, so rebuild when the match set
+        # actually changes.
+        before = [g.key for g in self._shown_genres()]
+        self._genre_query = text
+        after = [g.key for g in self._shown_genres()]
+        if before != after:
+            self._build()
+
+    def _set_genres(self, values) -> None:
+        """Genres are a filter; clearing it back to none means "all"."""
+        from kanjire.data.genres import valid_genres
+        self._set("genres", list(valid_genres(values)))
+
+    def _restore_modes(self) -> None:
+        self._app.state.restore_modes()
+        self._refresh_presets()
+        self._build()
+
     # -- custom modes ---------------------------------------------------- #
     def _new_mode(self) -> None:
         """Turn the settings on screen into a named mode of the player's own."""
@@ -338,16 +417,23 @@ class PlayScreen(Screen):
 
     def _delete_mode(self) -> None:
         name = self.mode
-        if name not in self._user_preset_names:
+        if not mc.can_hide(self._app.state, name):
             return
+        custom = name in self._user_preset_names
 
         def apply() -> None:
-            self._app.state.delete_preset(name)
+            if custom:
+                self._app.state.delete_preset(name)
+            else:
+                self._app.state.hide_mode(name)
             self._refresh_presets()
-            self._set_mode("Time Attack")
+            left = (mc.visible_front_modes(self._app.state)
+                    + mc.second_row_modes(self._app.state))
+            self._set_mode(left[0])
 
-        self._app.confirm(tr("DELETE_PRESET_MSG", name=name), apply,
-                          danger=True)
+        msg = (tr("DELETE_MODE_MSG", name=name) if custom
+               else tr("DELETE_MODE_BUILTIN", name=name))
+        self._app.confirm(msg, apply, danger=True)
 
     def _refresh_presets(self) -> None:
         self._presets = mc.all_presets(self._app.state)

@@ -32,6 +32,7 @@ class TextInput:
     ) -> None:
         self.on_change = on_change
         self._focused = False
+        self._visible = True
         self.x = self.y = 0.0
         self.w = self.h = 10.0
         self._base_fs = font_size
@@ -84,6 +85,8 @@ class TextInput:
 
     def set_rect(self, x: float, y: float, w: float, h: float) -> None:
         self.x, self.y, self.w, self.h = x, y, w, h
+        if not getattr(self, "_visible", True):
+            return          # stay parked off-screen until shown again
         self._bg.x = x
         self._bg.y = y
         self._bg.width = w
@@ -205,6 +208,23 @@ class TextInput:
         # Slight dim when focused-empty so user sees the cursor not the hint.
         if empty_and_focused:
             self._placeholder.opacity = 0
+
+    def set_visible(self, on: bool) -> None:
+        """Hide the whole control (an overlay owns one and is often shut).
+
+        NOT via ``IncrementalTextLayout.visible``: in pyglet 1.5 that setter
+        detaches the document, and the next ``set_rect`` then dies on a None
+        document. Pushing the layout off-screen is the safe equivalent.
+        """
+        self._visible = bool(on)
+        self._bg.visible = self._visible
+        if self._visible:
+            self.set_rect(self.x, self.y, self.w, self.h)
+            self._update_placeholder()
+        else:
+            self._layout.x = self._layout.y = -9999
+            self._placeholder.opacity = 0
+            self.unfocus()
 
     def delete(self) -> None:
         self._caret.delete()

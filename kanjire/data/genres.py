@@ -87,6 +87,29 @@ BY_KEY: dict[str, Genre] = {g.key: g for g in GENRES}
 KEYS: frozenset[str] = frozenset(BY_KEY)
 
 
+def search(query: str, label_of=None) -> list[Genre]:
+    """The genres matching *query*, in taxonomy order.
+
+    Matches the localised label, the stable key, and the icon glyph, so
+    "food", "man" (Manger) and 食 all find Food & Drink. An empty query
+    returns everything — forty topics is a lot to thumb past, but the
+    unfiltered grid is still the default view.
+
+    *label_of* maps a Genre to its displayed label (the UI passes ``tr``'s
+    result); it defaults to the translation key so this stays importable
+    without the i18n layer.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return list(GENRES)
+    label_of = label_of or (lambda g: g.tr)
+    out = []
+    for g in GENRES:
+        if q in (label_of(g) or "").lower() or q in g.key or q == g.icon:
+            out.append(g)
+    return out
+
+
 def valid_genres(values) -> tuple[str, ...]:
     """The recognised genre keys in *values*, deduped, in taxonomy order.
 

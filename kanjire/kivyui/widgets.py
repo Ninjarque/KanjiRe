@@ -169,7 +169,7 @@ class ChipRow(BoxLayout):
         kw.setdefault("height", dp(38))
         super().__init__(**kw)
         self._multi = multi
-        self._min = max(1, min_selected)
+        self._min = max(0, min_selected)
         self._on_change = on_change
         self._chips: list[Chip] = []
         selected = set(selected if multi else [selected])
@@ -208,7 +208,7 @@ class ChipGrid(GridLayout):
         super().__init__(**kw)
         self.bind(minimum_height=self.setter("height"))
         self._multi = multi
-        self._min = max(1, min_selected)
+        self._min = max(0, min_selected)
         self._on_change = on_change
         self._chips: list[Chip] = []
         selected = set(selected if multi else [selected])

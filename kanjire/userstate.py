@@ -299,3 +299,30 @@ class UserState:
             self.save()
             return True
         return False
+
+    # -- hidden modes -------------------------------------------------- #
+    # The built-in modes can't be *deleted* — they're code, and a future
+    # version may add more — but a player who never plays Recall shouldn't
+    # have to look at it. Hiding is therefore a per-player list, and it is
+    # always reversible (restore_modes), so nothing is ever lost for good.
+    @property
+    def hidden_modes(self) -> list[str]:
+        return [n for n in self.data.get("hidden_modes", [])
+                if isinstance(n, str)]
+
+    def hide_mode(self, name: str) -> None:
+        name = (name or "").strip()
+        if not name:
+            return
+        hidden = self.data.setdefault("hidden_modes", [])
+        if name not in hidden:
+            hidden.append(name)
+            self.save()
+
+    def restore_modes(self) -> bool:
+        """Un-hide every built-in mode. Returns True if anything changed."""
+        if not self.data.get("hidden_modes"):
+            return False
+        self.data["hidden_modes"] = []
+        self.save()
+        return True

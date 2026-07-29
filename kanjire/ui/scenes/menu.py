@@ -23,7 +23,7 @@ WRITING_OPTIONS = (("off", "WRITE_HORIZ"), ("random", "WRITE_MIX"), ("all", "WRI
 REPEAT_OPTIONS = (1, 2, 3, 5)
 #: Kana-mode controls (visible only when the "kana" deck is selected).
 KANA_LENGTHS = (1, 2, 3)
-from kanjire.game.menuconfig import KANA_SCRIPTS
+from kanjire.game.menuconfig import KANA_SCRIPTS, TIMER_OPTIONS
 #: Discrete Learn-mode bucket selector values (None / Few / Some / Many).
 LEARN_STEPS = (0, 1, 2, 3)
 _LEARN_LABEL_KEYS = {0: "LEARN_NONE", 1: "LEARN_FEW", 2: "LEARN_SOME", 3: "LEARN_MANY"}
@@ -115,6 +115,13 @@ class MenuScene(Scene):
         self.vertical_writing = "off"
         self.repetitions = 1
         # Learn-mode bucket mix (only shown when "Learn" is the active mode).
+        # Ruleset switches. None = "whatever the chosen mode says", so a
+        # player who never touches them keeps the mode they picked; once set,
+        # the explicit value applies in EVERY mode (that is the whole point —
+        # these used to be locked to Time Attack / Survival / Recall).
+        self.timer = None
+        self.lives_mode = None
+        self.recall_mode = None
         # Clustering state: no genre filter, dials off, until asked for.
         self.genres: list[str] = []
         self.aff_meaning = 0
@@ -150,6 +157,8 @@ class MenuScene(Scene):
 
         self.buttons: list[Button] = []
         self.section_labels: list[Label] = []
+        from kanjire.ui.widgets.genrepicker import GenrePicker
+        self.genre_picker = GenrePicker(self._apply_picked_genres)
         self._build_widgets()
         self._sync_from_mode(self.mode)
         # Restore the player's last session for this mode, if any.
@@ -297,6 +306,21 @@ class MenuScene(Scene):
             for n in REPEAT_OPTIONS
         ]
 
+        # Ruleset rows — shown in every mode now.
+        self.lbl_timer = self._section(tr("SEC_TIMER"))
+        self.timer_btns = [
+            (n, self._btn(tr("TIMER_OFF") if n == 0
+                          else tr("TIMER_MIN", n=n // 60),
+                          lambda n=n: self._set_timer(n),
+                          accent=theme.ACCENT, font_size=11))
+            for n in TIMER_OPTIONS
+        ]
+        self.lbl_recall_mode = self._section(tr("SEC_RECALL_MODE"))
+        self.recall_mode_btns = [
+            (v, self._btn(tr(k), lambda v=v: self._set_recall_mode(v),
+                          accent=theme.FACE_COLORS["reading"], font_size=11))
+            for v, k in ((True, "OPT_ON"), (False, "OPT_OFF"))
+        ]
         # Learn-mode bucket selectors (only displayed when Learn is active).
         self.lbl_known = self._section(tr("SEC_KNOWN"))
         self.lbl_less_known = self._section(tr("SEC_LESS_KNOWN"))
@@ -336,9 +360,15 @@ class MenuScene(Scene):
         # progress, room to breathe). This tab only shows what's selected and
         # offers a way in and a way out — forty badges here collided with the
         # footer, and duplicated a screen that does the job far better.
+        self.lbl_aff_help = self._section("")
+        self.lbl_aff_help.text = (
+            f"{tr('AFF_MEANING')}: {tr('AFF_MEANING_HELP')}   ·   "
+            f"{tr('AFF_LOOKS')}: {tr('AFF_LOOKS_HELP')}   ·   "
+            f"{tr('AFF_SOUND')}: {tr('AFF_SOUND_HELP')}")
+        self.lbl_aff_help.color = theme.with_alpha(theme.DIM, 255)
         self.lbl_genre = self._section(tr("ROW_GENRE"))
         self.genre_pick_btn = self._btn(
-            tr("GENRE_PICK_TITLE"), lambda: self.app.go_journey(tab="genres"),
+            tr("GENRE_PICK_TITLE"), self._open_genre_picker,
             accent=theme.GOLD, font_size=11)
         self.genre_clear_btn = self._btn(
             tr("GENRE_ALL"), self._clear_genres,
@@ -377,6 +407,10 @@ class MenuScene(Scene):
                           accent=theme.DANGER, font_size=12))
             for n in HEARTS_OPTIONS
         ]
+        self.hearts_btns.insert(
+            0, ("off", self._btn(tr("TIMER_OFF"),
+                                 lambda: self._set_hearts("off"),
+                                 accent=theme.DANGER, font_size=11)))
         self.lbl_bounty = self._section(tr("SEC_BOUNTY"))
         self.bounty_btns = [
             (val, self._btn(tr(key), lambda v=val: self._set_bounty(v),
@@ -442,13 +476,15 @@ class MenuScene(Scene):
             self.repeat_btns,
             self.known_btns, self.less_known_btns, self.unknown_btns,
             self.hearts_btns, self.bounty_btns, self.recall_prompt_btns,
-            self.recall_preview_btns, *self.aff_btns.values(),
+            self.recall_preview_btns, self.timer_btns,
+            self.recall_mode_btns, *self.aff_btns.values(),
         ) + [self.genre_pick_btn, self.genre_clear_btn]
         self._adv_labels = [
             self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat,
             self.lbl_known, self.lbl_less_known, self.lbl_unknown,
             self.lbl_hearts, self.lbl_bounty, self.lbl_recall_prompt,
             self.lbl_recall_preview, self.lbl_genre, self.lbl_affinity,
+            self.lbl_timer, self.lbl_recall_mode, self.lbl_aff_help,
             *self.lbl_aff_rows.values(),
         ]
 
@@ -457,14 +493,39 @@ class MenuScene(Scene):
     # ------------------------------------------------------------------ #
     def _set_affinity(self, key: str, value: int) -> None:
         setattr(self, key, int(value))
-        self._persist()
-        self._refresh()
+        self._after_change()
+
+    def _set_timer(self, n) -> None:
+        self.timer = int(n)
+        self._after_change()
+
+    def _set_recall_mode(self, on: bool) -> None:
+        self.recall_mode = bool(on)
+        self._after_change()
+        self.on_resize(self.width, self.height)
+
+    def _set_hearts(self, value) -> None:
+        """One row for "hearts or not" and "how many"."""
+        if value == "off":
+            self.lives_mode = False
+        else:
+            self.lives_mode = True
+            self.start_hearts = int(value)
+        self._after_change()
+
+    def _open_genre_picker(self) -> None:
+        self.genre_picker.open(self.genres)
+        self.genre_picker.layout(self.width, self.height,
+                                 scale_for(self.width, self.height))
+
+    def _apply_picked_genres(self, keys) -> None:
+        self.genres = list(valid_genres(keys))
+        self._after_change()
 
     def _clear_genres(self) -> None:
         """Back to every genre — the filter's off switch."""
         self.genres = []
-        self._persist()
-        self._refresh()
+        self._after_change()
 
     def _set_mode(self, m):
         self.mode = m
@@ -540,10 +601,6 @@ class MenuScene(Scene):
                             else "kata" if "kata" in on else "hira")
         self._after_change()
 
-    def _set_hearts(self, n: int) -> None:
-        self.start_hearts = int(n)
-        self._after_change()
-
     def _set_bounty(self, v: str) -> None:
         self.bounty_freq = v
         self._after_change()
@@ -585,6 +642,9 @@ class MenuScene(Scene):
             "bounty_freq": self.bounty_freq,
             "recall_prompt": self.recall_prompt,
             "recall_preview": self.recall_preview,
+            "timer": self.timer,
+            "lives_mode": self.lives_mode,
+            "recall_mode": self.recall_mode,
             "genres": list(self.genres),
             "aff_meaning": self.aff_meaning,
             "aff_looks": self.aff_looks,
@@ -641,6 +701,11 @@ class MenuScene(Scene):
             self.recall_prompt = d["recall_prompt"]
         if "recall_preview" in d:
             self.recall_preview = bool(d["recall_preview"])
+        if d.get("timer") in TIMER_OPTIONS:
+            self.timer = int(d["timer"])
+        for key in ("lives_mode", "recall_mode"):
+            if isinstance(d.get(key), bool):
+                setattr(self, key, d[key])
         if "genres" in d:
             self.genres = list(valid_genres(d.get("genres")))
         for key in ("aff_meaning", "aff_looks", "aff_sound"):
@@ -660,6 +725,10 @@ class MenuScene(Scene):
         self.learn_unknown = int(cfg.get("learn_unknown", 0))
         self.recall_prompt = cfg.get("recall_prompt", "mixed")
         self.genres = list(valid_genres(cfg.get("genres", ())))
+        secs = int(cfg.get("duration") or 0)
+        self.timer = secs if secs in TIMER_OPTIONS else 0
+        self.lives_mode = bool(cfg.get("lives_mode", False))
+        self.recall_mode = bool(cfg.get("recall_mode", False))
         for key in ("aff_meaning", "aff_looks", "aff_sound"):
             setattr(self, key, int(cfg.get(key, 0) or 0))
         # Presets (built-in or saved) also restore deck / levels / faces /
@@ -845,31 +914,27 @@ class MenuScene(Scene):
             self.lbl_known.opacity = op
             self.lbl_less_known.opacity = op
             self.lbl_unknown.opacity = op
-            # Survival difficulty selectors: visible only in Survival mode.
-            showing_survival = self._ruleset() == "Survival"
+            # Rule rows are shown in EVERY mode. Their selected value comes
+            # from the effective config, so an untouched row still reflects
+            # whatever ruleset the chosen mode brought with it.
+            eff = self._current_config()
+            secs = 0 if eff.duration is None else int(eff.duration)
+            for n, b in self.timer_btns:
+                b.set_selected(n == secs)
             for n, b in self.hearts_btns:
-                b.set_visible(showing_survival)
-                if showing_survival:
-                    b.set_selected(n == self.start_hearts)
+                b.set_selected(n == "off" if not eff.lives_mode
+                               else n == eff.start_lives)
             for v, b in self.bounty_btns:
-                b.set_visible(showing_survival)
-                if showing_survival:
-                    b.set_selected(v == self.bounty_freq)
-            sop = 255 if showing_survival else 0
-            self.lbl_hearts.opacity = sop
-            self.lbl_bounty.opacity = sop
-            # Recall prompt-style selector: visible only in Recall mode.
-            showing_recall = self._ruleset() == "Recall"
+                b.enabled = bool(eff.lives_mode)
+                b.set_selected(v == self.bounty_freq)
+            for v, b in self.recall_mode_btns:
+                b.set_selected(v == bool(eff.recall_mode))
             for v, b in self.recall_prompt_btns:
-                b.set_visible(showing_recall)
-                if showing_recall:
-                    b.set_selected(v == self.recall_prompt)
-            self.lbl_recall_prompt.opacity = 255 if showing_recall else 0
+                b.enabled = bool(eff.recall_mode)
+                b.set_selected(v == self.recall_prompt)
             for v, b in self.recall_preview_btns:
-                b.set_visible(showing_recall)
-                if showing_recall:
-                    b.set_selected(v == self.recall_preview)
-            self.lbl_recall_preview.opacity = 255 if showing_recall else 0
+                b.enabled = bool(eff.recall_mode)
+                b.set_selected(v == self.recall_preview)
 
         # availability count
         if kana.KANA_DECK in self.decks:
@@ -961,6 +1026,12 @@ class MenuScene(Scene):
             vertical_writing=self.vertical_writing,
             repetitions=self.repetitions,
             genres=tuple(self.genres),
+            **({} if self.timer is None
+               else {"duration": float(self.timer) or None}),
+            **({} if self.lives_mode is None
+               else {"lives_mode": self.lives_mode}),
+            **({} if self.recall_mode is None
+               else {"recall_mode": self.recall_mode}),
             aff_meaning=self.aff_meaning,
             aff_looks=self.aff_looks,
             aff_sound=self.aff_sound,
@@ -1021,6 +1092,9 @@ class MenuScene(Scene):
     def on_mouse_press(self, x, y, button, modifiers) -> None:
         from pyglet.window import mouse
 
+        if self.genre_picker.on_mouse_press(x, y, button, modifiers):
+            return
+
         if button == mouse.RIGHT:
             # Right-click on a saved preset button -> ask to delete it.
             for name, btn in self.mode_btns:
@@ -1052,6 +1126,9 @@ class MenuScene(Scene):
         self.app.confirm(tr("DELETE_PRESET_MSG", name=name), apply, danger=True)
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
+        if self.genre_picker.visible:
+            self.genre_picker.on_mouse_motion(x, y, dx, dy)
+            return
         self.nav.on_mouse_motion(x, y)
         self.subtabs.on_mouse_motion(x, y)
         for b in self.buttons:
@@ -1060,8 +1137,16 @@ class MenuScene(Scene):
     def on_key_press(self, symbol, modifiers) -> None:
         from pyglet.window import key
 
+        if self.genre_picker.on_key_press(symbol, modifiers):
+            return
         if symbol in (key.ENTER, key.RETURN, key.SPACE):
             self._play()
+
+    def on_text(self, text) -> None:
+        self.genre_picker.on_text(text)
+
+    def on_text_motion(self, motion) -> None:
+        self.genre_picker.on_text_motion(motion)
 
     # ------------------------------------------------------------------ #
     # Layout
@@ -1141,6 +1226,7 @@ class MenuScene(Scene):
             self._layout_advanced(cx, content_top, s)
 
         self._layout_footer(cx, s)
+        self.genre_picker.layout(width, height, s)
         # Apply selection / enabled / conditional visibility on top of the
         # base per-tab show/hide.
         self._refresh()
@@ -1237,6 +1323,36 @@ class MenuScene(Scene):
             bottom = min(bottom, ry)
         return bottom
 
+    def _two_col_rows(self, cx, y, s, left, right) -> float:
+        """Narrow option rows in two columns (label right, buttons left).
+
+        Every rule row shows in every mode now, which is eight more rows than
+        the tab used to draw — stacked, they ran straight through the footer.
+        """
+        pitch, bh, gap = 38 * s, 30 * s, 8 * s
+        label_w, label_gap, col_gap = 92 * s, 10 * s, 30 * s
+
+        def block_w(rows):
+            return max((len(b) * w + (len(b) - 1) * gap)
+                       for _l, b, w in rows) if rows else 0
+
+        lw, rw = block_w(left), block_w(right)
+        total = label_w + label_gap + lw + col_gap + label_w + label_gap + rw
+        x0 = cx - total / 2
+        lx = x0 + label_w + label_gap
+        rx = lx + lw + col_gap + label_w + label_gap
+        bottom = y
+        for bx, rows in ((lx, left), (rx, right)):
+            ry = y
+            for lbl, btns, bw in rows:
+                ry -= pitch
+                lbl.anchor_x = "right"
+                lbl.x, lbl.y = bx - label_gap, ry
+                for i, (_v, b) in enumerate(btns):
+                    b.set_rect(bx + i * (bw + gap), ry - bh / 2, bw, bh)
+            bottom = min(bottom, ry)
+        return bottom
+
     def _layout_advanced(self, cx, y, s) -> None:
         def section(lbl, dy=42):
             nonlocal y
@@ -1263,56 +1379,39 @@ class MenuScene(Scene):
             [self.lbl_faces, self.lbl_fonts, self.lbl_writing, self.lbl_repeat],
         )
 
-        # Recall is a typing drill: cards / fonts / writing / passes make no
-        # sense, so hide them and show only what shapes a recall session - the
-        # prompt style, and (shared with Learn) the word-difficulty mix.
-        ruleset = self._ruleset()
-        if ruleset == "Recall":
-            self._set_group_visible(*board_widgets, False)
-            self._set_group_visible(*survival_widgets, False)
-            section(self.lbl_recall_prompt, dy=10)
-            y -= 28 * s
-            self._row(self.recall_prompt_btns, y, 118 * s, 32 * s, gap=8 * s)
-            section(self.lbl_recall_preview, dy=44)
-            y -= 28 * s
-            self._row(self.recall_preview_btns, y, 90 * s, 30 * s, gap=8 * s)
-            # Recall draws from the same clustered pools as the board modes.
-            y = self._layout_dials(cx, y, s)
-            self._layout_genres(cx, y, s)
-            return
+        # Every row, every mode. What used to be hidden unless you were in
+        # Survival or Recall is now just another option, so a custom mode can
+        # be timed, hearted and a typing drill in any combination.
+        self._set_group_visible(*board_widgets, True)
+        self._set_group_visible(*survival_widgets, True)
+        self._set_group_visible(*recall_widgets, True)
 
-        self._set_group_visible(*recall_widgets, False)
         section(self.lbl_faces, dy=10)
         y -= 30 * s
         self._row(self.faces_btns, y, 150 * s, 40 * s, gap=10 * s)
-        section(self.lbl_fonts)
-        y -= 28 * s
-        self._row(self.font_btns, y, 120 * s, 32 * s, gap=12 * s)
-        section(self.lbl_writing)
-        y -= 28 * s
-        self._row(self.writing_btns, y, 100 * s, 32 * s, gap=12 * s)
-        section(self.lbl_repeat)
-        y -= 28 * s
-        self._row(self.repeat_btns, y, 76 * s, 32 * s, gap=12 * s)
-        # Survival's extra ruleset rows, inline (label left, buttons right)
-        # to spend as little height as possible above the dials.
-        if ruleset == "Survival":
-            bwS, bhS, gapS = 74 * s, 30 * s, 10 * s
-            for lbl, btns, bw in ((self.lbl_hearts, self.hearts_btns, 74 * s),
-                                  (self.lbl_bounty, self.bounty_btns, 92 * s)):
-                row_w = len(btns) * bw + (len(btns) - 1) * gapS
-                y -= 40 * s
-                lbl.anchor_x = "right"
-                lbl.x, lbl.y = cx - row_w / 2 - 16 * s, y
-                x0 = cx - row_w / 2
-                for i, (_v, b) in enumerate(btns):
-                    b.set_rect(x0 + i * (bw + gapS), y - bhS / 2, bw, bhS)
-            del bwS
-        else:
-            self._set_group_visible(*survival_widgets, False)
-        # Knowledge mix + clustering dials, side by side.
+
+        y = self._two_col_rows(
+            cx, y - 6 * s, s,
+            left=[(self.lbl_fonts, self.font_btns, 86 * s),
+                  (self.lbl_writing, self.writing_btns, 72 * s),
+                  (self.lbl_repeat, self.repeat_btns, 54 * s),
+                  (self.lbl_timer, self.timer_btns, 58 * s)],
+            right=[(self.lbl_hearts, self.hearts_btns, 60 * s),
+                   (self.lbl_bounty, self.bounty_btns, 62 * s),
+                   (self.lbl_recall_mode, self.recall_mode_btns, 62 * s),
+                   (self.lbl_recall_preview, self.recall_preview_btns, 62 * s)])
+
+        # The prompt row only means anything with the drill on, but it stays
+        # visible either way — hiding it is what made these feel mode-locked.
+        section(self.lbl_recall_prompt, dy=36)
+        y -= 26 * s
+        self._row(self.recall_prompt_btns, y, 108 * s, 30 * s, gap=8 * s)
+
         y = self._layout_dials(cx, y, s)
-        self._layout_genres(cx, y, s)
+        y -= 22 * s
+        self.lbl_aff_help.anchor_x = "center"
+        self.lbl_aff_help.x, self.lbl_aff_help.y = cx, y
+        self._layout_genres(cx, y - 6 * s, s)
 
     def _layout_genres(self, cx, y, s) -> float:
         """One compact line: what's selected, plus in and out."""
@@ -1357,8 +1456,10 @@ class MenuScene(Scene):
     def draw(self) -> None:
         # Flat background painted by window.clear() (glClearColor).
         self.batch.draw()
+        self.genre_picker.draw()      # overlay: always last
 
     def on_exit(self) -> None:
+        self.genre_picker.delete()
         self.nav.delete()
         self.subtabs.delete()
         for b in self.buttons:

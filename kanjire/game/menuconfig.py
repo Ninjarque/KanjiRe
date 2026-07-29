@@ -26,6 +26,9 @@ KANA_SCRIPTS = (("hira", "KANA_SCRIPT_HIRA"),
 KANA_SCRIPT_ALIASES = {"hiragana": "hira", "katakana": "kata",
                        "mixed": "both"}
 LEARN_STEPS = (0, 1, 2, 3)
+#: Round length in seconds; 0 = untimed. Used to be hard-wired to Time
+#: Attack, which meant no other mode (or custom one) could ever be timed.
+TIMER_OPTIONS = (0, 60, 120, 180, 300)
 #: The clustering affinity dials share the learn dials' 0-3 scale, so both
 #: UIs can reuse the same four-way selector widget and label set.
 AFFINITY_STEPS_UI = (0, 1, 2, 3)
@@ -64,14 +67,46 @@ FRONT_MODES = ("Time Attack", "Survival", "Learn")
 FACTORY_MODES = ("Zen", "Recall", "Familiarize")
 
 
+def hidden_modes(state) -> set[str]:
+    try:
+        return set(state.hidden_modes)
+    except Exception:
+        return set()
+
+
+def visible_front_modes(state) -> list[str]:
+    """The front row, minus anything hidden — but never empty.
+
+    Hiding every mode would leave nothing to play, so the last one standing
+    refuses to go.
+    """
+    hidden = hidden_modes(state)
+    out = [m for m in FRONT_MODES if m not in hidden]
+    return out or [FRONT_MODES[0]]
+
+
 def second_row_modes(state) -> list[str]:
-    """Factory modes then the player's own, as displayed under the front row."""
+    """Factory modes then the player's own, as displayed under the front row.
+
+    Hidden modes are dropped. A *custom* mode that's been deleted is gone
+    from ``presets`` already; a *built-in* one is merely hidden, and comes
+    back with ``UserState.restore_modes``.
+    """
     try:
         user = [p["name"] for p in state.presets if p.get("name")]
     except Exception:
         user = []
+    hidden = hidden_modes(state)
     seen = set(FACTORY_MODES)
-    return list(FACTORY_MODES) + [n for n in user if n not in seen]
+    rows = list(FACTORY_MODES) + [n for n in user if n not in seen]
+    return [n for n in rows if n not in hidden]
+
+
+def can_hide(state, name: str) -> bool:
+    """False when *name* is the only mode the player would have left."""
+    remaining = set(visible_front_modes(state)) | set(second_row_modes(state))
+    remaining.discard(name)
+    return bool(remaining)
 
 #: The former Familiarize/Learn modes, reborn honestly: one-tap
 #: configurations of the Zen ruleset, listed beside user-saved presets.
@@ -126,9 +161,14 @@ def preset_overlay(preset: dict) -> dict:
                 "vertical_writing", "learn_known", "learn_less_known",
                 "learn_unknown", "kana_length", "kana_script",
                 "recall_prompt", "recall_preview",
-                "aff_meaning", "aff_looks", "aff_sound"):
+                "aff_meaning", "aff_looks", "aff_sound",
+                "lives_mode", "recall_mode"):
         if key in preset:
             out[key] = preset[key]
+    # A saved mode stores seconds (or None); the rows work in TIMER_OPTIONS.
+    if "duration" in preset:
+        secs = int(preset["duration"] or 0)
+        out["timer"] = secs if secs in TIMER_OPTIONS else 0
     if "words_per_round" in preset:
         out["board_size"] = preset["words_per_round"]
     if isinstance(preset.get("faces"), (list, tuple)):
@@ -201,6 +241,13 @@ DEFAULT_SETTINGS = {
     "bounty_freq": "med",
     "recall_prompt": "mixed",
     "recall_preview": True,
+    # The three ruleset switches. None = inherit from the chosen mode, so a
+    # player who has never touched them keeps exactly the mode they picked,
+    # and settings saved before these existed still resolve correctly. Once
+    # touched, the explicit value wins in every mode.
+    "timer": None,
+    "lives_mode": None,
+    "recall_mode": None,
     # Clustering: no genre filter, no affinity, unless the player asks.
     "genres": [],
     "aff_meaning": 0,
@@ -259,6 +306,11 @@ def normalized_settings(d: dict | None) -> dict:
         s["recall_prompt"] = d["recall_prompt"]
     if "recall_preview" in d:
         s["recall_preview"] = bool(d["recall_preview"])
+    if d.get("timer") in TIMER_OPTIONS:
+        s["timer"] = int(d["timer"])
+    for key in ("lives_mode", "recall_mode"):
+        if isinstance(d.get(key), bool):
+            s[key] = d[key]
     from kanjire.data.genres import valid_genres
     s["genres"] = list(valid_genres(d.get("genres")))
     for key in AFFINITY_KEYS:
@@ -300,6 +352,15 @@ def config_for(mode: str, settings: dict, *,
                         v = tuple(v)
                     setattr(base, f, v)
 
+    # Only override the mode's own ruleset where the player actually chose.
+    overrides = {}
+    if s["timer"] is not None:
+        overrides["duration"] = float(s["timer"]) or None
+    if s["lives_mode"] is not None:
+        overrides["lives_mode"] = bool(s["lives_mode"])
+    if s["recall_mode"] is not None:
+        overrides["recall_mode"] = bool(s["recall_mode"])
+
     return base.with_(
         decks=tuple(s["decks"]), levels=levels, faces=faces,
         words_per_round=s["board_size"],
@@ -321,4 +382,5 @@ def config_for(mode: str, settings: dict, *,
         aff_looks=s["aff_looks"],
         aff_sound=s["aff_sound"],
         name=mode,
+        **overrides,
     )

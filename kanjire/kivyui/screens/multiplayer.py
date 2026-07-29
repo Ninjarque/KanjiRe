@@ -82,6 +82,14 @@ class _MPCard:
         self.selected = bool(d.get("selected"))
 
 
+def _mp_help(text: str) -> JPLabel:
+    """One grey line explaining the row above it."""
+    lbl = JPLabel(text=text, color=rgba(theme.DIM), font_size=sp(11),
+                  size_hint_y=None, height=dp(16), halign="left")
+    lbl.bind(size=lbl.setter("text_size"))
+    return lbl
+
+
 class MultiplayerScreen(Screen):
     def __init__(self, app, **kw):
         super().__init__(**kw)
@@ -106,6 +114,7 @@ class MultiplayerScreen(Screen):
         self.status = ""
         self.cards: dict[int, CardWidget] = {}
         self._board_sig = ()
+        self._genre_query = ""
         self._pointed = None
         self._hold_ev = None
         self._pointer_shown = None
@@ -442,18 +451,49 @@ class MultiplayerScreen(Screen):
         # the host before the pool ships, so guests need no new protocol.
         from kanjire.data import clusters as _clusters
         if _clusters.available():
-            from kanjire.data.genres import GENRES
+            from kanjire.data.genres import search as _genre_search
+            # The knowledge mix belongs in a room too: it decides whether
+            # you drill new words together or review what you both know.
+            for key, tkey in (("learn_known", "SEC_KNOWN"),
+                              ("learn_less_known", "SEC_LESS_KNOWN"),
+                              ("learn_unknown", "SEC_UNKNOWN")):
+                body.add_widget(SectionLabel(text=tr(tkey)))
+                body.add_widget(chips(
+                    [(n, "○" if n == 0 else "●" * n) for n in (0, 1, 2, 3)],
+                    int(s.get(key, 0) or 0), key))
             body.add_widget(SectionLabel(text=tr("ROW_GENRE")))
-            ggrid = ChipGrid(
-                [(g.key, f"{g.icon} {tr(g.tr)}") for g in GENRES],
-                list(s.get("genres") or []), cols=2, multi=True,
-                on_change=lambda v: self._set_setting("genres", list(v)))
-            ggrid.disabled = not is_host
-            body.add_widget(ggrid)
+            body.add_widget(_mp_help(tr("GENRE_ALL_HINT")))
+            gsearch = TextInput(
+                text=self._genre_query, hint_text=tr("GENRE_SEARCH"),
+                multiline=False, font_name=UI_FONT, font_size=sp(14),
+                size_hint_y=None, height=dp(40),
+                background_color=rgba(theme.PANEL),
+                foreground_color=rgba(theme.TEXT),
+                hint_text_color=rgba(theme.DIM),
+                cursor_color=rgba(theme.ACCENT),
+                padding=[dp(10), dp(9)])
+            gsearch.bind(text=self._on_genre_query)
+            gsearch.disabled = not is_host
+            body.add_widget(gsearch)
+            shown = _genre_search(self._genre_query,
+                                  label_of=lambda g: tr(g.tr))
+            if shown:
+                ggrid = ChipGrid(
+                    [(g.key, f"{g.icon} {tr(g.tr)}") for g in shown],
+                    list(s.get("genres") or []), cols=2, multi=True,
+                    min_selected=0,
+                    on_change=lambda v: self._set_setting("genres", list(v)))
+                ggrid.disabled = not is_host
+                body.add_widget(ggrid)
+            else:
+                body.add_widget(_mp_help(tr("GENRE_NO_MATCH")))
+            body.add_widget(SectionLabel(text=tr("ROW_AFFINITY")))
+            body.add_widget(_mp_help(tr("ROW_AFFINITY_HELP")))
             for key, tkey in (("aff_meaning", "AFF_MEANING"),
                               ("aff_looks", "AFF_LOOKS"),
                               ("aff_sound", "AFF_SOUND")):
                 body.add_widget(SectionLabel(text=tr(tkey)))
+                body.add_widget(_mp_help(tr(tkey + "_HELP")))
                 body.add_widget(chips(
                     [(n, "○" if n == 0 else "●" * n) for n in (0, 1, 2, 3)],
                     int(s.get(key, 0) or 0), key))
@@ -491,6 +531,16 @@ class MultiplayerScreen(Screen):
 
         if getattr(self, "_start_btn", None) is not None:
             self._start_btn.disabled = not is_host
+
+    def _on_genre_query(self, _widget, text: str) -> None:
+        """Rebuild only when the visible set changes (keeps typing focus)."""
+        label = lambda g: tr(g.tr)          # noqa: E731
+        before = [g.key for g in _genre_search(self._genre_query,
+                                               label_of=label)]
+        self._genre_query = text
+        after = [g.key for g in _genre_search(text, label_of=label)]
+        if before != after and self.stage == "lobby":
+            self._sync_lobby(self.state)
 
     def _set_setting(self, key, value) -> None:
         if self.client is None or self.me != 0:

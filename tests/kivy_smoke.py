@@ -92,19 +92,23 @@ def main() -> None:
         play_screen = app.sm.get_screen("play")
         mp_btn = find_btn(play_screen, "対戦")
         check("mp button found", mp_btn is not None)
-        # Force a layout pass before measuring. Kivy positions widgets from a
-        # Clock trigger, and on a loaded machine this script's 1.0s start can
-        # beat it — the button is then still at its default (0, 0, 100, 100)
-        # and the tap lands in the corner, failing as if an overlay ate it.
-        # (That flake cost real debugging time; don't remove it.)
-        for _pass in range(3):
-            for w in play_screen.walk():
-                do_layout = getattr(w, "do_layout", None)
-                if do_layout is not None:
-                    try:
-                        do_layout()
-                    except Exception:
-                        pass
+        # Pump real frames until the button is actually laid out. Kivy sizes
+        # widgets from a Clock trigger that cascades window -> manager ->
+        # screen -> box, so on a loaded machine this script's 1.0s start can
+        # beat it: the button is still at its default (0, 0, 100, 100), the
+        # tap lands in the screen corner, and it fails looking exactly like
+        # an overlay ate it. Calling do_layout() by hand is not enough (the
+        # parents have no size yet) — only running frames resolves it.
+        # That flake cost real debugging time; don't remove this.
+        # Guarded so it is a no-op on a healthy run: pumping frames advances
+        # the clock, and doing that unconditionally shifted the timeline
+        # enough to break the deal-animation checkpoint further down.
+        if mp_btn.width <= 100:
+            from kivy.base import EventLoop
+            for _pass in range(60):
+                EventLoop.idle()
+                if mp_btn.width > 100:
+                    break
         check("play screen is laid out before the tap",
               mp_btn.width > 100 and mp_btn.center != [50.0, 50.0])
         wx, wy = mp_btn.to_window(*mp_btn.center)
@@ -560,7 +564,9 @@ def main() -> None:
         # deferred launch: wait for the spinner tick, then the game steps
         later(1.2, step_game_started)
 
-    Clock.schedule_once(run_script, 1.0)
+    # 2.0s, not 1.0: the Play tab builds a lot of rows now, and the
+    # script must not start before the first layout pass lands.
+    Clock.schedule_once(run_script, 2.0)
     app.run()
 
     print(f"\n[kivy_smoke] {len(CHECKS) - len(FAILED)}/{len(CHECKS)} checkpoints passed -> {OUT}")

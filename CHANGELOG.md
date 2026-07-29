@@ -12,6 +12,33 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.33.0 — 2026-07-29
+
+- **Every option now works in every mode.** The timer used to belong to
+  Time Attack, hearts to Survival and the typing drill to Recall — so a
+  custom mode could never be, say, a timed drill with hearts. They are all
+  ordinary settings now: **Timer** (off / 1 / 2 / 3 / 5 min), **Hearts**
+  (off / 2 / 3 / 5) and **Typing drill** (on / off) appear in every mode, on
+  the computer and the phone, and in the multiplayer lobby. Your existing
+  modes are untouched — a mode you never adjust still plays exactly as it
+  always did.
+- **Any mode can be removed.** The red button now works on Zen, Recall and
+  Familiarize too, not just on modes you made yourself. Built-in ones are
+  hidden rather than destroyed, and **Restore hidden modes** brings them
+  all back. (The last remaining mode refuses to go.)
+- **Genres are searchable.** A search box on the genre picker filters the
+  forty topics as you type — by name, or by their kanji. On the computer
+  the picker is now a proper panel you open from the options, instead of a
+  trip to another tab.
+- **You can clear the genre filter again.** Selecting a genre used to be a
+  one-way door: there was no way back to "all genres". Now un-tapping the
+  last one restores every genre, and there's a **Clear all** button.
+- **The grouping dials explain themselves.** Meaning, Looks and Sound each
+  say what they do — "kanji that look alike — 待 持 侍 時" — instead of
+  making you guess.
+- The multiplayer lobby also gained the known / less-known / unknown mix,
+  so a room can be tuned to review or to teach.
+
 ## 0.32.1 — 2026-07-29
 
 - **Custom modes keep their genre and grouping dials.** Saving one with ＋

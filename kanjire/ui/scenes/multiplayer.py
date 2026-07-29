@@ -183,6 +183,11 @@ class MultiplayerScene(Scene):
         self.lbl_s_cards = srow("SEC_CARDS")
         self.lbl_s_turns = srow("MP_TURNS")
         self.lbl_s_passes = srow("SEC_PASSES")
+        self.lbl_s_learn = {k: srow(t) for k, t in
+                            (("learn_known", "SEC_KNOWN"),
+                             ("learn_less_known", "SEC_LESS_KNOWN"),
+                             ("learn_unknown", "SEC_UNKNOWN"))}
+        self.lbl_s_genre = srow("ROW_GENRE")
         self.lbl_s_aff = {k: srow(t) for k, t in
                           (("aff_meaning", "AFF_MEANING"),
                            ("aff_looks", "AFF_LOOKS"),
@@ -260,6 +265,23 @@ class MultiplayerScene(Scene):
         # Clustering dials, same 0-3 scale as solo. The genre filter itself
         # is inherited from the host's solo settings (host_defaults): there is
         # no room for forty genre badges beside eight other rows here.
+        # The knowledge mix matters just as much with a friend as alone —
+        # it decides whether the room drills new words or reviews old ones.
+        self.learn_btns = {}
+        for key in ("learn_known", "learn_less_known", "learn_unknown"):
+            self.learn_btns[key] = [
+                (n, Button(tr(_AFF_LABELS[n]),
+                           lambda k=key, n=n: self._set_setting(k, n),
+                           self.batch, self.g_bg, self.g_text,
+                           accent=theme.SUCCESS, font_size=11))
+                for n in (0, 1, 2, 3)
+            ]
+        self.genre_btn = Button(tr("GENRE_PICK_TITLE"),
+                                self._open_genre_picker,
+                                self.batch, self.g_bg, self.g_text,
+                                accent=theme.GOLD, font_size=11)
+        from kanjire.ui.widgets.genrepicker import GenrePicker
+        self.genre_picker = GenrePicker(self._apply_picked_genres)
         self.aff_btns = {}
         for key, accent in (("aff_meaning", theme.FACE_COLORS["meaning"]),
                             ("aff_looks", theme.FACE_COLORS["kanji"]),
@@ -276,7 +298,10 @@ class MultiplayerScene(Scene):
                              + self.lturns_btns + self.passes_btns
                              + self.writing_btns + self.fonts_btns
                              + [b for row in self.aff_btns.values()
-                                for b in row])
+                                for b in row]
+                             + [b for row in self.learn_btns.values()
+                                for b in row]
+                             + [("genre", self.genre_btn)])
 
         # ---- in-game host controls ---- #
         self.pause_btn = Button("", self._pause, self.batch, self.g_bg,
@@ -643,6 +668,16 @@ class MultiplayerScene(Scene):
         else:
             faces = [f for f in FACE_ORDER if f in faces or f == face]
         self._set_setting("faces_sel", faces)
+
+    def _open_genre_picker(self) -> None:
+        if self.me != 0:
+            return                      # guests watch, the host decides
+        self.genre_picker.open(self._settings().get("genres") or [])
+        self.genre_picker.layout(self.width, self.height,
+                                 scale_for(self.width, self.height))
+
+    def _apply_picked_genres(self, keys) -> None:
+        self._set_setting("genres", list(keys))
 
     def _set_setting(self, key: str, value) -> None:
         """Host-only: push one setting change; everyone sees it immediately."""
@@ -1030,6 +1065,8 @@ class MultiplayerScene(Scene):
     # Input
     # ------------------------------------------------------------------ #
     def on_mouse_press(self, x, y, button, modifiers) -> None:
+        if self.genre_picker.on_mouse_press(x, y, button, modifiers):
+            return
         if self.phase == "connect":
             for w in self.inputs:
                 if w.on_mouse_press(x, y, button, modifiers):
@@ -1054,6 +1091,9 @@ class MultiplayerScene(Scene):
                     return
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
+        if self.genre_picker.visible:
+            self.genre_picker.on_mouse_motion(x, y, dx, dy)
+            return
         for b in self.buttons:
             b.set_hover(b.enabled and b.contains(x, y))
         if self.phase == "play" and self.state \
@@ -1078,6 +1118,8 @@ class MultiplayerScene(Scene):
             self._hover_for = 0.0
 
     def on_text(self, text) -> None:
+        if self.genre_picker.on_text(text):
+            return
         for w in self.inputs:
             if w.focused:
                 w.on_text(text)
@@ -1097,13 +1139,19 @@ class MultiplayerScene(Scene):
 
     def on_key_press(self, symbol, modifiers) -> None:
         from pyglet.window import key
+        if self.genre_picker.on_key_press(symbol, modifiers):
+            return
         if symbol == key.ESCAPE:
             self._leave()
+
+    def on_text_motion(self, motion) -> None:
+        self.genre_picker.on_text_motion(motion)
 
     # ------------------------------------------------------------------ #
     def on_resize(self, width, height) -> None:
         s = scale_for(width, height)
         self._s = s
+        self.genre_picker.layout(width, height, s)
         for lbl in self.labels:
             lbl.font_size = max(8, round(lbl._base_fs * s))
         if self._sentence_timer > 0.0:
@@ -1158,40 +1206,63 @@ class MultiplayerScene(Scene):
             # rows (40*s tall, 150*s wide). They used to be built at 26*s with
             # font 10-11, so the whole settings block read as a shrunken
             # afterthought next to the rest of the UI.
-            rows = [
-                (self.lbl_s_deck, self.deck_btns, 148 * s),
-                (self.lbl_s_level, self.level_btns, 62 * s),
-                (self.lbl_s_words, self.words_btns, 62 * s),
-                (self.lbl_s_cards, self.cards_btns, 128 * s),
-                (self.lbl_s_turns, self.lturns_btns, 62 * s),
-                (self.lbl_s_passes, self.passes_btns, 62 * s),
-                (self.lbl_s_aff["aff_meaning"],
-                 self.aff_btns["aff_meaning"], 66 * s),
-                (self.lbl_s_aff["aff_looks"],
-                 self.aff_btns["aff_looks"], 66 * s),
-                (self.lbl_s_aff["aff_sound"],
-                 self.aff_btns["aff_sound"], 66 * s),
-                (self.lbl_s_writing, self.writing_btns, 92 * s),
-                (self.lbl_s_fonts, self.fonts_btns, 108 * s),
+            # Two columns: what the board is made of on the left, how its
+            # words are chosen on the right. Fifteen rows stacked ran the
+            # last two straight through the Start button.
+            left = [
+                (self.lbl_s_deck, self.deck_btns, 128 * s),
+                (self.lbl_s_level, self.level_btns, 54 * s),
+                (self.lbl_s_words, self.words_btns, 54 * s),
+                (self.lbl_s_cards, self.cards_btns, 112 * s),
+                (self.lbl_s_turns, self.lturns_btns, 54 * s),
+                (self.lbl_s_passes, self.passes_btns, 54 * s),
+                (self.lbl_s_writing, self.writing_btns, 76 * s),
+                (self.lbl_s_fonts, self.fonts_btns, 90 * s),
             ]
-            bh = 36 * s
-            # Seven rows + the player list can outgrow a short window, so the
-            # row pitch (not the buttons) is what gives, and only when it must.
-            top = height - 210 * s - n_players * 28 * s
-            floor = 168 * s                     # leaves room for Start + hint
-            pitch = min(46 * s, max(bh + 4 * s,
-                                    (top - floor) / max(1, len(rows))))
-            ry = top
-            gap = 10 * s
-            for lb, btns, bw in rows:
-                total = len(btns) * bw + (len(btns) - 1) * gap
-                x0 = cx - total / 2 + 70 * s
-                lb.x, lb.y = x0 - 18 * s, ry
-                for i, (_v, b) in enumerate(btns):
-                    b.set_rect(x0 + i * (bw + gap), ry - bh / 2, bw, bh)
-                ry -= pitch
+            right = [
+                (self.lbl_s_aff["aff_meaning"],
+                 self.aff_btns["aff_meaning"], 62 * s),
+                (self.lbl_s_aff["aff_looks"],
+                 self.aff_btns["aff_looks"], 62 * s),
+                (self.lbl_s_aff["aff_sound"],
+                 self.aff_btns["aff_sound"], 62 * s),
+                (self.lbl_s_learn["learn_known"],
+                 self.learn_btns["learn_known"], 62 * s),
+                (self.lbl_s_learn["learn_less_known"],
+                 self.learn_btns["learn_less_known"], 62 * s),
+                (self.lbl_s_learn["learn_unknown"],
+                 self.learn_btns["learn_unknown"], 62 * s),
+                (self.lbl_s_genre, [("genre", self.genre_btn)], 140 * s),
+            ]
+            bh = 32 * s
+            gap, label_w, label_gap, col_gap = 8 * s, 96 * s, 12 * s, 26 * s
 
-            self.start_btn.set_rect(cx - 150 * s, max(96 * s, ry - 44 * s),
+            def _block(rows):
+                return max((len(b) * w + (len(b) - 1) * gap)
+                           for _l, b, w in rows)
+
+            lw, rw = _block(left), _block(right)
+            top = height - 210 * s - n_players * 28 * s
+            floor = 168 * s                 # leaves room for Start + hint
+            deepest = max(len(left), len(right))
+            pitch = min(40 * s, max(bh + 3 * s,
+                                    (top - floor) / max(1, deepest)))
+            total_w = label_w + label_gap + lw + col_gap + label_w \
+                + label_gap + rw
+            x0 = cx - total_w / 2
+            lx = x0 + label_w + label_gap
+            rx = lx + lw + col_gap + label_w + label_gap
+            ry = top
+            for bx, rows in ((lx, left), (rx, right)):
+                cy2 = top
+                for lb, btns, bw in rows:
+                    lb.x, lb.y = bx - label_gap, cy2
+                    for i, (_v, b) in enumerate(btns):
+                        b.set_rect(bx + i * (bw + gap), cy2 - bh / 2, bw, bh)
+                    cy2 -= pitch
+                ry = min(ry, cy2)
+
+            self.start_btn.set_rect(cx - 150 * s, max(96 * s, ry - 40 * s),
                                     300 * s, 50 * s)
             self.hint.x, self.hint.y = cx, 52 * s
         elif self.phase in ("play", "done"):
@@ -1290,8 +1361,10 @@ class MultiplayerScene(Scene):
             fill_quad(0, self.height - HUD_H * s - 2, self.width, 2,
                       theme.PANEL_HI)
         self.batch.draw()
+        self.genre_picker.draw()      # overlay: always last
 
     def on_exit(self) -> None:
+        self.genre_picker.delete()
         # Back to plain "online": friends must not keep seeing us in a room we
         # already left.
         from kanjire.net import friends as fr
