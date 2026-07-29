@@ -110,7 +110,13 @@ class ThemedButton(ButtonBehavior, JPLabel):
                       rgba(text_color) if text_color is not None
                       else rgba(theme.readable_on(self._fill)))
         kw.setdefault("size_hint_y", None)
-        kw.setdefault("height", dp(52))
+        # Only default the height when the caller gave neither `height` nor
+        # `size`. Kivy applies properties in arbitrary order, so a defaulted
+        # `height` could be applied AFTER an explicit `size=` and silently
+        # win — which is how the update banner's buttons ended up 52dp tall
+        # inside a 46dp bar, poking out of the top of the notification.
+        if "height" not in kw and "size" not in kw:
+            kw["height"] = dp(52)
         super().__init__(**kw)
         #: 0..1 progress fill, or None for a plain button. A tile can then
         #: say "how far in am I" rather than only "started / not started".

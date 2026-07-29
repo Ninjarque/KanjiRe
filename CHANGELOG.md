@@ -12,6 +12,21 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.35.0 — 2026-07-29
+
+- **The update banner's buttons fit inside it again.** "Restart & update"
+  and "Later" were drawn taller than the bar and poked out of the top of
+  the notification. The cause was general — any button given an explicit
+  size was silently overridden to the default height — so a few small
+  buttons elsewhere (in games, the lobby and the recall drill) quietly get
+  their intended size back too.
+- **Back steps out of a genre first.** In Journey → Genres, the back button
+  went straight out to the menu from inside a topic; it now returns to the
+  genre grid, then to the road, then out — one step at a time.
+- **Read a sentence aloud.** A ♪ button in the Reading Room speaks the
+  current sentence (needs a Japanese voice installed, like the rest of the
+  spoken audio).
+
 ## 0.34.0 — 2026-07-29
 
 - **The Meaning / Looks / Sound dials actually work now.** They were very

@@ -82,6 +82,18 @@ def main() -> None:
         probe.set_progress(0.0)
         check("zero progress draws nothing", probe._prog_rect.size[0] == 0)
 
+        # 0b. Update banner: every child must sit INSIDE the bar. The
+        # buttons were 52dp tall in a 46dp bar (ThemedButton's default
+        # height beat their explicit size=) and stuck out of the top.
+        from kivy.base import EventLoop as _EL
+        app.banner.opacity, app.banner.disabled = 1, False
+        for _ in range(6):
+            _EL.idle()
+        outside = [c for c in app.banner.children
+                   if c.y < app.banner.y - 0.5 or c.top > app.banner.top + 0.5]
+        check("update banner buttons stay inside the bar", not outside)
+        app.banner.opacity, app.banner.disabled = 0, True
+
         # 1. Play tab renders.
         check("play tab is current", app.sm.current == "play")
         snap(app, "01-play")

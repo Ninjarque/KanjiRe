@@ -124,6 +124,13 @@ class ReadingScreen(Screen):
 
         row = BoxLayout(orientation="horizontal", spacing=dp(8),
                         size_hint_y=None, height=dp(50))
+        # Hear the sentence: the app already speaks words on match, and a
+        # reading drill is exactly where hearing the whole line helps.
+        self._speak_btn = ThemedButton(text=tr("READ_SPEAK"),
+                                       font_size=sp(13), height=dp(50),
+                                       size_hint_x=None, width=dp(64))
+        self._speak_btn.bind(on_release=lambda *_: self._speak())
+        row.add_widget(self._speak_btn)
         self._trans_btn = ThemedButton(text=tr("READ_TRANSLATE"),
                                        font_size=sp(13), height=dp(50))
         self._trans_btn.bind(on_release=lambda *_: self._toggle_translation())
@@ -150,6 +157,16 @@ class ReadingScreen(Screen):
         self._update_totals()
         self._show_current()
 
+    def _speak(self) -> None:
+        """Read the current sentence aloud (no-op without a JP voice)."""
+        cur = self.session.current if self.session else None
+        if not cur:
+            return
+        try:
+            self._app.audio.speech.say_jp(cur["ja"])
+        except Exception:      # noqa: BLE001 — TTS is a bonus, never fatal
+            pass
+
     def _toggle_translation(self) -> None:
         cur = self.session.current if self.session else None
         if cur is None or not cur.get("en"):
@@ -169,10 +186,12 @@ class ReadingScreen(Screen):
             self._empty.height = dp(60)
             self._next_btn.disabled = True
             self._trans_btn.disabled = True
+            self._speak_btn.disabled = True
             return
         self._empty.text = ""
         self._empty.height = 0
         self._next_btn.disabled = False
+        self._speak_btn.disabled = False
         self._trans_btn.disabled = not bool(cur.get("en"))
         self._sentence.text = cur["ja"]
         note = (tr("READ_ALL_KNOWN") if cur["unknown"] == 0

@@ -302,6 +302,16 @@ class KanjiReApp(App):
         if current == "multiplayer":
             self.sm.get_screen("multiplayer").leave()
             return True
+        if current == "journey":
+            # Inside the Genres tab, back steps out of the open genre before
+            # it leaves the tab — one screen at a time, like everywhere else.
+            jr = self.sm.get_screen("journey")
+            if getattr(jr, "sel_genre", None) is not None:
+                jr._set_tab("genres")
+                return True
+            if getattr(jr, "tab", "road") == "genres":
+                jr._set_tab("road")
+                return True
         if current != "play":
             self.go_home()            # back to wherever we came from
             return True
