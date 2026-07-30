@@ -139,3 +139,39 @@ def test_snapshot_round_trips_json():
     snap = export_snapshot(a, sa)
     again = json.loads(json.dumps(snap, ensure_ascii=False))
     assert digest(again) == digest(snap)
+
+
+# --------------------------------------------------------------------------- #
+# New tables must not disturb sync
+# --------------------------------------------------------------------------- #
+def test_the_reading_library_does_not_break_sync(tmp_path):
+    """The library lives in the same per-user DB as stats.
+
+    Two devices must still agree on a digest even when one of them has read a
+    novel the other has never seen — the snapshot is an explicit list of
+    tables, and the library is deliberately not in it (yet). This pins that:
+    if the library is ever added to the snapshot, this test must be updated
+    on purpose rather than a novel silently making sync churn forever.
+    """
+    from kanjire.data import db, syncmerge
+    from kanjire.data.library import Library
+    from kanjire.data.stats import StatsRecorder
+    from kanjire.userstate import UserState
+
+    def fresh(name):
+        con = db.connect(tmp_path / f"{name}.db")
+        StatsRecorder(con)
+        return con, UserState(tmp_path / f"{name}.json")
+
+    a_con, a_state = fresh("a")
+    b_con, b_state = fresh("b")
+    before = syncmerge.digest(syncmerge.export_snapshot(a_con, a_state))
+    assert before == syncmerge.digest(
+        syncmerge.export_snapshot(b_con, b_state))
+
+    Library(a_con).add("Novel", "私は本を読む。今日は暑い。")
+    after = syncmerge.export_snapshot(a_con, a_state)
+    assert syncmerge.digest(after) == before, \
+        "adding a library book changed the sync digest"
+    assert "library" not in after, \
+        "the library entered the snapshot without merge rules"

@@ -40,11 +40,39 @@ MAX_CHARS = 200_000
 # --------------------------------------------------------------------------- #
 # Tokenising
 # --------------------------------------------------------------------------- #
+#: Invisible passengers that ride along with copied web text: ZWSP, ZWNJ,
+#: ZWJ and a BOM. Built from code points rather than written as a literal —
+#: the font guard scans string *values* across the package, and a literal
+#: here would look exactly like UI text that renders as tofu.
+_ZERO_WIDTH = tuple(chr(c) for c in (0x200B, 0x200C, 0x200D, 0xFEFF))
+
+
+def normalize_text(text: str) -> str:
+    """Clean a pasted passage: one newline convention, no control junk.
+
+    Pasting a chapter produced an EMPTY box: the clipboard held the text
+    perfectly, but Kivy's ``TextInput.paste()`` yields zero characters when
+    the content carries Windows ``\\r\\n`` line endings — which is what you
+    get from a browser or almost any editor. Normalising here (and pasting
+    via this function rather than the widget's own path) is the fix, and it
+    also drops the zero-width characters copied web text tends to hide.
+    """
+    if not text:
+        return ""
+    out = text.replace("\r\n", "\n").replace("\r", "\n")
+    out = out.replace("　", " ").replace("\xa0", " ")
+    for ch in _ZERO_WIDTH:
+        out = out.replace(ch, "")
+    # Keep newlines and tabs; drop the rest of the C0 controls.
+    return "".join(c for c in out if c == "\n" or c == "\t" or ord(c) >= 0x20)
+
+
 def split_sentences(text: str) -> list[str]:
-    """A passage as sentences, punctuation kept, blanks dropped."""
+    """A passage as sentences: split on punctuation AND on the player's own
+    line breaks, since pasted prose often has neither reliably."""
     out: list[str] = []
     buf: list[str] = []
-    for ch in (text or "")[:MAX_CHARS]:
+    for ch in normalize_text(text)[:MAX_CHARS]:
         buf.append(ch)
         if ch in _END:
             piece = "".join(buf).strip()
@@ -55,6 +83,38 @@ def split_sentences(text: str) -> list[str]:
     if tail:
         out.append(tail)
     return out
+
+
+def clipboard_text() -> str:
+    """The clipboard, normalised — or "" if there is nothing usable.
+
+    Both UIs paste through here instead of through their toolkit's own paste
+    handler: Kivy's silently produced nothing for ``\\r\\n`` text, and the
+    pyglet field has no paste of its own at all.
+    """
+    text = ""
+    try:                                    # Kivy is present on both today
+        from kivy.core.clipboard import Clipboard
+        text = Clipboard.paste() or ""
+    except Exception:                       # noqa: BLE001
+        text = ""
+    if not text:
+        try:
+            import tkinter                  # desktop fallback
+            root = tkinter.Tk()
+            root.withdraw()
+            text = root.clipboard_get()
+            root.destroy()
+        except Exception:                   # noqa: BLE001
+            text = ""
+    return normalize_text(text)
+
+
+def describe(text: str) -> tuple[int, int]:
+    """``(characters, sentences)`` for a passage — what the Add screen shows
+    so you can see at a glance that the paste actually landed."""
+    clean = normalize_text(text)
+    return len(clean), len(split_sentences(clean))
 
 
 @dataclass

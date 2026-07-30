@@ -246,3 +246,50 @@ def test_most_recently_read_sorts_first(lib):
     assert lib.books()[0]["id"] == a
     lib.save_position(b, 1)
     assert lib.books()[0]["id"] == b
+
+
+# --------------------------------------------------------------------------- #
+# Pasting (the bug: a pasted chapter arrived as an empty box)
+# --------------------------------------------------------------------------- #
+def test_windows_line_endings_are_normalised():
+    """Kivy's TextInput.paste() yields NOTHING for \r\n content — which is
+    what a browser or editor puts on the clipboard. Normalising is the fix."""
+    from kanjire.data.weave import normalize_text
+    got = normalize_text("私は本を読む。\r\n今日は暑い。\r")
+    assert "\r" not in got
+    assert got.count("\n") == 2
+
+
+def test_sentences_survive_crlf_paste():
+    assert split_sentences("一。\r\n二。\r\n三。") == ["一。", "二。", "三。"]
+
+
+def test_zero_width_and_nbsp_junk_is_dropped():
+    from kanjire.data.weave import normalize_text
+    got = normalize_text("私\u200bは\u00a0本\ufeffを読む。")
+    assert "\u200b" not in got and "\ufeff" not in got
+    assert "私は 本を読む。" == got
+
+
+def test_full_width_space_becomes_a_normal_one():
+    from kanjire.data.weave import normalize_text
+    assert normalize_text("今日は　暑い。") == "今日は 暑い。"
+
+
+def test_control_characters_are_stripped_but_newlines_kept():
+    from kanjire.data.weave import normalize_text
+    got = normalize_text("一\x00二\x07三\n四\t五")
+    assert got == "一二三\n四\t五"
+
+
+def test_describe_counts_what_the_user_pasted():
+    from kanjire.data.weave import describe
+    chars, sentences = describe("一。\r\n二。")
+    assert sentences == 2
+    assert chars == len("一。\n二。")
+
+
+def test_describe_of_nothing_is_zero():
+    from kanjire.data.weave import describe
+    assert describe("") == (0, 0)
+    assert describe(None) == (0, 0)

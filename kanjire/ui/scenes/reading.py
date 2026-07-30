@@ -63,6 +63,15 @@ class ReadingScene(Scene):
             accent=theme.ACCENT, font_size=14,
         )
         self.nav.set_active(tr("NAV_READ"))
+        # Two ways to read, same as the phone: the graded feed, or your own
+        # texts. Desktop parity matters — progress and stats are shared.
+        self.subtabs = TabBar(
+            [(tr("READ_MODE_FEED"), lambda: None),
+             (tr("READ_MODE_LIBRARY"), lambda: self.app.go_weave())],
+            self.batch, self.g_bg, self.g_text,
+            accent=theme.GOLD, font_size=12,
+        )
+        self.subtabs.set_active(0)
 
         self.rng = random.Random()
         self._known = {
@@ -485,6 +494,8 @@ class ReadingScene(Scene):
             return
         if self.nav.on_mouse_press(x, y):
             return
+        if self.subtabs.on_mouse_press(x, y):
+            return
         for b in self.buttons:
             if b.enabled and b.contains(x, y):
                 b.click()
@@ -496,6 +507,7 @@ class ReadingScene(Scene):
 
     def on_mouse_motion(self, x, y, dx, dy) -> None:
         self.nav.on_mouse_motion(x, y)
+        self.subtabs.on_mouse_motion(x, y)
         for b in self.buttons:
             b.set_hover(b.enabled and b.contains(x, y))
         for b, _info in self.chips:
@@ -526,6 +538,8 @@ class ReadingScene(Scene):
             b.set_scale(s)
         cx = width / 2
         self.nav.set_rect(cx - 350 * s, height - 50 * s, 700 * s, 36 * s)
+        self.subtabs.set_scale(s)
+        self.subtabs.set_rect(cx - 130 * s, height - 128 * s, 260 * s, 30 * s)
         self.title.x, self.title.y = cx, height - 92 * s
         self.totals.x, self.totals.y = width - 40 * s, height - 92 * s
         if self.source_btns:

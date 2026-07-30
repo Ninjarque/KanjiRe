@@ -353,6 +353,32 @@ def main() -> int:
         app.go_journey()
         render(8)
         shot("journey", size)
+        # The reading library + weave reader (desktop parity with Android).
+        app.go_weave()
+        render(6)
+        wv = app.scene
+        wv.show_add()
+        wv.title_in.set_text("Chapter 1")
+        wv.body_in.set_text("私は大学の本を読みます。今日は天気がいいです。"
+                            "彼は毎日新聞を読む。子供が公園で遊んでいる。")
+        wv._recount()
+        render(6)
+        shot("weave_add", size)
+        wv._save()
+        render(6)
+        toks = [t for t, *_ in wv._tokens if t.known_word]
+        for t in toks[:3]:
+            wv._weave.tapped(t, None)
+        wv.on_resize(win.width, win.height)
+        render(6)
+        shot("weave_read", size)
+        wv._leave()
+        render(6)
+        shot("weave_library", size)
+        for bid, _b, _d in list(wv._book_btns):
+            wv.library.delete(bid)
+        wv.show_library()
+        render(4)
         # Genres browser: the 5-wide grid, then one genre's JLPT rows.
         app.go_journey(tab="genres")
         render(8)

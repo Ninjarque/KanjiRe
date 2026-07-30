@@ -12,6 +12,24 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.37.0 — 2026-07-30
+
+- **Pasting a chapter works now.** A pasted text arrived as an empty box —
+  you could type, but a paste showed only blank lines. The cause: the
+  clipboard held your text perfectly, but the text field returns *nothing*
+  for content with Windows line endings, which is what a browser or editor
+  puts there. Adding a text is now its own screen with a **Paste from
+  clipboard** button that handles this itself, and a live
+  "N characters · M sentences" line underneath so you can see the text
+  landed. Passages split on punctuation *and* on your own line breaks.
+- **The reader is on the computer too.** Reading Room → **My texts** on
+  desktop: same library, same progress bars, same tap-a-word-to-reveal, over
+  the same saved data — so a chapter you started on the phone is the same
+  chapter, at the same place, on the computer. Ctrl+V works in the text box.
+- Cross-device sync is unchanged and still verified; the reading library is
+  stored per-device for now (your progress, stats and looked-up words do
+  sync, as before).
+
 ## 0.36.0 — 2026-07-30
 
 - **New: read your own texts, in Japanese, with training wheels.** Reading

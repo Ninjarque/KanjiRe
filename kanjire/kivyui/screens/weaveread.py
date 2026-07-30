@@ -18,10 +18,12 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.stacklayout import StackLayout
+from kivy.uix.textinput import TextInput
 
 from kanjire.data.library import Library
-from kanjire.data.weave import Lexicon
+from kanjire.data.weave import Lexicon, clipboard_text, describe
 from kanjire.i18n import tr
+from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
 from kanjire.kivyui.widgets import JPLabel, SectionLabel, ThemedButton
 
@@ -122,21 +124,78 @@ class WeaveView(BoxLayout):
         scroll.add_widget(body)
         self.add_widget(scroll)
 
+    def _field(self, hint: str, *, multiline: bool, height: float):
+        return TextInput(
+            hint_text=hint, multiline=multiline, font_name=UI_FONT,
+            font_size=sp(15), size_hint_y=None, height=height,
+            background_color=rgba(theme.PANEL_HI),
+            foreground_color=rgba(theme.TEXT),
+            hint_text_color=rgba(theme.DIM),
+            cursor_color=rgba(theme.ACCENT), padding=[dp(10), dp(10)])
+
     def _add_text(self) -> None:
-        def got_text(text: str) -> None:
-            text = (text or "").strip()
-            if not text:
+        """A whole screen for adding a passage, not a modal.
+
+        A chapter does not fit in a popup, and the popup's own paste handler
+        silently dropped everything for text with Windows line endings — so
+        pasting goes through our own button, and the counts below the box
+        prove the text actually arrived.
+        """
+        self.book = None
+        self.clear_widgets()
+        self.add_widget(SectionLabel(text=tr("LIB_ADD_TITLE")))
+        title = self._field(tr("LIB_ASK_TITLE"), multiline=False,
+                            height=dp(44))
+        title.text = tr("LIB_DEFAULT_TITLE")
+        self.add_widget(title)
+
+        body = self._field(tr("LIB_ASK_TEXT"), multiline=True, height=dp(240))
+        self.add_widget(body)
+
+        counts = JPLabel(text=tr("LIB_COUNTS", chars=0, sentences=0),
+                         color=rgba(theme.DIM), font_size=sp(12),
+                         size_hint_y=None, height=dp(20))
+        counts.bind(size=counts.setter("text_size"))
+
+        def _recount(*_):
+            chars, sentences = describe(body.text)
+            counts.text = tr("LIB_COUNTS", chars=chars, sentences=sentences)
+
+        body.bind(text=_recount)
+
+        paste = ThemedButton(text=tr("LIB_PASTE"), font_size=sp(14),
+                             height=dp(46), fill=theme.PANEL_HI,
+                             text_color=theme.ACCENT)
+
+        def _paste(*_):
+            got = clipboard_text()
+            if got:
+                body.text = (body.text + got) if body.text else got
+            _recount()
+
+        paste.bind(on_release=_paste)
+        self.add_widget(paste)
+        self.add_widget(counts)
+
+        row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                        size_hint_y=None, height=dp(48))
+        cancel = ThemedButton(text=tr("DLG_CANCEL"), font_size=sp(14),
+                              height=dp(48))
+        cancel.bind(on_release=lambda *_: self.show_library())
+        save = ThemedButton(text=tr("DLG_OK"), fill=theme.ACCENT,
+                            font_size=sp(14), height=dp(48))
+
+        def _save(*_):
+            book_id = self.library.add(title.text, body.text)
+            if book_id is None:
+                self._app.info(tr("LIB_NOTHING"))
                 return
+            self.open_book(book_id)
 
-            def got_title(title: str) -> None:
-                book_id = self.library.add(title, text)
-                if book_id is not None:
-                    self.open_book(book_id)
-
-            self._app.prompt(tr("LIB_ASK_TITLE"), got_title,
-                             initial=tr("LIB_DEFAULT_TITLE"))
-
-        self._app.prompt(tr("LIB_ASK_TEXT"), got_text, multiline=True)
+        save.bind(on_release=_save)
+        row.add_widget(cancel)
+        row.add_widget(save)
+        self.add_widget(row)
 
     def _confirm_delete(self, book) -> None:
         def apply() -> None:

@@ -35,4 +35,7 @@ Thumbs.db
 
 # updater diagnostics (written next to the user save file)
 update.log
+# Runtime diagnostics: written into the dev data dir, never committed.
+reading.log
+crash.log
 KanjiRe-*-TESTBUILD.apk

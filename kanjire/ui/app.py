@@ -327,6 +327,12 @@ class GameApp:
             self, raw_text=text, display_name=display_name,
         ))
 
+    def go_weave(self, book_id: int | None = None) -> None:
+        """The reading library / weave reader (the Read tab's second mode)."""
+        from kanjire.ui.scenes.weaveread import WeaveScene
+
+        self.set_scene(WeaveScene(self, book_id=book_id))
+
     def go_journey(self, tab: str = "road") -> None:
         from kanjire.ui.scenes.journey import JourneyScene
 

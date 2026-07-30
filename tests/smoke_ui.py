@@ -1092,6 +1092,50 @@ def run() -> int:
         assert isinstance(app2.scene, MenuScene),             "a menu-started game must still come back to the menu"
         print("PASS leaving a game returns to where it started")
 
+        # 19h) The desktop weave reader — parity with the phone, over the same
+        # model, so a text added on one device reads the same on the other.
+        from kanjire.ui.scenes.weaveread import WeaveScene
+        app2.go_weave()
+        wv = app2.scene
+        frames2(6)
+        assert isinstance(wv, WeaveScene) and wv.view == "library"
+        # Windows line endings are what made a pasted chapter arrive EMPTY on
+        # the phone, so the desktop path is checked with them explicitly.
+        crlf = chr(13) + chr(10)
+        wv.show_add()
+        frames2(4)
+        wv.body_in.set_text("私は大学の本を読む。" + crlf + "今日は天気がいい。" + crlf)
+        wv.title_in.set_text("Desktop Ch1")
+        wv._recount()
+        assert "2" in wv.counts.text, f"sentence count wrong: {wv.counts.text}"
+        wv._save()
+        frames2(6)
+        assert wv.view == "read", "saving a text did not open it"
+        assert wv._tokens, "the passage rendered no tokens"
+        tappable = [t for t, *_ in wv._tokens if t.known_word]
+        assert len(tappable) >= 3, "no tappable words on the page"
+        tok = tappable[0]
+        wv._tap(tok)
+        frames2(6)
+        row = app2.stats.get_for(tok.expression, tok.reading)
+        assert row is not None and row["mistakes_meaning"] >= 1, \
+            "a desktop lookup did not count as evidence"
+        gloss = tok.meaning.split(",")[0].split(";")[0]
+        assert any(gloss in lb.text for t, lb, *_ in wv._tokens
+                   if t.key == tok.key), "the tapped word did not turn English"
+        book_id = wv.book["id"]
+        wv._page(1)
+        frames2(4)
+        wv._leave()
+        frames2(6)
+        assert wv.view == "library"
+        assert wv.library.get(book_id)["ratio"] > 0, "progress was not saved"
+        assert any(i == book_id for i, _b, _d in wv._book_btns)
+        wv.library.delete(book_id)
+        wv.show_library()
+        frames2(4)
+        print("PASS desktop weave reader (add, paste, tap, progress, delete)")
+
         # 20) Leech hunt appears on Stats once words lapse repeatedly.
         app2.stats.reset_all()
         for w in n5all[:6]:
