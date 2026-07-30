@@ -12,6 +12,21 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.39.0 — 2026-07-30
+
+- **One sentence per line.** The reader was a single running block that was
+  hard to follow; each sentence now starts its own line, using the
+  punctuation that is already there.
+- **Text size and font, from the reader.** The **Aa** button opens a size
+  picker (six steps) and a Single/Random font choice — random varies the face
+  *per sentence*, so you read for meaning instead of for a familiar shape.
+  The page itself is the preview: it re-draws as you choose.
+- **Tapping a word answers immediately.** The reveal and the recolour now
+  happen at once and the two database writes go to the next frame — each one
+  is a synchronous disk write worth about 20ms on a phone, and doing them
+  first is what made a tap feel ignored. Opening a passage also warms the
+  word index behind the usual loading ring instead of stalling the first tap.
+
 ## 0.38.0 — 2026-07-30
 
 - **Your texts sync between devices.** Start a chapter on the phone, carry on

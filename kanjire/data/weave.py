@@ -115,6 +115,36 @@ def clipboard_text() -> str:
     return normalize_text(text)
 
 
+#: Reader type sizes offered by the slider (sp / pt).
+FONT_SIZES = (15, 17, 19, 22, 26, 30)
+DEFAULT_FONT_SIZE = 19
+#: Writing directions. "vertical" is 縦書き — not implemented yet, and the
+#: setting is deliberately absent rather than present-and-ignored.
+WRITING_MODES = ("horizontal",)
+
+
+def font_size_of(state) -> int:
+    """The reader's type size, clamped to something we offer."""
+    try:
+        want = int(state.setting("read_font_size", DEFAULT_FONT_SIZE))
+    except (TypeError, ValueError):
+        return DEFAULT_FONT_SIZE
+    return want if want in FONT_SIZES else DEFAULT_FONT_SIZE
+
+
+def sentence_font(fonts, index: int, varied: bool):
+    """Which face this sentence is set in.
+
+    Varying it per *sentence* (never per word) trains reading for meaning
+    instead of for a familiar shape, the same idea as Familiarize mode —
+    but a sentence is the smallest unit that stays comfortable to read.
+    Deterministic in the index so re-rendering a page doesn't reshuffle it.
+    """
+    if not varied or not fonts:
+        return fonts[0] if fonts else None
+    return fonts[index % len(fonts)]
+
+
 def describe(text: str) -> tuple[int, int]:
     """``(characters, sentences)`` for a passage — what the Add screen shows
     so you can see at a glance that the paste actually landed."""

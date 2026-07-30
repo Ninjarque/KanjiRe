@@ -330,6 +330,11 @@ def main() -> None:
 
         def step_reading():
             rs = app.sm.get_screen("read")
+            # The Read tab remembers Feed vs My texts between runs, and in
+            # library mode there is deliberately no feed session — so pin the
+            # mode rather than depending on how the last run happened to end.
+            if rs.mode != "feed":
+                rs._set_mode("feed")
             check("reading session built", rs.session is not None)
             # With this test profile's small known set the room may be empty
             # or serving +1 sentences — either way the screen must render.
@@ -610,11 +615,24 @@ def main() -> None:
             rs = app.sm.get_screen("read")
             rs._set_mode("library")
             wv = rs._weave_view
+            # The library persists between runs (that is the feature), so
+            # start from a known state rather than assuming an empty one.
+            for existing in wv.library.books():
+                wv.library.delete(existing["id"])
+            wv.show_library()
             check("library starts empty", wv.library.books() == [])
             bid = wv.library.add("Ch1", "私は大学の本を読みます。今日は天気がいい。")
             check("a pasted text becomes a book",
                   bid is not None and wv.library.get(bid)["n_sentences"] == 2)
             wv.open_book(bid)
+            # Opening now warms the word index behind the loading ring and
+            # renders on the next frame, so give it one. (Safe here: this is
+            # the last block in the script, nothing timed follows.)
+            from kivy.base import EventLoop as _EL3
+            for _ in range(8):
+                _EL3.idle()
+            check("the loading ring is dismissed after opening",
+                  app.loading.opacity == 0)
             words = [w for w in wv.walk() if isinstance(w, WeaveWord)]
             check("the passage renders as tokens", len(words) > 5)
             tappable = [w for w in words if w.token.known_word]

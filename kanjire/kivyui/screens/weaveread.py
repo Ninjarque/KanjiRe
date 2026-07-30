@@ -12,6 +12,7 @@ this file is only presentation, so the pyglet reader can reuse all of it.
 """
 from __future__ import annotations
 
+from kivy.clock import Clock
 from kivy.metrics import dp, sp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -21,7 +22,9 @@ from kivy.uix.stacklayout import StackLayout
 from kivy.uix.textinput import TextInput
 
 from kanjire.data.library import Library
-from kanjire.data.weave import Lexicon, clipboard_text, describe
+from kanjire.data.weave import (FONT_SIZES, Lexicon, clipboard_text,
+                                describe, font_size_of,
+                                sentence_font)
 from kanjire.i18n import tr
 from kanjire.kivyui.fonts import UI_FONT
 from kanjire.kivyui.theming import rgba, theme
@@ -83,6 +86,7 @@ class WeaveView(BoxLayout):
         self._cache = None          #: (tokens, stats rows) for self._pos
         self._cache_pos = None
         self._words: list = []      #: the tappable widgets on screen
+        self._show_opts = False     #: reader type controls, toggled by Aa
         self.show_library()
 
     # ---- lazily built, because it reads the whole vocabulary ------------ #
@@ -221,6 +225,24 @@ class WeaveView(BoxLayout):
 
     # ---- reader -------------------------------------------------------- #
     def open_book(self, book_id: int) -> None:
+        """Open a passage, warming the word index behind the spinner.
+
+        Building the index reads the whole vocabulary and generates every
+        inflection — quick on a computer, visible on a phone — so it happens
+        once, behind the same loading ring the game launcher uses, instead of
+        silently stalling the first tap.
+        """
+        if self._lex is None:
+            self._app.loading.show()
+            Clock.schedule_once(lambda _dt: self._open_now(book_id), 0)
+            return
+        self._open_now(book_id)
+
+    def _open_now(self, book_id: int) -> None:
+        try:
+            self.lexicon()
+        finally:
+            self._app.loading.hide()
         book = self.library.get(book_id)
         if book is None:
             self.show_library()
@@ -243,23 +265,30 @@ class WeaveView(BoxLayout):
         if self._cache_pos == self._pos and self._cache is not None:
             return self._cache
         lex = self.lexicon()
-        tokens = []
-        for sentence in self.library.sentences(self.book["id"], self._pos,
-                                               WINDOW):
-            tokens.extend(lex.tokenize(sentence))
+        # Grouped BY SENTENCE: the reader puts each on its own line, which is
+        # what makes a page followable instead of one running block.
+        groups = [lex.tokenize(sentence) for sentence in
+                  self.library.sentences(self.book["id"], self._pos, WINDOW)]
+        flat = [t for g in groups for t in g]
         try:
             rows = self._app.stats.rows_for(
-                [t.key for t in tokens if t.known_word])
+                [t.key for t in flat if t.known_word])
         except Exception:           # noqa: BLE001
             rows = {}
-        self._cache, self._cache_pos = (tokens, rows), self._pos
+        self._cache, self._cache_pos = (groups, rows), self._pos
         return self._cache
 
     def _stats_row(self, token):
-        _tokens, rows = self._page_tokens()
+        _groups, rows = self._page_tokens()
         return rows.get(token.key)
 
     def _render(self) -> None:
+        """Draw the open passage. A no-op with nothing open — opening is
+        deferred a frame now (the spinner warms the word index), so callers
+        can reach here before there is a book."""
+        if self.book is None:
+            self.show_library()
+            return
         self.clear_widgets()
         book = self.book
         head = BoxLayout(orientation="horizontal", spacing=dp(6),
@@ -275,26 +304,53 @@ class WeaveView(BoxLayout):
             font_size=sp(13), color=rgba(theme.MUTED))
         title.bind(size=title.setter("text_size"))
         head.add_widget(title)
+        opts = ThemedButton(text=tr("READ_SIZE_BTN"), font_size=sp(13),
+                            height=dp(40), width=dp(52), size_hint_x=None,
+                            fill=theme.PANEL_HI, text_color=theme.MUTED)
+
+        def _toggle_opts(*_):
+            self._show_opts = not self._show_opts
+            self._render()
+
+        opts.bind(on_release=_toggle_opts)
+        head.add_widget(opts)
         self.add_widget(head)
 
+        if self._show_opts:
+            self.add_widget(self._reader_options())
         scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
-        flow = StackLayout(orientation="lr-tb", spacing=dp(2),
-                           size_hint_y=None, padding=[0, dp(4)])
-        flow.bind(minimum_height=flow.setter("height"))
-        tokens, rows = self._page_tokens()
+        page = GridLayout(cols=1, spacing=dp(8), size_hint_y=None,
+                          padding=[0, dp(4)])
+        page.bind(minimum_height=page.setter("height"))
+        groups, rows = self._page_tokens()
         self._words = []
-        for token in tokens:
-            row = rows.get(token.key) if token.known_word else None
-            english = self._weave.show_english(token, row)
-            w = WeaveWord(token, english, token.known_word)
-            if token.known_word:
-                w.bind(on_release=lambda _w, t=token: self._tap(t))
-                self._words.append(w)
-            flow.add_widget(w)
-            if english or self._weave.holds.get(token.key):
-                # Each appearance spends one of the word's crutch turns.
-                self._weave.consume(token)
-        scroll.add_widget(flow)
+        size = font_size_of(self._app.state)
+        varied = self._app.state.setting("read_fonts", "single") == "random"
+        from kanjire.kivyui.fonts import jp_fonts
+        faces = jp_fonts()
+        for index, tokens in enumerate(groups):
+            # One sentence, one line. A wall of running text is unreadable
+            # for a learner; the punctuation is already the natural break.
+            line = StackLayout(orientation="lr-tb", spacing=dp(2),
+                               size_hint_y=None)
+            line.bind(minimum_height=line.setter("height"))
+            face = sentence_font(faces, index, varied)
+            for token in tokens:
+                row = rows.get(token.key) if token.known_word else None
+                english = self._weave.show_english(token, row)
+                w = WeaveWord(token, english, token.known_word,
+                              font_size=sp(size))
+                if face:
+                    w.font_name = face
+                if token.known_word:
+                    w.bind(on_release=lambda _w, t=token: self._tap(t))
+                    self._words.append(w)
+                line.add_widget(w)
+                if english or self._weave.holds.get(token.key):
+                    # Each appearance spends one of the word's crutch turns.
+                    self._weave.consume(token)
+            page.add_widget(line)
+        scroll.add_widget(page)
         self.add_widget(scroll)
 
         foot = BoxLayout(orientation="horizontal", spacing=dp(8),
@@ -310,6 +366,28 @@ class WeaveView(BoxLayout):
         foot.add_widget(prev)
         foot.add_widget(nxt)
         self.add_widget(foot)
+
+    def _reader_options(self):
+        """Type size and font variety, with the page itself as the preview."""
+        from kanjire.kivyui.widgets import ChipRow
+        box = GridLayout(cols=1, spacing=dp(4), size_hint_y=None, height=dp(96))
+        box.add_widget(JPLabel(text=tr("READ_SIZE"), color=rgba(theme.MUTED),
+                               font_size=sp(11), size_hint_y=None,
+                               height=dp(18)))
+        box.add_widget(ChipRow(
+            [(n, str(n)) for n in FONT_SIZES],
+            font_size_of(self._app.state),
+            on_change=lambda v: self._set_display("read_font_size", str(v))))
+        box.add_widget(ChipRow(
+            [("single", tr("FONT_SINGLE")), ("random", tr("FONT_RANDOM"))],
+            self._app.state.setting("read_fonts", "single"),
+            on_change=lambda v: self._set_display("read_fonts", v)))
+        return box
+
+    def _set_display(self, key: str, value: str) -> None:
+        """Re-render immediately: the page IS the preview."""
+        self._app.state.set_setting(key, value)
+        self._render()
 
     def _page(self, delta: int) -> None:
         self._cache = self._cache_pos = None
@@ -330,23 +408,38 @@ class WeaveView(BoxLayout):
     def _tap(self, token) -> None:
         """Reveal a word — and let that count as evidence everywhere.
 
-        Repaints only the affected words. Re-rendering the page (re-tokenising
-        forty sentences and re-querying stats) is what made a tap feel like
-        nothing had happened.
+        Order matters. The reveal and the repaint happen NOW; the two SQLite
+        commits (the lookup stat, the saved position) are pushed to the next
+        frame. Each commit is a synchronous disk write — about 20ms on a
+        phone, the same cost that used to hitch every card match — and a full
+        page re-render on top of them made a tap feel like nothing happened.
         """
         row = self._stats_row(token)
         self._weave.tapped(token, row)
-        try:
-            self._app.stats.reading_lookup(token.expression, token.reading,
-                                           token.meaning)
-        except Exception:           # noqa: BLE001
-            pass
-        try:
-            if self._app.state.tts_on_select:
-                self._app.audio.speech.say_jp(token.reading or token.expression)
-        except Exception:           # noqa: BLE001
-            pass
+        self._repaint(token)
         self._app.info(
             f"{token.expression}  ({token.reading})\n{token.meaning}")
-        self._save()
-        self._render()
+
+        def _persist(_dt):
+            try:
+                self._app.stats.reading_lookup(token.expression,
+                                               token.reading, token.meaning)
+            except Exception:       # noqa: BLE001
+                pass
+            self._save()
+            try:
+                if self._app.state.tts_on_select:
+                    self._app.audio.speech.say_jp(
+                        token.reading or token.expression)
+            except Exception:       # noqa: BLE001
+                pass
+
+        Clock.schedule_once(_persist, 0)
+
+    def _repaint(self, token) -> None:
+        """Flip every on-screen instance of one word, without rebuilding."""
+        rows = self._page_tokens()[1]
+        for w in self._words:
+            if w.token.key == token.key:
+                w.set_state(self._weave.show_english(w.token,
+                                                     rows.get(w.token.key)))
