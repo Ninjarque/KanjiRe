@@ -204,6 +204,10 @@ class Library:
             blob = json.dumps({
                 "holds": [[k[0], k[1], v] for k, v in weave.holds.items()],
                 "taps": [[k[0], k[1], v] for k, v in weave.taps.items()],
+                # Which appearances have already been counted as evidence —
+                # without this a reopened novel would score them all again.
+                "scored": dict(getattr(weave, "scored", {})),
+                "spent": sorted(getattr(weave, "spent", ()) or ()),
             })
         self.con.execute(
             "UPDATE library SET position=?, last_read_at=?, "
@@ -223,6 +227,9 @@ class Library:
             data = json.loads(row["weave"])
             state.holds = {(e, r): int(v) for e, r, v in data.get("holds", [])}
             state.taps = {(e, r): int(v) for e, r, v in data.get("taps", [])}
+            state.scored = {str(k): str(v) for k, v
+                            in (data.get("scored") or {}).items()}
+            state.spent = {str(v) for v in (data.get("spent") or ())}
         except Exception:      # noqa: BLE001 — a corrupt blob just resets
             return WeaveState()
         return state

@@ -118,9 +118,9 @@ def clipboard_text() -> str:
 #: Reader type sizes offered by the slider (sp / pt).
 FONT_SIZES = (15, 17, 19, 22, 26, 30)
 DEFAULT_FONT_SIZE = 19
-#: Writing directions. "vertical" is 縦書き — not implemented yet, and the
-#: setting is deliberately absent rather than present-and-ignored.
-WRITING_MODES = ("horizontal",)
+#: Writing directions. "vertical" is 縦書き: characters down a column,
+#: columns right-to-left, and the page turning leftward.
+WRITING_MODES = ("horizontal", "vertical")
 
 
 def font_size_of(state) -> int:
@@ -160,6 +160,10 @@ class Token:
     reading: str = ""
     meaning: str = ""
     jlpt: int | None = None
+    #: "sentence:index" — WHICH appearance of the word this is. Stamped when
+    #: a passage is tokenised, so a verdict can be recorded per appearance
+    #: rather than per word (see :meth:`WeaveState.flip`).
+    slot: str = ""
 
     @property
     def known_word(self) -> bool:
@@ -410,6 +414,18 @@ def starts_in_english(row: dict | None, jlpt: int | None) -> bool:
     return classify(row) == "unknown" and (jlpt or 5) <= 2
 
 
+def stamp_slots(groups) -> list:
+    """Label every token with the appearance it is: "sentence:index".
+
+    Stable for a given passage, which is what lets a verdict be remembered
+    per appearance across sessions and across devices.
+    """
+    for s_index, tokens in enumerate(groups):
+        for t_index, token in enumerate(tokens):
+            token.slot = f"{s_index}:{t_index}"
+    return groups
+
+
 @dataclass
 class WeaveState:
     """Per-word crutch counters for one reading session.
@@ -419,6 +435,12 @@ class WeaveState:
     """
     holds: dict[tuple[str, str], int] = field(default_factory=dict)
     taps: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: slot ("sentence:index") -> "learned" | "missed". One verdict per
+    #: APPEARANCE, for ever: see :meth:`flip`.
+    scored: dict[str, str] = field(default_factory=dict)
+    #: Appearances whose crutch turn has already been spent: see
+    #: :meth:`consume`. Drawing a page is not the same as reading past it.
+    spent: set = field(default_factory=set)
 
     def tapped(self, token: Token, row: dict | None) -> int:
         """Register a tap; returns how long the word now stays English."""
@@ -427,6 +449,35 @@ class WeaveState:
         hold = hold_for(row, token.jlpt, self.taps[key] - 1)
         self.holds[key] = hold
         return hold
+
+    def flip(self, token: Token, row: dict | None) -> tuple[bool, str]:
+        """Toggle one word between Japanese and English.
+
+        Returns ``(now_english, verdict)`` where the verdict is ``"missed"``
+        (turned to English — they needed the gloss), ``"learned"`` (turned
+        back to Japanese unaided) or ``""`` when this appearance has already
+        been counted.
+
+        **One verdict per appearance, permanently.** A novel contains the same
+        word dozens of times, and tapping one of them back and forth would
+        otherwise let anybody drive their own knowledge buckets anywhere they
+        liked. The word can still be flipped as often as the reader wants —
+        it simply stops being evidence after the first time.
+        """
+        slot = str(getattr(token, "slot", "") or "")
+        counted = slot in self.scored
+        if self.show_english(token, row):
+            # Dropping the crutch: later appearances stay Japanese, so the
+            # reader can be surprised by it again further down the chapter.
+            self.holds.pop(token.key, None)
+            self.taps.setdefault(token.key, 1)
+            verdict = "" if counted else "learned"
+        else:
+            self.tapped(token, row)
+            verdict = "" if counted else "missed"
+        if verdict and slot:
+            self.scored[slot] = verdict
+        return self.show_english(token, row), verdict
 
     def show_english(self, token: Token, row: dict | None) -> bool:
         if not token.known_word:
@@ -437,7 +488,24 @@ class WeaveState:
                 and starts_in_english(row, token.jlpt))
 
     def consume(self, token: Token) -> None:
-        """Count one appearance against the crutch, and drop it at zero."""
+        """Spend one crutch turn for a word, at most once per appearance.
+
+        Callers spend **one turn per word per page**, not one per appearance
+        drawn: a page holding six appearances of the same word would otherwise
+        exhaust a six-turn crutch the moment it was drawn, and the word would
+        never read as English again.
+
+        The per-appearance guard is what makes redrawing free. A page is
+        rebuilt on every tap, every return to it and every change of text
+        size, and each of those used to spend the crutch again — so a word
+        tapped once was back in Japanese a few taps later however badly it was
+        known.
+        """
+        slot = str(getattr(token, "slot", "") or "")
+        if slot:
+            if slot in self.spent:
+                return
+            self.spent.add(slot)
         key = token.key
         left = self.holds.get(key)
         if left:

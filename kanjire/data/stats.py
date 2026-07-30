@@ -201,6 +201,42 @@ class StatsRecorder:
             except Exception:      # noqa: BLE001 — scheduling is a bonus
                 pass
 
+    def reading_recall(self, expression: str, reading: str,
+                       meaning: str = "") -> None:
+        """The player turned a word in a novel back to Japanese unaided.
+
+        The mirror of :meth:`reading_lookup`: dropping the English crutch is
+        a claim to know the word, so it counts as a clean meaning-side hit,
+        extends the streak and tells the scheduler "good".
+
+        The reader allows this **once per appearance of a word** — otherwise a
+        long novel would be a tap-farm and the knowledge buckets would mean
+        nothing.
+        """
+        ts = _now()
+        self.con.execute(
+            """
+            INSERT INTO word_stats (expression, reading, meaning, seen,
+                                    matches, last_correct_at, last_seen_at,
+                                    current_streak)
+            VALUES (?, ?, ?, 1, 1, ?, ?, 1)
+            ON CONFLICT(expression, reading) DO UPDATE SET
+              seen            = seen + 1,
+              meaning         = COALESCE(excluded.meaning, meaning),
+              matches         = matches + 1,
+              last_correct_at = excluded.last_correct_at,
+              last_seen_at    = excluded.last_seen_at,
+              current_streak  = current_streak + 1
+            """,
+            (expression, reading, meaning or None, ts, ts),
+        )
+        self.con.commit()
+        if self.srs is not None:
+            try:
+                self.srs.update(expression, reading, RATING_GOOD)
+            except Exception:      # noqa: BLE001 — scheduling is a bonus
+                pass
+
     def confused(self, target: Word, offending: Word, face: str) -> None:
         """A mismatch click: ``offending`` was selected while ``target`` was the
         in-progress group, and the click was on ``offending``'s ``face`` card."""

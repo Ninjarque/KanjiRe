@@ -652,11 +652,17 @@ def main() -> None:
             check("the tap counts as evidence in stats",
                   row is not None and row["mistakes_meaning"] >= 1
                   and row["current_streak"] == 0)
-            # The crutch must wear off, or the reader never returns to Japanese.
+            # The crutch must wear off, or the reader never returns to
+            # Japanese. It is spent once per word per PAGE, so wearing it down
+            # means passing pages — replaying the same appearance is free by
+            # design (a redraw is not a read).
             st = wv._weave
-            for _ in range(40):
-                st.consume(tok)
+            import dataclasses
+            for i in range(40):
+                st.consume(dataclasses.replace(tok, slot=f"page{i}:0"))
             check("the crutch wears off", st.show_english(tok, row) is False)
+            check("re-reading one appearance is free",
+                  st.consume(tok) is None and tok.key not in st.holds)
             wv.library.save_position(bid, 1, weave=st)
             check("progress is remembered",
                   wv.library.get(bid)["ratio"] > 0)
@@ -706,6 +712,53 @@ def main() -> None:
                 _EL3.idle()
             check("restoring the layout keeps the reader's place",
                   wv._pos == held)
+
+            # Flip behaviour, on a chapter where words genuinely recur:
+            # tapping English turns it back to Japanese and counts as a
+            # recall, and no single APPEARANCE may ever count twice.
+            wv._page(-1)
+            for _ in range(6):
+                _EL3.idle()
+            words2 = [w for w in wv.walk()
+                      if isinstance(w, WeaveWord) and w.token.known_word]
+            by_key = {}
+            for w in words2:
+                by_key.setdefault(w.token.key, []).append(w.token)
+            repeats = next((v for v in by_key.values() if len(v) > 1), None)
+            check("a repeated word appears more than once on a page",
+                  repeats is not None)
+            if repeats:
+                first, second = repeats[0], repeats[1]
+                check("two appearances of a word have different slots",
+                      first.slot != second.slot)
+                wv._tap(first)              # -> English (missed)
+                for _ in range(4):
+                    _EL3.idle()
+                missed = app.stats.get_for(first.expression, first.reading)
+                shown = [w for w in wv.walk() if isinstance(w, WeaveWord)]
+                check("tapping a word turns its appearances English",
+                      any(w.english and w.token.key == first.key
+                          for w in shown))
+                wv._tap(second)             # -> Japanese (learned)
+                for _ in range(4):
+                    _EL3.idle()
+                recalled = app.stats.get_for(first.expression, first.reading)
+                back = [w for w in wv.walk() if isinstance(w, WeaveWord)]
+                check("tapping the English turns it back to Japanese",
+                      not any(w.english and w.token.key == first.key
+                              for w in back))
+                check("the flip back counts as a recall",
+                      recalled["matches"] == (missed["matches"] or 0) + 1
+                      and recalled["current_streak"] >= 1)
+                wv._tap(second)
+                wv._tap(second)
+                for _ in range(4):
+                    _EL3.idle()
+                again = app.stats.get_for(first.expression, first.reading)
+                check("one appearance never counts twice",
+                      again["matches"] == recalled["matches"]
+                      and again["mistakes_meaning"]
+                      == recalled["mistakes_meaning"])
             wv.library.delete(long_id)
             bid = long_id
             wv.show_library()

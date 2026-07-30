@@ -1102,6 +1102,14 @@ def run() -> int:
         # Windows line endings are what made a pasted chapter arrive EMPTY on
         # the phone, so the desktop path is checked with them explicitly.
         crlf = chr(13) + chr(10)
+        # The library persists between runs AND add() dedupes by content, so a
+        # second run would reuse the same book — together with the appearances
+        # it has already counted, which is correct for a reader and fatal for
+        # a checkpoint. Start from empty.
+        for existing in wv.library.books():
+            wv.library.delete(existing["id"])
+        wv.show_library()
+        frames2(4)
         wv.show_add()
         frames2(4)
         # Long enough to need real pages: pagination is measured, so a couple
@@ -1117,7 +1125,11 @@ def run() -> int:
         assert wv._tokens, "the passage rendered no tokens"
         tappable = [t for t, *_ in wv._tokens if t.known_word]
         assert len(tappable) >= 3, "no tappable words on the page"
-        tok = tappable[0]
+        # A word that is currently in JAPANESE: tapping one that already shows
+        # English is the opposite gesture (a recall), so it would not be a
+        # lookup at all.
+        tok = next(t for t in tappable
+                   if not wv._weave.show_english(t, wv._stats_row(t)))
         wv._tap(tok)
         frames2(6)
         row = app2.stats.get_for(tok.expression, tok.reading)
@@ -1127,6 +1139,47 @@ def run() -> int:
         assert any(gloss in "".join(lb.text for lb in labels)
                    for t, labels, *_ in wv._tokens
                    if t.key == tok.key), "the tapped word did not turn English"
+
+        # Tapping the English turns the word back to Japanese and counts as a
+        # recall — but no single APPEARANCE may ever count twice, or a novel
+        # would be a knowledge-bucket farm.
+        by_key = {}
+        for t, *_rest in wv._tokens:
+            if t.known_word:
+                by_key.setdefault(t.key, []).append(t)
+        # A word that repeats AND is currently in Japanese, so the first tap
+        # is a lookup and the second (on another appearance, now English) is
+        # a recall. Picking blindly would flip both the other way round.
+        repeats = next((v for v in by_key.values() if len(v) > 1
+                        and not wv._weave.show_english(v[0],
+                                                       wv._stats_row(v[0]))),
+                       None)
+        assert repeats, "no repeated Japanese word on the page"
+        first, second = repeats[0], repeats[1]
+        assert first.slot and first.slot != second.slot, \
+            "appearances of a word must be distinguishable"
+        wv._tap(first)
+        frames2(4)
+        missed = app2.stats.get_for(first.expression, first.reading)
+        assert wv._weave.show_english(second, wv._stats_row(second)), \
+            "the other appearances should now be in English"
+        wv._tap(second)
+        frames2(4)
+        recalled = app2.stats.get_for(first.expression, first.reading)
+        assert recalled["matches"] == (missed["matches"] or 0) + 1, \
+            "turning a word back to Japanese did not count as a recall"
+        assert recalled["current_streak"] >= 1
+        assert not any(
+            lb.text.strip().startswith(first.meaning.split(",")[0][:4])
+            for t, labels, *_r in wv._tokens if t.key == first.key
+            for lb in labels), "the word did not return to Japanese"
+        wv._tap(second)
+        wv._tap(second)
+        frames2(4)
+        again = app2.stats.get_for(first.expression, first.reading)
+        assert (again["matches"], again["mistakes_meaning"]) == \
+            (recalled["matches"], recalled["mistakes_meaning"]), \
+            "one appearance counted more than once"
 
         # Real pages: measured, no scrolling, and the cursor is a sentence so
         # the reader keeps their place when the layout changes underneath.

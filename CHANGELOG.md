@@ -12,6 +12,29 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.41.0 — 2026-07-30
+
+- **Text stays on the page.** The reader's pages were measured against a
+  *guess* at how much room the text had, and the guess was wrong at every
+  screen size: up to 218px of text ran off the bottom in horizontal at small
+  type, and vertical ran up to 579px past the right edge at **every** size.
+  The page is now measured against the real text area, in the real font, and
+  every geometry is checked automatically — five screen shapes × six text
+  sizes × both directions, plus the options panel open.
+- Vertical Japanese continues a long word into the next column, the way real
+  縦書き does, instead of letting it run off the page.
+- The type controls no longer squeeze the text out of existence: on a phone
+  in landscape they used to leave the page with **zero** height.
+- **Tap a word twice.** Tapping an English stand-in now reads the Japanese
+  word aloud and turns it back to Japanese; tapping Japanese still opens the
+  gloss. Turning a word back counts as knowing it, turning one to English
+  counts as needing it — and **each appearance of a word counts only once,
+  ever**, so a long novel can't be tapped into fake progress.
+- Your training wheels last as long as they should. Re-drawing a page (which
+  happens on every tap, every page turn back, every text-size change) used to
+  spend the crutch again, so a word you'd just looked up flipped back to
+  Japanese after a few taps. It is now spent once per page you actually pass.
+
 ## 0.40.0 — 2026-07-30
 
 - **Real pages in the reader.** "Back / More" used to move a fixed forty

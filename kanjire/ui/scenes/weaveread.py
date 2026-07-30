@@ -15,9 +15,10 @@ from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 
 from kanjire.data.library import Library
-from kanjire.data.paginate import page_of_sentence, paginate
+from kanjire.data.paginate import (english_of, page_of_sentence,
+                                   paginate)
 from kanjire.data.weave import (FONT_SIZES, Lexicon, clipboard_text, describe,
-                                font_size_of, sentence_font)
+                                font_size_of, sentence_font, stamp_slots)
 from kanjire.i18n import tr
 from kanjire.ui import theme
 from kanjire.ui.fonts import JP_FONT, JP_FONTS
@@ -300,9 +301,9 @@ class WeaveScene(Scene):
         bid = self.book["id"] if self.book else None
         if self._groups_key != bid or self._groups_cache is None:
             lex = self.lexicon()
-            self._groups_cache = [
-                lex.tokenize(t)
-                for t in self.library.sentences(bid, 0, 10 ** 9)] if bid \
+            self._groups_cache = stamp_slots(
+                [lex.tokenize(t)
+                 for t in self.library.sentences(bid, 0, 10 ** 9)]) if bid \
                 else []
             self._groups_key = bid
         return self._groups_cache
@@ -335,21 +336,37 @@ class WeaveScene(Scene):
 
         groups = self._groups()
         fs = max(10, round(size * s))
+        # Random fonts change the face — and the width of the same word —
+        # per sentence, so each sentence is measured in its own face.
+        measurers: dict = {}
+
+        def measure_for(index):
+            if vertical:
+                return len
+            face = sentence_font(JP_FONTS, index, varied) or JP_FONT
+            got = measurers.get(face)
+            if got is None:
+                got = measurers[face] = self._measurer(face, fs)
+            return got
+
         if vertical:
             # One character per cell in both scripts, so the measurement is a
             # character count and needs no text engine at all. The pitch
             # between columns is wider than the cell: kanji are drawn to the
             # full em, so neighbouring columns would otherwise touch.
             cell, pitch = self._vertical_metrics(fs)
+            # A word longer than a whole column continues in the next one,
+            # as vertical Japanese really does — otherwise it is drawn off
+            # the page (measured: 4 characters in a 3-cell column).
             pages = paginate(groups, len,
                              main_axis=max(1, int(ah // cell)),
                              cross_axis=max(1, int(aw // pitch)),
-                             line_extent=1)
+                             line_extent=1, split_units=True)
         else:
             face = sentence_font(JP_FONTS, 0, varied) or JP_FONT
             pages = paginate(groups, self._measurer(face, fs),
                              main_axis=aw, cross_axis=ah,
-                             line_extent=fs * 1.9)
+                             line_extent=fs * 1.9, measure_for=measure_for)
         self._page_cache, self._page_key = pages, key
         return pages
 
@@ -373,24 +390,41 @@ class WeaveScene(Scene):
         self.show_library()
 
     def _tap(self, token) -> None:
+        """Flip one word between Japanese and English.
+
+        Turning it INTO English opens the gloss (they needed it); turning it
+        BACK reads the word aloud, because hearing it is the point of dropping
+        the crutch. Either way it is evidence exactly once per appearance —
+        see :meth:`kanjire.data.weave.WeaveState.flip`.
+        """
         row = self._stats_row(token)
-        self._weave.tapped(token, row)
+        english, verdict = self._weave.flip(token, row)
         try:
-            self.app.stats.reading_lookup(token.expression, token.reading,
-                                          token.meaning)
+            if verdict == "learned":
+                self.app.stats.reading_recall(token.expression, token.reading,
+                                              token.meaning)
+            elif verdict == "missed":
+                self.app.stats.reading_lookup(token.expression, token.reading,
+                                              token.meaning)
         except Exception:  # noqa: BLE001
             pass
         self._save_pos()
-        self.app.confirm(
-            f"{token.expression}  ({token.reading})\n{token.meaning}",
-            lambda: None, danger=False)
+        try:
+            if not english or self.app.state.tts_on_select:
+                self.app.audio.speech.say_jp(token.reading or token.expression)
+        except Exception:  # noqa: BLE001 — TTS is a bonus, never fatal
+            pass
+        if english:
+            self.app.confirm(
+                f"{token.expression}  ({token.reading})\n{token.meaning}",
+                lambda: None, danger=False)
         self.on_resize(self.width, self.height)
 
     # ---- layout -------------------------------------------------------- #
     def _token_face(self, faces, index, varied):
         return sentence_font(faces, index, varied) or JP_FONT
 
-    def _draw_token(self, token, s):
+    def _draw_token(self, token, s, spent_here=None):
         """The text and colour a token shows right now, and its face."""
         row = self._stats_row(token) if token.known_word else None
         english = self._weave.show_english(token, row)
@@ -401,7 +435,12 @@ class WeaveScene(Scene):
             text = token.text
             colour = theme.TEXT if token.known_word else theme.MUTED
         if english or self._weave.holds.get(token.key):
-            self._weave.consume(token)
+            # One crutch turn per word per PAGE (see WeaveState.consume): a
+            # page with six appearances must not spend six turns, and a word
+            # continued across columns is still one word.
+            if spent_here is not None and token.key not in spent_here                     and getattr(token, "start", 0) == 0:
+                spent_here.add(token.key)
+                self._weave.consume(token)
         return text, colour
 
     def _layout_tokens(self, cx, top, s) -> None:
@@ -418,6 +457,7 @@ class WeaveScene(Scene):
         varied = state.setting("read_fonts", "single") == "random"
         fs = max(10, round(font_size_of(state) * s))
         aw, _ah = self._page_area(s)
+        spent_here: set = set()     #: words that already paid on THIS page
 
         def mk(text, colour, face, x, y, anchor_x="left"):
             return Label(text, font_name=face, font_size=fs,
@@ -430,12 +470,13 @@ class WeaveScene(Scene):
             # the right edge — so the page starts where a Japanese book does.
             cell, pitch = self._vertical_metrics(fs)
             col_x = cx + aw / 2 - pitch / 2
+            top = top - cell / 2
             for n, line in enumerate(page.lines):
                 face = self._token_face(JP_FONTS, page.first_sentence + n,
                                         varied)
                 y = top
                 for token in line.tokens:
-                    text, colour = self._draw_token(token, s)
+                    text, colour = self._draw_token(token, s, spent_here)
                     chars = [c for c in text.strip()] or [" "]
                     labels = []
                     y_top = y
@@ -452,12 +493,14 @@ class WeaveScene(Scene):
 
         line_h = fs * 1.9
         x0 = cx - aw / 2
-        y = top
+        # Labels are anchored centre-y, so the first line's centre sits half a
+        # line INSIDE the area — otherwise the text creeps into the header.
+        y = top - line_h / 2
         for n, line in enumerate(page.lines):
             face = self._token_face(JP_FONTS, page.first_sentence + n, varied)
             x = x0
             for token in line.tokens:
-                text, colour = self._draw_token(token, s)
+                text, colour = self._draw_token(token, s, spent_here)
                 label = mk(text, colour, face, x, y)
                 label.x, label.y = x, y
                 w = label.content_width
