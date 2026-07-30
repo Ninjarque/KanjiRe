@@ -20,8 +20,10 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.stacklayout import StackLayout
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 
 from kanjire.data.library import Library
+from kanjire.data.paginate import english_of, page_of_sentence, paginate
 from kanjire.data.weave import (FONT_SIZES, Lexicon, clipboard_text,
                                 describe, font_size_of,
                                 sentence_font)
@@ -38,7 +40,8 @@ WINDOW = 40
 class WeaveWord(ButtonBehavior, JPLabel):
     """One token. Tappable only when we know which word it is."""
 
-    def __init__(self, token, english: bool, tappable: bool, **kw):
+    def __init__(self, token, english: bool, tappable: bool,
+                 vertical: bool = False, **kw):
         kw.setdefault("font_size", sp(19))
         kw.setdefault("size_hint", (None, None))
         super().__init__(**kw)
@@ -47,6 +50,9 @@ class WeaveWord(ButtonBehavior, JPLabel):
         # English stand-ins read in the accent colour so you can see at a
         # glance how much of the page is still on training wheels.
         self.tappable = tappable
+        self.vertical = vertical
+        if vertical:
+            self.halign = "center"
         self.set_state(english)
         self.bind(texture_size=self._fit)
         self._fit()
@@ -55,11 +61,16 @@ class WeaveWord(ButtonBehavior, JPLabel):
         """Repaint in place — cheaper than rebuilding the page after a tap."""
         self.english = english
         if english:
-            gloss = self.token.meaning.split(",")[0].split(";")[0]
-            self.text = f" {gloss} "
+            gloss = english_of(self.token)
+            # Vertical Japanese stacks one character per cell; a gloss does
+            # the same rather than being rotated, so a column keeps its width
+            # and the measurement stays a simple character count.
+            self.text = ("\n".join(gloss.strip()) if self.vertical
+                         else gloss)
             self.color = rgba(theme.ACCENT)
         else:
-            self.text = self.token.text
+            self.text = ("\n".join(self.token.text) if self.vertical
+                         else self.token.text)
             # Clear contrast: a word you CAN tap is full-strength text, the
             # rest is clearly dimmer. The old pair was so close together that
             # tappable words were impossible to pick out.
@@ -87,7 +98,83 @@ class WeaveView(BoxLayout):
         self._cache_pos = None
         self._words: list = []      #: the tappable widgets on screen
         self._show_opts = False     #: reader type controls, toggled by Aa
+        self._page_cache = None     #: (pages, stats rows) for the current key
+        self._page_key = None
+        self._page_index = 0        #: which measured page is on screen
+        self._page_count = 0
         self.show_library()
+
+    # ---- pagination ----------------------------------------------------- #
+    def vertical_mode(self) -> bool:
+        return self._app.state.setting("read_orientation",
+                                       "horizontal") == "vertical"
+
+    def _measurer(self, face, size):
+        """A width function over the REAL text engine, memoised.
+
+        Estimating from character counts would mis-page every proportional
+        gloss; Kivy can tell us exactly, and a page is only a few hundred
+        distinct strings.
+        """
+        from kivy.core.text import Label as CoreLabel
+        cache: dict[str, float] = {}
+
+        def measure(text: str) -> float:
+            if not text:
+                return 0.0
+            got = cache.get(text)
+            if got is None:
+                lbl = CoreLabel(text=text, font_size=size,
+                                **({"font_name": face} if face else {}))
+                lbl.refresh()
+                got = float(lbl.texture.size[0]) if lbl.texture \
+                    else len(text) * size
+                cache[text] = got
+            return got
+
+        return measure
+
+    def _pages(self):
+        """Pages for the current passage, font, size, orientation and screen.
+
+        Rebuilt only when one of those changes — the key includes all of them,
+        because every one of them moves the breaks.
+        """
+        size = font_size_of(self._app.state)
+        varied = self._app.state.setting("read_fonts", "single") == "random"
+        vertical = self.vertical_mode()
+        area = self._page_area()
+        key = (self.book["id"] if self.book else None, size, varied, vertical,
+               round(area[0]), round(area[1]))
+        if self._page_key == key and self._page_cache is not None:
+            return self._page_cache
+
+        groups, rows = self._page_tokens()
+        avail_w, avail_h = area
+        if vertical:
+            # Cells: every character occupies one, in both scripts, so the
+            # measurement is a character count and needs no text engine.
+            cell = sp(size) * 1.15
+            pages = paginate(groups, len, main_axis=max(1, avail_h // cell),
+                             cross_axis=max(1, avail_w // cell),
+                             line_extent=1)
+        else:
+            from kanjire.kivyui.fonts import jp_fonts
+            faces = jp_fonts()
+            face = sentence_font(faces, 0, varied)
+            line_h = sp(size) * 1.9
+            pages = paginate(groups, self._measurer(face, sp(size)),
+                             main_axis=avail_w, cross_axis=avail_h,
+                             line_extent=line_h)
+        self._page_cache, self._page_key = (pages, rows), key
+        return self._page_cache
+
+    def _page_area(self) -> tuple[float, float]:
+        """Usable text area: the widget minus the header and footer rows."""
+        w = max(dp(120), (self.width or dp(360)) - dp(8))
+        h = max(dp(120), (self.height or dp(600)) - dp(96)
+                - (dp(148) if self._show_opts else 0))
+        return (w, h)
 
     # ---- lazily built, because it reads the whole vocabulary ------------ #
     def lexicon(self) -> Lexicon:
@@ -250,9 +337,12 @@ class WeaveView(BoxLayout):
         self.book = book
         self._weave = self.library.load_weave(book_id)
         self._cache = self._cache_pos = None
+        self._page_cache = self._page_key = None
         self._pos = int(book["position"] or 0)
         if self._pos >= (book["n_sentences"] or 0):
             self._pos = 0           # finished: start it again rather than end
+        pages, _rows = self._pages()
+        self._page_index = page_of_sentence(pages, self._pos)
         self._render()
 
     def _page_tokens(self):
@@ -262,20 +352,24 @@ class WeaveView(BoxLayout):
         the page, so opening one word re-tokenised forty sentences and ran
         hundreds of queries. That is what made a tap feel unresponsive.
         """
-        if self._cache_pos == self._pos and self._cache is not None:
+        if self._cache is not None and self._cache_pos == self.book["id"]:
             return self._cache
         lex = self.lexicon()
         # Grouped BY SENTENCE: the reader puts each on its own line, which is
         # what makes a page followable instead of one running block.
+        # The WHOLE passage: pagination decides what fits, so a fixed
+        # forty-sentence window would cut pages off arbitrarily. Tokenising a
+        # 2000-sentence chapter measures at 0.05s, so this is affordable.
         groups = [lex.tokenize(sentence) for sentence in
-                  self.library.sentences(self.book["id"], self._pos, WINDOW)]
+                  self.library.sentences(self.book["id"], 0,
+                                         self.book["n_sentences"] or 1)]
         flat = [t for g in groups for t in g]
         try:
             rows = self._app.stats.rows_for(
                 [t.key for t in flat if t.known_word])
         except Exception:           # noqa: BLE001
             rows = {}
-        self._cache, self._cache_pos = (groups, rows), self._pos
+        self._cache, self._cache_pos = (groups, rows), self.book["id"]
         return self._cache
 
     def _stats_row(self, token):
@@ -299,8 +393,10 @@ class WeaveView(BoxLayout):
         back.bind(on_release=lambda *_: self._leave())
         head.add_widget(back)
         total = book["n_sentences"] or 1
+        pages_n = max(1, self._page_count)
         title = JPLabel(
-            text=f"{book['title']}   {int(self._pos / total * 100)}%",
+            text=f"{book['title']}   {int(self._pos / total * 100)}%   "
+                 f"{self._page_index + 1}/{pages_n}",
             font_size=sp(13), color=rgba(theme.MUTED))
         title.bind(size=title.setter("text_size"))
         head.add_widget(title)
@@ -318,51 +414,80 @@ class WeaveView(BoxLayout):
 
         if self._show_opts:
             self.add_widget(self._reader_options())
-        scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
-        page = GridLayout(cols=1, spacing=dp(8), size_hint_y=None,
-                          padding=[0, dp(4)])
-        page.bind(minimum_height=page.setter("height"))
-        groups, rows = self._page_tokens()
+        # A measured page: everything on it fits, so there is nothing to
+        # scroll. Vertical lays columns out right-to-left, like a real book.
+        pages, rows = self._pages()
+        vertical = self.vertical_mode()
+        self._page_count = len(pages)
+        self._page_index = max(0, min(self._page_index, len(pages) - 1)) \
+            if pages else 0
         self._words = []
         size = font_size_of(self._app.state)
         varied = self._app.state.setting("read_fonts", "single") == "random"
         from kanjire.kivyui.fonts import jp_fonts
         faces = jp_fonts()
-        for index, tokens in enumerate(groups):
-            # One sentence, one line. A wall of running text is unreadable
-            # for a learner; the punctuation is already the natural break.
-            line = StackLayout(orientation="lr-tb", spacing=dp(2),
-                               size_hint_y=None)
-            line.bind(minimum_height=line.setter("height"))
+
+        if vertical:
+            body = BoxLayout(orientation="horizontal", spacing=dp(6))
+            # Vertical text begins at the RIGHT edge, so the empty space goes
+            # on the left. A BoxLayout fills in the order widgets are added,
+            # so this spacer has to come first.
+            body.add_widget(Widget())
+        else:
+            body = GridLayout(cols=1, spacing=dp(8), padding=[0, dp(4)])
+
+        current = pages[self._page_index] if pages else None
+        lines = list(current.lines) if current else []
+        if vertical:
+            lines.reverse()          # right-to-left: first column on the right
+        for order, line in enumerate(lines):
+            index = (len(lines) - 1 - order) if vertical else order
             face = sentence_font(faces, index, varied)
-            for token in tokens:
+            if vertical:
+                holder = BoxLayout(orientation="vertical",
+                                   size_hint_x=None, width=sp(size) * 1.6)
+            else:
+                holder = StackLayout(orientation="lr-tb", spacing=dp(2),
+                                     size_hint_y=None)
+                holder.bind(minimum_height=holder.setter("height"))
+            for token in line.tokens:
                 row = rows.get(token.key) if token.known_word else None
                 english = self._weave.show_english(token, row)
                 w = WeaveWord(token, english, token.known_word,
-                              font_size=sp(size))
+                              vertical=vertical, font_size=sp(size))
                 if face:
                     w.font_name = face
                 if token.known_word:
                     w.bind(on_release=lambda _w, t=token: self._tap(t))
                     self._words.append(w)
-                line.add_widget(w)
+                holder.add_widget(w)
                 if english or self._weave.holds.get(token.key):
                     # Each appearance spends one of the word's crutch turns.
                     self._weave.consume(token)
-            page.add_widget(line)
-        scroll.add_widget(page)
-        self.add_widget(scroll)
+            if vertical:
+                holder.add_widget(Widget())      # push the column to the top
+            body.add_widget(holder)
+        self.add_widget(body)
 
         foot = BoxLayout(orientation="horizontal", spacing=dp(8),
                          size_hint_y=None, height=dp(48))
-        prev = ThemedButton(text=tr("LIB_PREV"), font_size=sp(14),
-                            height=dp(48))
-        prev.bind(on_release=lambda *_: self._page(-WINDOW))
-        nxt = ThemedButton(text=tr("LIB_NEXT"), fill=theme.ACCENT,
-                           font_size=sp(14), height=dp(48))
-        nxt.bind(on_release=lambda *_: self._page(WINDOW))
-        prev.disabled = self._pos <= 0
-        nxt.disabled = self._pos + WINDOW >= total
+        # Vertical Japanese runs right-to-left, so "next" points LEFT and the
+        # buttons swap sides — turning a page should feel like the book does.
+        vert = self.vertical_mode()
+        prev = ThemedButton(text=tr("LIB_NEXT_V") if vert else tr("LIB_PREV"),
+                            font_size=sp(14), height=dp(48))
+        nxt = ThemedButton(text=tr("LIB_PREV_V") if vert else tr("LIB_NEXT"),
+                           fill=theme.ACCENT, font_size=sp(14), height=dp(48))
+        if vert:
+            prev.bind(on_release=lambda *_: self._page(1))
+            nxt.bind(on_release=lambda *_: self._page(-1))
+            prev.disabled = self._page_index + 1 >= max(1, self._page_count)
+            nxt.disabled = self._page_index <= 0
+        else:
+            prev.bind(on_release=lambda *_: self._page(-1))
+            nxt.bind(on_release=lambda *_: self._page(1))
+            prev.disabled = self._page_index <= 0
+            nxt.disabled = self._page_index + 1 >= max(1, self._page_count)
         foot.add_widget(prev)
         foot.add_widget(nxt)
         self.add_widget(foot)
@@ -370,7 +495,8 @@ class WeaveView(BoxLayout):
     def _reader_options(self):
         """Type size and font variety, with the page itself as the preview."""
         from kanjire.kivyui.widgets import ChipRow
-        box = GridLayout(cols=1, spacing=dp(4), size_hint_y=None, height=dp(96))
+        box = GridLayout(cols=1, spacing=dp(4), size_hint_y=None,
+                         height=dp(140))
         box.add_widget(JPLabel(text=tr("READ_SIZE"), color=rgba(theme.MUTED),
                                font_size=sp(11), size_hint_y=None,
                                height=dp(18)))
@@ -382,17 +508,39 @@ class WeaveView(BoxLayout):
             [("single", tr("FONT_SINGLE")), ("random", tr("FONT_RANDOM"))],
             self._app.state.setting("read_fonts", "single"),
             on_change=lambda v: self._set_display("read_fonts", v)))
+        box.add_widget(ChipRow(
+            [("horizontal", tr("READ_HORIZ")), ("vertical", tr("READ_VERT"))],
+            self._app.state.setting("read_orientation", "horizontal"),
+            on_change=lambda v: self._set_display("read_orientation", v)))
         return box
 
     def _set_display(self, key: str, value: str) -> None:
-        """Re-render immediately: the page IS the preview."""
+        """Re-render immediately: the page IS the preview.
+
+        Text size, font and orientation all move the page breaks, so the
+        passage is re-paginated — and the reader keeps their place because
+        the cursor is a sentence, not a page.
+        """
         self._app.state.set_setting(key, value)
+        self._page_cache = self._page_key = None
+        pages, _rows = self._pages()
+        self._page_index = page_of_sentence(pages, self._pos)
         self._render()
 
     def _page(self, delta: int) -> None:
-        self._cache = self._cache_pos = None
-        total = self.book["n_sentences"] or 0
-        self._pos = max(0, min(max(0, total - 1), self._pos + delta))
+        """Turn one measured page. Stores the SENTENCE the page starts on.
+
+        Saving a page *number* would teleport the reader whenever the text
+        size, font or orientation changed — and two synced devices have
+        different screens, so they would disagree about where you are.
+        """
+        pages, _rows = self._pages()
+        if not pages:
+            return
+        self._page_index = max(0, min(len(pages) - 1,
+                                      self._page_index + (1 if delta > 0
+                                                          else -1)))
+        self._pos = pages[self._page_index].first_sentence
         self._save()
         self._render()
 

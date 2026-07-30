@@ -644,6 +644,10 @@ def main() -> None:
             after = [w for w in wv.walk() if isinstance(w, WeaveWord)]
             check("a tapped word turns English",
                   any(w.english and w.token.key == tok.key for w in after))
+            # The tap repaints first and writes to stats on the NEXT frame
+            # (that is what keeps tapping instant), so give it that frame.
+            for _ in range(4):
+                _EL3.idle()
             row = app.stats.get_for(tok.expression, tok.reading)
             check("the tap counts as evidence in stats",
                   row is not None and row["mistakes_meaning"] >= 1
@@ -658,7 +662,52 @@ def main() -> None:
                   wv.library.get(bid)["ratio"] > 0)
             check("the crutch state survives a reload",
                   wv.library.load_weave(bid).taps.get(tok.key) == 1)
+
+            # Measured pages, and 縦書き as the same pagination with the axes
+            # swapped. A real chapter, because two sentences fit on one page.
             wv.library.delete(bid)
+            long_id = wv.library.add(
+                "Ch2", "".join(["私は大学の本を読む。今日は天気がいい。"] * 20))
+            wv.open_book(long_id)
+            for _ in range(8):
+                _EL3.idle()
+            pages, _rows = wv._pages()
+            check("a real chapter needs more than one page", len(pages) > 1)
+            check("the reader starts on page one",
+                  wv._page_index == 0 and wv._pos == 0)
+            wv._page(1)
+            for _ in range(4):
+                _EL3.idle()
+            check("the page turns and the cursor follows the page",
+                  wv._page_index == 1 and wv._pos == pages[1].first_sentence)
+            held = wv._pos
+            wv._set_display("read_orientation", "vertical")
+            for _ in range(6):
+                _EL3.idle()
+            vwords = [w for w in wv.walk() if isinstance(w, WeaveWord)]
+            check("vertical writing renders", wv.vertical_mode() and vwords)
+            check("vertical writing stacks characters",
+                  any("\n" in w.text for w in vwords if len(w.token.text) > 1))
+            check("switching orientation keeps the reader's place",
+                  wv._pos == held)
+            from kanjire.i18n import tr
+            from kanjire.kivyui.widgets import ThemedButton as _TB
+            foot = [w.text for w in wv.walk() if isinstance(w, _TB)]
+            check("the page button points left in vertical writing",
+                  tr("LIB_NEXT_V") in foot and tr("LIB_NEXT") not in foot)
+            wv._set_display("read_font_size", "30")
+            for _ in range(6):
+                _EL3.idle()
+            check("bigger text re-paginates instead of clipping",
+                  len(wv._pages()[0]) >= len(pages) and wv._pos == held)
+            wv._set_display("read_font_size", "19")
+            wv._set_display("read_orientation", "horizontal")
+            for _ in range(4):
+                _EL3.idle()
+            check("restoring the layout keeps the reader's place",
+                  wv._pos == held)
+            wv.library.delete(long_id)
+            bid = long_id
             wv.show_library()
             rs._set_mode("feed")
 

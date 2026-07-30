@@ -1104,10 +1104,13 @@ def run() -> int:
         crlf = chr(13) + chr(10)
         wv.show_add()
         frames2(4)
-        wv.body_in.set_text("私は大学の本を読む。" + crlf + "今日は天気がいい。" + crlf)
+        # Long enough to need real pages: pagination is measured, so a couple
+        # of sentences would all fit on page 1 and never exercise the turn.
+        chapter = crlf.join(["私は大学の本を読む。", "今日は天気がいい。"] * 20)
+        wv.body_in.set_text(chapter)
         wv.title_in.set_text("Desktop Ch1")
         wv._recount()
-        assert "2" in wv.counts.text, f"sentence count wrong: {wv.counts.text}"
+        assert "40" in wv.counts.text, f"sentence count wrong: {wv.counts.text}"
         wv._save()
         frames2(6)
         assert wv.view == "read", "saving a text did not open it"
@@ -1121,11 +1124,53 @@ def run() -> int:
         assert row is not None and row["mistakes_meaning"] >= 1, \
             "a desktop lookup did not count as evidence"
         gloss = tok.meaning.split(",")[0].split(";")[0]
-        assert any(gloss in lb.text for t, lb, *_ in wv._tokens
+        assert any(gloss in "".join(lb.text for lb in labels)
+                   for t, labels, *_ in wv._tokens
                    if t.key == tok.key), "the tapped word did not turn English"
-        book_id = wv.book["id"]
+
+        # Real pages: measured, no scrolling, and the cursor is a sentence so
+        # the reader keeps their place when the layout changes underneath.
+        pages = wv._pages(wv._s)
+        assert len(pages) > 1, f"a 40-sentence chapter fit on one page: {len(pages)}"
+        assert wv._page_index == 0 and wv._pos == 0
         wv._page(1)
         frames2(4)
+        assert wv._page_index == 1, "the page did not turn"
+        assert wv._pos == pages[1].first_sentence, \
+            "the cursor is not the first sentence of the page shown"
+        assert wv._tokens, "page 2 rendered nothing"
+        wv._page(-1)
+        frames2(4)
+        assert wv._page_index == 0 and wv._pos == 0, "turning back overshot"
+        wv._page(1)
+        frames2(4)
+        held = wv._pos
+
+        # 縦書き: the same pagination with the axes swapped. The reader stays
+        # on the same SENTENCE, and the page turn button flips direction.
+        wv._set_display("read_orientation", "vertical")
+        frames2(6)
+        assert wv.vertical_mode()
+        assert wv._pos == held, "switching to vertical moved the reader"
+        assert wv._tokens, "vertical mode rendered nothing"
+        stacked = [labels for _t, labels, *_ in wv._tokens if len(labels) > 1]
+        assert stacked, "vertical mode drew no multi-character column runs"
+        xs = sorted({round(x) for _t, _l, x, _y, _w, _h in wv._tokens})
+        assert len(xs) > 1, "vertical mode drew a single column"
+        assert wv.next_btn.text == tr_("LIB_NEXT_V"), \
+            "the page button must point left in vertical writing"
+        # A bigger typeface must re-paginate rather than clip.
+        before = len(wv._pages(wv._s))
+        wv._set_display("read_font_size", "30")
+        frames2(6)
+        assert len(wv._pages(wv._s)) >= before, \
+            "larger text did not produce at least as many pages"
+        wv._set_display("read_orientation", "horizontal")
+        wv._set_display("read_font_size", "19")
+        frames2(6)
+        assert wv._pos == held, "restoring the layout moved the reader"
+
+        book_id = wv.book["id"]
         wv._leave()
         frames2(6)
         assert wv.view == "library"

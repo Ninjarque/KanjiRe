@@ -12,6 +12,25 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.40.0 — 2026-07-30
+
+- **Real pages in the reader.** "Back / More" used to move a fixed forty
+  sentences and let the rest scroll. The passage is now *measured* — in the
+  actual font, at the actual size, in the actual window — and cut into pages
+  that fit exactly. No scrollbar, nothing clipped: one button, one page.
+  Every word is measured in **both** Japanese and English, and the page is
+  laid out at the wider of the two, so tapping a word can never push text off
+  the page or shift a break you were reading.
+- **Vertical Japanese (縦書き).** The **Aa** menu now offers Horizontal or
+  Vertical. Vertical stacks characters down a column and runs columns
+  right-to-left from the right edge, and the page button turns leftward like
+  a Japanese book does. Same measurement, axes swapped.
+- Your place is remembered as a *sentence*, not a page number, so changing
+  the text size, the font, the orientation — or reading on a device with a
+  different screen — puts you back exactly where you were.
+- The desktop reader gained all of it too, including its own size / font /
+  orientation controls, so a chapter breaks the same on both.
+
 ## 0.39.0 — 2026-07-30
 
 - **One sentence per line.** The reader was a single running block that was

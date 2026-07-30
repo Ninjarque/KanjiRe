@@ -15,10 +15,12 @@ from pyglet.graphics import OrderedGroup
 from pyglet.text import Label
 
 from kanjire.data.library import Library
-from kanjire.data.weave import Lexicon, clipboard_text, describe
+from kanjire.data.paginate import page_of_sentence, paginate
+from kanjire.data.weave import (FONT_SIZES, Lexicon, clipboard_text, describe,
+                                font_size_of, sentence_font)
 from kanjire.i18n import tr
 from kanjire.ui import theme
-from kanjire.ui.fonts import JP_FONT
+from kanjire.ui.fonts import JP_FONT, JP_FONTS
 from kanjire.ui.gfx import fill_quad
 from kanjire.ui.metrics import scale_for
 from kanjire.ui.scene import Scene
@@ -26,8 +28,6 @@ from kanjire.ui.widgets.button import Button
 from kanjire.ui.widgets.tabs import TabBar
 from kanjire.ui.widgets.textinput import TextInput
 
-#: Sentences rendered per page.
-WINDOW = 40
 
 
 class WeaveScene(Scene):
@@ -43,8 +43,13 @@ class WeaveScene(Scene):
         self.view = "library"          #: "library" | "add" | "read"
         self.book = None
         self._weave = None
-        self._pos = 0
-        self._tokens: list[tuple] = []     # (token, Label, x, y, w, h)
+        self._pos = 0                  #: cursor — a SENTENCE, not a page
+        self._tokens: list[tuple] = []     # (token, [Label], x, y, w, h)
+        self._page_index = 0
+        self._page_cache = None
+        self._page_key = None
+        self._groups_cache: list | None = None
+        self._groups_key = None
 
         self.nav = TabBar(
             [(tr("NAV_PLAY"),     lambda: self.app.go_menu()),
@@ -85,10 +90,16 @@ class WeaveScene(Scene):
         self.cancel_btn = self._btn(tr("DLG_CANCEL"), self.show_library,
                                     theme.DIM)
         self.back_btn = self._btn(tr("LIB_BACK"), self._leave, theme.DIM)
-        self.prev_btn = self._btn(tr("LIB_PREV"), lambda: self._page(-WINDOW),
+        self.prev_btn = self._btn(tr("LIB_PREV"), lambda: self._page(-1),
                                   theme.DIM)
-        self.next_btn = self._btn(tr("LIB_NEXT"), lambda: self._page(WINDOW),
+        self.next_btn = self._btn(tr("LIB_NEXT"), lambda: self._page(1),
                                   theme.ACCENT)
+        self.size_btn = self._btn(tr("READ_SIZE_BTN"), self._cycle_size,
+                                  theme.PANEL_HI, 11)
+        self.font_btn = self._btn(tr("FONT_SINGLE"), self._cycle_fonts,
+                                  theme.PANEL_HI, 11)
+        self.orient_btn = self._btn(tr("READ_HORIZ"), self._cycle_orient,
+                                    theme.PANEL_HI, 11)
         self._book_btns: list[tuple] = []
 
         self.title_in = TextInput(self.batch, self.g_bg, self.g_bg,
@@ -117,7 +128,8 @@ class WeaveScene(Scene):
 
     def _all_buttons(self) -> list[Button]:
         return ([self.add_btn, self.paste_btn, self.save_btn, self.cancel_btn,
-                 self.back_btn, self.prev_btn, self.next_btn]
+                 self.back_btn, self.prev_btn, self.next_btn,
+                 self.size_btn, self.font_btn, self.orient_btn]
                 + [b for _i, b, _d in self._book_btns])
 
     def _set_view(self, view: str) -> None:
@@ -137,7 +149,8 @@ class WeaveScene(Scene):
             for w in self.inputs:
                 w.set_visible(True)
         else:
-            for b in (self.back_btn, self.prev_btn, self.next_btn):
+            for b in (self.back_btn, self.prev_btn, self.next_btn,
+                      self.size_btn, self.font_btn, self.orient_btn):
                 b.set_visible(True)
         self.on_resize(self.width, self.height)
 
@@ -213,11 +226,41 @@ class WeaveScene(Scene):
             return
         self.book = book
         self._weave = self.library.load_weave(book_id)
+        self._page_cache = self._page_key = None
         self._pos = int(book["position"] or 0)
         if self._pos >= (book["n_sentences"] or 0):
             self._pos = 0
         self.title.text = book["title"]
         self._set_view("read")
+
+    # ---- display settings, shared with the Kivy reader ------------------ #
+    def vertical_mode(self) -> bool:
+        return self.app.state.setting("read_orientation",
+                                      "horizontal") == "vertical"
+
+    def _set_display(self, key: str, value: str) -> None:
+        """Change size / font / orientation and re-paginate in place.
+
+        The reader keeps their place across all three because the cursor is a
+        sentence index — a page number would teleport them.
+        """
+        self.app.state.set_setting(key, value)
+        self._page_cache = self._page_key = None
+        self.on_resize(self.width, self.height)
+
+    def _cycle_size(self) -> None:
+        sizes = list(FONT_SIZES)
+        i = sizes.index(font_size_of(self.app.state)) \
+            if font_size_of(self.app.state) in sizes else 0
+        self._set_display("read_font_size", str(sizes[(i + 1) % len(sizes)]))
+
+    def _cycle_fonts(self) -> None:
+        one = self.app.state.setting("read_fonts", "single") != "random"
+        self._set_display("read_fonts", "random" if one else "single")
+
+    def _cycle_orient(self) -> None:
+        self._set_display("read_orientation",
+                          "horizontal" if self.vertical_mode() else "vertical")
 
     def _stats_row(self, token):
         try:
@@ -226,13 +269,97 @@ class WeaveScene(Scene):
             return None
 
     def _clear_tokens(self) -> None:
-        for _t, label, *_rest in self._tokens:
-            label.delete()
+        for _t, labels, *_rest in self._tokens:
+            for label in labels:
+                label.delete()
         self._tokens.clear()
 
+    def _measurer(self, face, fs):
+        """Width of a string in the REAL text engine, memoised.
+
+        Character counts would mis-page every proportional English gloss, and
+        a page only ever holds a few hundred distinct strings.
+        """
+        cache: dict[str, float] = {}
+
+        def measure(text: str) -> float:
+            if not text:
+                return 0.0
+            got = cache.get(text)
+            if got is None:
+                lbl = Label(text, font_name=face or JP_FONT, font_size=fs)
+                got = float(lbl.content_width)
+                lbl.delete()
+                cache[text] = got
+            return got
+
+        return measure
+
+    def _groups(self) -> list:
+        """The whole passage, tokenised once per book."""
+        bid = self.book["id"] if self.book else None
+        if self._groups_key != bid or self._groups_cache is None:
+            lex = self.lexicon()
+            self._groups_cache = [
+                lex.tokenize(t)
+                for t in self.library.sentences(bid, 0, 10 ** 9)] if bid \
+                else []
+            self._groups_key = bid
+        return self._groups_cache
+
+    def _page_area(self, s) -> tuple[float, float]:
+        """Usable text box: the window minus the header and footer rows."""
+        w = min(self.width - 80 * s, 900 * s)
+        h = (self.height - 226 * s) - 120 * s
+        return (max(80.0, w), max(80.0, h))
+
+    @staticmethod
+    def _vertical_metrics(fs) -> tuple[float, float]:
+        """(character advance down a column, distance between columns)."""
+        return (fs * 1.3, fs * 1.75)
+
+    def _pages(self, s):
+        """Pages for this passage at this size, font, orientation and window.
+
+        Every one of those moves the breaks, so every one is in the key.
+        """
+        state = self.app.state
+        size = font_size_of(state)
+        varied = state.setting("read_fonts", "single") == "random"
+        vertical = self.vertical_mode()
+        aw, ah = self._page_area(s)
+        key = (self.book["id"] if self.book else None, size, varied, vertical,
+               round(aw), round(ah))
+        if self._page_key == key and self._page_cache is not None:
+            return self._page_cache
+
+        groups = self._groups()
+        fs = max(10, round(size * s))
+        if vertical:
+            # One character per cell in both scripts, so the measurement is a
+            # character count and needs no text engine at all. The pitch
+            # between columns is wider than the cell: kanji are drawn to the
+            # full em, so neighbouring columns would otherwise touch.
+            cell, pitch = self._vertical_metrics(fs)
+            pages = paginate(groups, len,
+                             main_axis=max(1, int(ah // cell)),
+                             cross_axis=max(1, int(aw // pitch)),
+                             line_extent=1)
+        else:
+            face = sentence_font(JP_FONTS, 0, varied) or JP_FONT
+            pages = paginate(groups, self._measurer(face, fs),
+                             main_axis=aw, cross_axis=ah,
+                             line_extent=fs * 1.9)
+        self._page_cache, self._page_key = pages, key
+        return pages
+
     def _page(self, delta: int) -> None:
-        total = self.book["n_sentences"] or 0
-        self._pos = max(0, min(max(0, total - 1), self._pos + delta))
+        pages = self._pages(getattr(self, "_s", 1.0))
+        if not pages:
+            return
+        self._page_index = max(0, min(len(pages) - 1,
+                                      self._page_index + delta))
+        self._pos = pages[self._page_index].first_sentence
         self._save_pos()
         self.on_resize(self.width, self.height)
 
@@ -260,44 +387,84 @@ class WeaveScene(Scene):
         self.on_resize(self.width, self.height)
 
     # ---- layout -------------------------------------------------------- #
+    def _token_face(self, faces, index, varied):
+        return sentence_font(faces, index, varied) or JP_FONT
+
+    def _draw_token(self, token, s):
+        """The text and colour a token shows right now, and its face."""
+        row = self._stats_row(token) if token.known_word else None
+        english = self._weave.show_english(token, row)
+        if english:
+            text = " " + token.meaning.split(",")[0].split(";")[0] + " "
+            colour = theme.ACCENT
+        else:
+            text = token.text
+            colour = theme.TEXT if token.known_word else theme.MUTED
+        if english or self._weave.holds.get(token.key):
+            self._weave.consume(token)
+        return text, colour
+
     def _layout_tokens(self, cx, top, s) -> None:
+        """Draw exactly one measured page — no clipping, no scrolling."""
         self._clear_tokens()
         if self.book is None:
             return
-        lex = self.lexicon()
-        width = min(self.width - 80 * s, 900 * s)
-        x0 = cx - width / 2
-        x, y = x0, top
-        line_h = 34 * s
-        fs = max(10, round(17 * s))
-        for sentence in self.library.sentences(self.book["id"], self._pos,
-                                               WINDOW):
-            for token in lex.tokenize(sentence):
-                row = self._stats_row(token) if token.known_word else None
-                english = self._weave.show_english(token, row)
-                if english:
-                    text = " " + token.meaning.split(",")[0].split(";")[0] + " "
-                    colour = theme.ACCENT
-                else:
-                    text = token.text
-                    colour = theme.TEXT if token.known_word else theme.MUTED
-                label = Label(text, font_name=JP_FONT, font_size=fs,
-                              color=theme.with_alpha(colour, 255),
-                              anchor_x="left", anchor_y="center",
-                              batch=self.batch, group=self.g_text)
-                w = label.content_width
-                if x + w > x0 + width:
-                    x = x0
-                    y -= line_h
-                if y < 120 * s:          # page is full; the rest waits
-                    label.delete()
-                    break
+        pages = self._pages(s)
+        if not pages:
+            return
+        self._page_index = min(max(0, self._page_index), len(pages) - 1)
+        page = pages[self._page_index]
+        state = self.app.state
+        varied = state.setting("read_fonts", "single") == "random"
+        fs = max(10, round(font_size_of(state) * s))
+        aw, _ah = self._page_area(s)
+
+        def mk(text, colour, face, x, y, anchor_x="left"):
+            return Label(text, font_name=face, font_size=fs,
+                         color=theme.with_alpha(colour, 255),
+                         anchor_x=anchor_x, anchor_y="center",
+                         batch=self.batch, group=self.g_text)
+
+        if self.vertical_mode():
+            # 縦書き: characters run down a column, columns run leftward from
+            # the right edge — so the page starts where a Japanese book does.
+            cell, pitch = self._vertical_metrics(fs)
+            col_x = cx + aw / 2 - pitch / 2
+            for n, line in enumerate(page.lines):
+                face = self._token_face(JP_FONTS, page.first_sentence + n,
+                                        varied)
+                y = top
+                for token in line.tokens:
+                    text, colour = self._draw_token(token, s)
+                    chars = [c for c in text.strip()] or [" "]
+                    labels = []
+                    y_top = y
+                    for ch in chars:
+                        lb = mk(ch, colour, face, col_x, y, anchor_x="center")
+                        lb.x, lb.y = col_x, y
+                        labels.append(lb)
+                        y -= cell
+                    self._tokens.append(
+                        (token, labels, col_x - pitch / 2, y + cell / 2,
+                         pitch, y_top - y))
+                col_x -= pitch
+            return
+
+        line_h = fs * 1.9
+        x0 = cx - aw / 2
+        y = top
+        for n, line in enumerate(page.lines):
+            face = self._token_face(JP_FONTS, page.first_sentence + n, varied)
+            x = x0
+            for token in line.tokens:
+                text, colour = self._draw_token(token, s)
+                label = mk(text, colour, face, x, y)
                 label.x, label.y = x, y
-                self._tokens.append((token, label, x, y - line_h / 2, w,
+                w = label.content_width
+                self._tokens.append((token, [label], x, y - line_h / 2, w,
                                      line_h))
                 x += w
-                if english or self._weave.holds.get(token.key):
-                    self._weave.consume(token)
+            y -= line_h
 
     def on_resize(self, width, height) -> None:
         s = scale_for(width, height)
@@ -342,15 +509,36 @@ class WeaveScene(Scene):
             return
 
         total = (self.book or {}).get("n_sentences") or 1
-        self.subtitle.text = tr("LIB_COUNTS_READ",
-                                pct=int(self._pos / total * 100))
+        pages = self._pages(s)
+        self._page_index = page_of_sentence(pages, self._pos)
+        pct = int(self._pos / total * 100)
+        self.subtitle.text = (f'{tr("LIB_COUNTS_READ", pct=pct)}   '
+                              f'{self._page_index + 1}/{max(1, len(pages))}')
         self.subtitle.x, self.subtitle.y = cx, height - 176 * s
         self.back_btn.set_rect(24 * s, height - 190 * s, 150 * s, 30 * s)
+        # Display options, top-right: the page below is their preview.
+        self.size_btn.set_text(f'{tr("READ_SIZE_BTN")} {font_size_of(self.app.state)}')
+        self.font_btn.set_text(
+            tr("FONT_RANDOM")
+            if self.app.state.setting("read_fonts", "single") == "random"
+            else tr("FONT_SINGLE"))
+        vertical = self.vertical_mode()
+        self.orient_btn.set_text(tr("READ_VERT") if vertical
+                                 else tr("READ_HORIZ"))
+        bw, bx = 96 * s, self.width - 24 * s
+        for btn in (self.orient_btn, self.font_btn, self.size_btn):
+            bx -= bw + 6 * s
+            btn.set_rect(bx, height - 190 * s, bw, 30 * s)
         self._layout_tokens(cx, height - 226 * s, s)
-        self.prev_btn.set_rect(cx - 210 * s, 70 * s, 190 * s, 34 * s)
-        self.next_btn.set_rect(cx + 20 * s, 70 * s, 190 * s, 34 * s)
-        self.prev_btn.enabled = self._pos > 0
-        self.next_btn.enabled = self._pos + WINDOW < total
+        # In vertical writing the page turns leftward, so the buttons swap.
+        self.prev_btn.set_text(tr("LIB_PREV_V") if vertical else tr("LIB_PREV"))
+        self.next_btn.set_text(tr("LIB_NEXT_V") if vertical else tr("LIB_NEXT"))
+        left, right = ((self.next_btn, self.prev_btn) if vertical
+                       else (self.prev_btn, self.next_btn))
+        left.set_rect(cx - 210 * s, 70 * s, 190 * s, 34 * s)
+        right.set_rect(cx + 20 * s, 70 * s, 190 * s, 34 * s)
+        self.prev_btn.enabled = self._page_index > 0
+        self.next_btn.enabled = self._page_index + 1 < len(pages)
 
     # ---- events -------------------------------------------------------- #
     def on_mouse_press(self, x, y, button, modifiers) -> None:
@@ -370,7 +558,7 @@ class WeaveScene(Scene):
                 b.click()
                 return
         if self.view == "read":
-            for token, _label, tx, ty, tw, th in self._tokens:
+            for token, _labels, tx, ty, tw, th in self._tokens:
                 if token.known_word and tx <= x <= tx + tw \
                         and ty <= y <= ty + th:
                     self._tap(token)

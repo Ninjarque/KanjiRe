@@ -28,6 +28,7 @@ SIZES = {
 #: action is an app method name to call (None = already on that screen).
 WALK = [("play", None), ("play-genres", "special"), ("journey", None),
         ("read-library", "special"), ("read-weave", "special"),
+        ("read-weave-vertical", "special"), ("read-weave-opts", "special"),
         ("journey-genres", "special"), ("journey-genre-levels", "special"),
         ("stats", None), ("settings", None),
         ("friends", None), ("game", "go_game"),
@@ -51,6 +52,16 @@ def _run_one(label: str, size: str, outdir: Path) -> None:
         "walk = %r\n"
         "TEXT = '私は大学の本を読みます。今日は天気がいいです。彼は毎日新聞を読む。'\n"
         "def special(label):\n"
+        "    if label == 'read-weave-vertical':\n"
+        "        wv = app.sm.get_screen('read')._weave_view\n"
+        "        wv._set_display('read_orientation', 'vertical')\n"
+        "        return\n"
+        "    if label == 'read-weave-opts':\n"
+        "        wv = app.sm.get_screen('read')._weave_view\n"
+        "        wv._set_display('read_orientation', 'horizontal')\n"
+        "        wv._show_opts = True\n"
+        "        wv._render()\n"
+        "        return\n"
         "    if label == 'read-library':\n"
         "        app.switch_tab('read')\n"
         "        rs = app.sm.get_screen('read')\n"
