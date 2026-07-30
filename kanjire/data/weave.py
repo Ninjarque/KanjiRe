@@ -50,12 +50,15 @@ _ZERO_WIDTH = tuple(chr(c) for c in (0x200B, 0x200C, 0x200D, 0xFEFF))
 def normalize_text(text: str) -> str:
     """Clean a pasted passage: one newline convention, no control junk.
 
-    Pasting a chapter produced an EMPTY box: the clipboard held the text
-    perfectly, but Kivy's ``TextInput.paste()`` yields zero characters when
-    the content carries Windows ``\\r\\n`` line endings — which is what you
-    get from a browser or almost any editor. Normalising here (and pasting
-    via this function rather than the widget's own path) is the fix, and it
-    also drops the zero-width characters copied web text tends to hide.
+    Defensive, not a fix for anything specific. (An earlier version of this
+    docstring blamed Kivy's ``TextInput.paste()`` for dropping ``\\r\\n``
+    content — that was wrong: it handles CRLF itself via ``replace_crlf``,
+    and the repro that "proved" otherwise used a detached widget, whose empty
+    ``_lines`` makes ``insert_text`` return immediately.)
+
+    Still worth doing: it gives sentence splitting one newline convention to
+    reason about, and drops the zero-width characters and full-width spaces
+    that copied web text hides.
     """
     if not text:
         return ""
@@ -88,9 +91,11 @@ def split_sentences(text: str) -> list[str]:
 def clipboard_text() -> str:
     """The clipboard, normalised — or "" if there is nothing usable.
 
-    Both UIs paste through here instead of through their toolkit's own paste
-    handler: Kivy's silently produced nothing for ``\\r\\n`` text, and the
-    pyglet field has no paste of its own at all.
+    Backs the explicit "Paste" button. That button is a *convenience*, not
+    the primary path: the platform's own paste gesture works and should be
+    what people reach for — it is also the only one that can offer Android's
+    clipboard history, which this can never see (it reads the primary clip
+    only). The pyglet field has no paste of its own, so there it is the way in.
     """
     text = ""
     try:                                    # Kivy is present on both today
@@ -135,6 +140,83 @@ class Token:
         return (self.expression, self.reading)
 
 
+#: godan endings → (masu-stem row, negative row, past, gerund).
+_GODAN = {
+    "う": ("い", "わ", "った", "って"),
+    "く": ("き", "か", "いた", "いて"),
+    "ぐ": ("ぎ", "が", "いだ", "いで"),
+    "す": ("し", "さ", "した", "して"),
+    "つ": ("ち", "た", "った", "って"),
+    "ぬ": ("に", "な", "んだ", "んで"),
+    "ぶ": ("び", "ば", "んだ", "んで"),
+    "む": ("み", "ま", "んだ", "んで"),
+    "る": ("り", "ら", "った", "って"),
+}
+#: What follows a masu-stem, a て-form and a negative stem.
+_AFTER_STEM = ("ます", "ました", "ません", "ませんでした", "たい", "たく",
+               "たくない", "ながら", "そう")
+_AFTER_TE = ("", "いる", "います", "いた", "いました", "いない", "から",
+             "ください", "しまった", "みる")
+_AFTER_NEG = ("ない", "なかった", "なくて", "ず")
+
+
+def inflections(expr: str) -> set[str]:
+    """Plausible surface forms of a dictionary entry.
+
+    The tokeniser matches text against the vocabulary, and text is *inflected*:
+    遊んでいる, 読みました and 食べたくない were all missed, which is most of
+    what a real page is made of. Generating forms up front turns matching back
+    into a dictionary lookup — no morphological analyser required, which is
+    the constraint on Android.
+
+    Deliberately generous. A form that never occurs simply never matches, and
+    longest-match keeps a spurious short form from beating a real long one. For
+    る-verbs both the ichidan and godan conjugations are produced, because
+    telling 食べる from 帰る needs data the deck doesn't carry.
+    """
+    out: set[str] = set()
+    if len(expr) < 2:
+        return out
+    last, body = expr[-1], expr[:-1]
+
+    if expr.endswith("する"):
+        stem = expr[:-2]
+        for suffix in ("します", "しました", "しません", "した", "して",
+                       "しない", "しなかった", "したい", "できる"):
+            out.add(stem + suffix)
+        return out
+
+    if last == "い":            # i-adjective
+        for suffix in ("かった", "くない", "くて", "く", "かったら",
+                       "くなかった", "さ"):
+            out.add(body + suffix)
+        return out
+
+    if last in _GODAN:
+        i_row, a_row, past, te = _GODAN[last]
+        # 行く is the classic irregular: 行った, not 行いた.
+        if expr.endswith("行く"):
+            past, te = "った", "って"
+        for suffix in _AFTER_STEM:
+            out.add(body + i_row + suffix)
+        out.add(body + i_row)            # bare stem (a noun, often)
+        out.add(body + past)
+        for suffix in _AFTER_TE:
+            out.add(body + te + suffix)
+        for suffix in _AFTER_NEG:
+            out.add(body + a_row + suffix)
+        if last == "る":                 # ichidan reading of the same word
+            for suffix in _AFTER_STEM:
+                out.add(body + suffix)
+            out.add(body + "た")
+            for suffix in _AFTER_TE:
+                out.add(body + "て" + suffix)
+            for suffix in _AFTER_NEG:
+                out.add(body + suffix)
+            out.add(body + "られる")
+    return out
+
+
 class Lexicon:
     """Longest-match word index over the vocabulary DB.
 
@@ -142,7 +224,8 @@ class Lexicon:
     reopens it, and rebuilding this per sentence made that visibly slow.
     """
 
-    def __init__(self, con: sqlite3.Connection, decks=None) -> None:
+    def __init__(self, con: sqlite3.Connection, decks=None,
+                 inflect: bool = True) -> None:
         self._by_len: dict[int, dict[str, tuple]] = {}
         self._max = 1
         try:
@@ -163,20 +246,64 @@ class Lexicon:
                     row["reading"] if hasattr(row, "keys") else row[1],
                     row["meaning"] if hasattr(row, "keys") else row[2],
                     row["jlpt"] if hasattr(row, "keys") else row[3])
-            slot = self._by_len.setdefault(len(expr), {})
-            # Prefer the easier (higher JLPT number) reading of a homograph:
-            # a beginner meeting 生 wants "life", not the N1 sense.
-            prev = slot.get(expr)
-            if prev is None or (data[3] or 0) > (prev[3] or 0):
-                slot[expr] = data
-            self._max = max(self._max, len(expr))
+            # The dictionary form, then every inflection we can generate. The
+            # inflected key maps back to the SAME entry, so a tapped 遊んでいる
+            # is recorded against 遊ぶ and glossed from it.
+            surfaces = [expr]
+            if inflect:
+                surfaces.extend(s for s in inflections(expr)
+                                if 1 < len(s) <= MAX_WORD)
+            for surface in surfaces:
+                slot = self._by_len.setdefault(len(surface), {})
+                # Prefer the easier (higher JLPT number) reading of a
+                # homograph: a beginner meeting 生 wants "life", not the N1
+                # sense. A real dictionary form always beats an inflection.
+                prev = slot.get(surface)
+                if prev is None or (surface == expr and prev[0] != surface) \
+                        or (prev[0] != surface and (data[3] or 0) > (prev[3] or 0)):
+                    slot[surface] = data
+                self._max = max(self._max, len(surface))
+        self._load_kanji(con)
+
+    def _load_kanji(self, con) -> None:
+        """Per-character meanings, for kanji no *word* covers.
+
+        A novel is full of vocabulary the JLPT deck has never heard of (片,
+        悲嘆, 外套 …). Without this they are simply dead text — and "the word
+        I need is the one I can't tap" is the worst possible failure for a
+        reading aid. Falling back to the character's own meaning is how a
+        learner reads an unknown compound anyway.
+        """
+        self._kanji: dict[str, str] = {}
+        try:
+            for row in con.execute(
+                "SELECT char, meanings FROM kanji WHERE meanings IS NOT NULL"
+            ):
+                ch = row["char"] if hasattr(row, "keys") else row[0]
+                meanings = row["meanings"] if hasattr(row, "keys") else row[1]
+                if ch and meanings and ch not in self._kanji:
+                    self._kanji[ch] = meanings
+        except sqlite3.Error:
+            pass
+
+    def kanji_token(self, ch: str) -> "Token | None":
+        """A one-character fallback token, or None if we know nothing."""
+        meaning = getattr(self, "_kanji", {}).get(ch)
+        if not meaning:
+            return None
+        return Token(ch, ch, "", meaning, None)
 
     def match_at(self, text: str, i: int) -> tuple | None:
-        """The longest entry starting at *i*, or None."""
+        """The longest entry (or inflection) starting at *i*, or None.
+
+        Returns ``(expression, reading, meaning, jlpt, matched_length)`` — the
+        length matters because an inflected surface is longer than the
+        dictionary form it maps to.
+        """
         for span in range(min(self._max, len(text) - i), 0, -1):
             hit = self._by_len.get(span, {}).get(text[i:i + span])
             if hit is not None:
-                return hit
+                return (*hit, span)
         return None
 
     def tokenize(self, text: str) -> list[Token]:
@@ -194,13 +321,24 @@ class Lexicon:
             # A single kana "word" (と, に, の …) is almost always a particle
             # here, not the vocabulary entry of the same shape — matching it
             # would make every sentence a wall of tappable noise.
-            if hit is not None and (len(hit[0]) > 1 or has_kanji(hit[0])):
+            if hit is not None and (hit[4] > 1 or has_kanji(hit[0])):
                 if gap:
                     out.append(Token("".join(gap)))
                     gap = []
-                out.append(Token(hit[0], hit[0], hit[1] or "", hit[2] or "",
+                # `surface` is what the page shows; hit[0] is the dictionary
+                # form the gloss and the stats belong to.
+                surface = text[i:i + hit[4]]
+                out.append(Token(surface, hit[0], hit[1] or "", hit[2] or "",
                                  hit[3]))
-                i += len(hit[0])
+                i += hit[4]
+                continue
+            solo = self.kanji_token(text[i]) if has_kanji(text[i]) else None
+            if solo is not None:
+                if gap:
+                    out.append(Token("".join(gap)))
+                    gap = []
+                out.append(solo)
+                i += 1
                 continue
             gap.append(text[i])
             i += 1

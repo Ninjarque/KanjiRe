@@ -293,3 +293,99 @@ def test_describe_of_nothing_is_zero():
     from kanjire.data.weave import describe
     assert describe("") == (0, 0)
     assert describe(None) == (0, 0)
+
+
+# --------------------------------------------------------------------------- #
+# Coverage on real prose (the "will it work on an actual novel" question)
+# --------------------------------------------------------------------------- #
+def test_conjugated_words_are_recognised(lex):
+    """Inflected forms are most of what a real page is made of."""
+    got = {t.text: t.expression for t in
+           lex.tokenize("子供が公園で遊んでいる。新聞を読みました。行きます。")
+           if t.known_word}
+    assert got.get("遊んでいる") == "遊ぶ"
+    assert got.get("読みました") == "読む"
+    assert got.get("行きます") == "行く"
+
+
+def test_a_kanji_no_word_covers_is_still_tappable(lex):
+    """A novel is full of vocabulary the deck lacks. 'The word I need is the
+    one I can't tap' is the worst failure a reading aid can have."""
+    toks = {t.text: t for t in lex.tokenize("悲嘆")}
+    assert set(toks) == {"悲", "嘆"}, "an unknown compound went dead"
+    for t in toks.values():
+        assert t.known_word and t.meaning, f"{t.text} has no gloss"
+
+
+def test_particles_are_still_not_tappable(lex):
+    """The fallback must not turn every kana into a tappable word."""
+    for t in lex.tokenize("本を読む"):
+        if t.text in ("を", "は", "の", "に"):
+            assert not t.known_word
+
+
+def test_most_kanji_in_real_sentences_are_tappable(lex):
+    """Measured on the bundled corpus, not asserted from taste.
+
+    Counting *tokens* is meaningless here — particles and 。 are tokens and
+    are correctly untappable. What matters is how much of the kanji text a
+    reader can actually ask about.
+    """
+    import sqlite3
+
+    from kanjire.jputil import has_kanji
+    from kanjire.paths import DATA_DIR
+
+    path = DATA_DIR / "sentences.db"
+    if not path.exists():
+        pytest.skip("sentence corpus not built")
+    con = sqlite3.connect(path)
+    con.row_factory = sqlite3.Row
+    rows = [r["ja"] for r in con.execute("SELECT ja FROM sentences LIMIT 300")]
+    con.close()
+
+    total = hit = 0
+    for sentence in rows:
+        for t in lex.tokenize(sentence):
+            n = sum(1 for c in t.text if has_kanji(c))
+            total += n
+            if t.known_word:
+                hit += n
+    assert total > 500, "not enough sample text to judge"
+    ratio = hit / total
+    assert ratio > 0.95, f"only {ratio:.1%} of kanji text is tappable"
+
+
+def test_an_old_library_table_is_migrated_not_broken(tmp_path):
+    """A DB from before sync existed has no key/deleted_at columns.
+
+    CREATE TABLE IF NOT EXISTS does not add them, so every read failed with
+    "no such column" — which would have hit every existing user on update.
+    """
+    con = db.connect(tmp_path / "stats.db")
+    StatsRecorder(con)
+    # Recreate the pre-sync shape by hand.
+    con.executescript("""
+        DROP TABLE IF EXISTS library;
+        CREATE TABLE library (
+            id INTEGER PRIMARY KEY, title TEXT NOT NULL, added_at TEXT,
+            last_read_at TEXT, chars INTEGER DEFAULT 0,
+            n_sentences INTEGER DEFAULT 0, position INTEGER DEFAULT 0,
+            weave TEXT);
+        CREATE TABLE IF NOT EXISTS library_sentences (
+            book_id INTEGER NOT NULL, idx INTEGER NOT NULL, ja TEXT NOT NULL,
+            PRIMARY KEY (book_id, idx));
+    """)
+    con.execute("INSERT INTO library (title, n_sentences, position) "
+                "VALUES ('Old', 2, 1)")
+    con.execute("INSERT INTO library_sentences (book_id, idx, ja) "
+                "VALUES (1, 0, '一。'), (1, 1, '二。')")
+    con.commit()
+
+    lib = Library(con)                  # must migrate, not explode
+    books = lib.books()
+    assert [b["title"] for b in books] == ["Old"]
+    assert books[0]["position"] == 1, "existing progress was lost"
+    # And it gained an identity, so it can join sync.
+    assert lib.get(books[0]["id"])["key"], "no key backfilled"
+    assert lib.export()[0]["sentences"] == ["一。", "二。"]

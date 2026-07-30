@@ -252,6 +252,32 @@ class StatsRecorder:
         ).fetchone()
         return dict(row) if row else None
 
+    def rows_for(self, keys) -> dict[tuple[str, str], dict]:
+        """Stats for many words in ONE query.
+
+        The reader needs a row per token to decide what to show. Asking
+        per token meant hundreds of queries per page — which is why a tap
+        took long enough to look broken.
+        """
+        keys = [k for k in dict.fromkeys(keys) if k and k[0]]
+        out: dict[tuple[str, str], dict] = {}
+        for i in range(0, len(keys), 300):
+            chunk = keys[i:i + 300]
+            marks = ",".join("(?,?)" for _ in chunk)
+            flat = [v for k in chunk for v in k]
+            sql = ("SELECT * FROM word_stats WHERE (expression, reading) IN "
+                   f"(VALUES {marks})")
+            try:
+                for row in self.con.execute(sql, flat):
+                    d = dict(row)
+                    out[(d["expression"], d["reading"])] = d
+            except Exception:      # noqa: BLE001 — fall back to per-row
+                for expr, reading in chunk:
+                    got = self.get_for(expr, reading)
+                    if got:
+                        out[(expr, reading)] = got
+        return out
+
     def all_rows(self) -> list[dict]:
         return [dict(r) for r in self.con.execute("SELECT * FROM word_stats")]
 

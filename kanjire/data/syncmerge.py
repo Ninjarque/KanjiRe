@@ -26,7 +26,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-SNAPSHOT_VERSION = 1
+#: 2 = the reading library travels too (books + cursor + crutch state, with
+#: tombstones). Older peers simply omit the key and see no library — the
+#: merge treats a missing "library" as "nothing to say", never as "delete".
+SNAPSHOT_VERSION = 2
 
 #: word_stats columns that behave as monotone counters (merge = max).
 _COUNTERS = ("seen", "matches", "mistakes_kanji", "mistakes_reading",
@@ -90,7 +93,25 @@ def export_snapshot(con, state) -> dict:
             "day": s.get("streak_day") or "",
         },
         "presets": list(state.data.get("presets", [])),
+        # Your own texts, so a chapter started on the phone resumes on the
+        # desktop. Ordered by content key inside export() for a stable digest.
+        "library": _library(con).export(),
     }
+
+
+#: One Library per connection. Constructing it runs executescript(), which
+#: implicitly COMMITs — doing that on every export and every merge (i.e. every
+#: sync tick) is both wasteful and a way to disturb an in-flight transaction.
+_LIBRARIES: dict[int, object] = {}
+
+
+def _library(con):
+    from kanjire.data.library import Library
+    lib = _LIBRARIES.get(id(con))
+    if lib is None or getattr(lib, "con", None) is not con:
+        lib = Library(con)
+        _LIBRARIES[id(con)] = lib
+    return lib
 
 
 def _has_srs(con) -> bool:
@@ -124,6 +145,10 @@ def merge_snapshot(con, state, snap: dict) -> dict[str, int]:
             key=("ts", "sentence_id"),
             cols=("ts", "day", "sentence_id", "chars", "source")),
     }
+    # Absent key = an older peer that knows nothing about the library. That
+    # must mean "no news", not "delete everything".
+    if "library" in snap:
+        changed["library"] = _library(con).merge(snap.get("library") or [])
     con.commit()
     changed["scores"] = _merge_scores(state, snap.get("high_scores") or {})
     changed["streak"] = _merge_streak(state, snap.get("streak") or {})

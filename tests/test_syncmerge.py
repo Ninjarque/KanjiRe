@@ -142,36 +142,126 @@ def test_snapshot_round_trips_json():
 
 
 # --------------------------------------------------------------------------- #
-# New tables must not disturb sync
+# The reading library travels between devices
 # --------------------------------------------------------------------------- #
-def test_the_reading_library_does_not_break_sync(tmp_path):
-    """The library lives in the same per-user DB as stats.
-
-    Two devices must still agree on a digest even when one of them has read a
-    novel the other has never seen — the snapshot is an explicit list of
-    tables, and the library is deliberately not in it (yet). This pins that:
-    if the library is ever added to the snapshot, this test must be updated
-    on purpose rather than a novel silently making sync churn forever.
-    """
-    from kanjire.data import db, syncmerge
-    from kanjire.data.library import Library
+def _device(tmp_path, name):
+    from kanjire.data import db
     from kanjire.data.stats import StatsRecorder
     from kanjire.userstate import UserState
+    con = db.connect(tmp_path / f"{name}.db")
+    StatsRecorder(con)
+    return con, UserState(tmp_path / f"{name}.json")
 
-    def fresh(name):
-        con = db.connect(tmp_path / f"{name}.db")
-        StatsRecorder(con)
-        return con, UserState(tmp_path / f"{name}.json")
 
-    a_con, a_state = fresh("a")
-    b_con, b_state = fresh("b")
-    before = syncmerge.digest(syncmerge.export_snapshot(a_con, a_state))
-    assert before == syncmerge.digest(
-        syncmerge.export_snapshot(b_con, b_state))
+def _sync(src, dst):
+    """Push src's snapshot into dst (one direction)."""
+    from kanjire.data import syncmerge
+    snap = syncmerge.export_snapshot(*src)
+    return syncmerge.merge_snapshot(dst[0], dst[1], snap)
 
-    Library(a_con).add("Novel", "私は本を読む。今日は暑い。")
-    after = syncmerge.export_snapshot(a_con, a_state)
-    assert syncmerge.digest(after) == before, \
-        "adding a library book changed the sync digest"
-    assert "library" not in after, \
-        "the library entered the snapshot without merge rules"
+
+def test_a_novel_travels_to_the_other_device(tmp_path):
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    Library(a[0]).add("Ch1", "私は本を読む。今日は暑い。")
+    _sync(a, b)
+    books = Library(b[0]).books()
+    assert [x["title"] for x in books] == ["Ch1"]
+    assert Library(b[0]).sentences(books[0]["id"]) == ["私は本を読む。",
+                                                      "今日は暑い。"]
+
+
+def test_the_furthest_position_wins(tmp_path):
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    la = Library(a[0])
+    bid = la.add("Novel", "一。二。三。四。五。")
+    _sync(a, b)
+    lb = Library(b[0])
+    other = lb.books()[0]["id"]
+    lb.save_position(other, 4)          # read further on device B
+    la.save_position(bid, 1)
+    _sync(b, a)
+    assert la.get(bid)["position"] == 4, "a staler cursor overwrote progress"
+    _sync(a, b)
+    assert lb.get(other)["position"] == 4
+
+
+def test_the_same_text_added_twice_is_one_book(tmp_path):
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    Library(a[0]).add("Ch1", "私は本を読む。")
+    Library(b[0]).add("Ch1", "私は本を読む。")   # added on both devices
+    _sync(a, b)
+    assert len(Library(b[0]).books()) == 1, "the same passage duplicated"
+
+
+def test_deleting_propagates_and_is_not_revived(tmp_path):
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    la = Library(a[0])
+    bid = la.add("Gone", "一。二。")
+    _sync(a, b)
+    lb = Library(b[0])
+    assert lb.books()
+    la.delete(bid)
+    _sync(a, b)
+    assert lb.books() == [], "the deletion did not travel"
+    # And B syncing back must not bring it back to A.
+    _sync(b, a)
+    assert la.books() == [], "a tombstoned novel came back"
+
+
+def test_an_older_peer_without_a_library_deletes_nothing(tmp_path):
+    """A device on the previous snapshot version omits the key entirely."""
+    from kanjire.data import syncmerge
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    Library(a[0]).add("Keep", "一。二。")
+    old = syncmerge.export_snapshot(*b)
+    old.pop("library")
+    syncmerge.merge_snapshot(a[0], a[1], old)
+    assert [x["title"] for x in Library(a[0]).books()] == ["Keep"]
+
+
+def test_the_crutch_state_follows_the_more_recent_reader(tmp_path):
+    from kanjire.data.library import Library
+    from kanjire.data.weave import Token, WeaveState
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    la = Library(a[0])
+    bid = la.add("Novel", "一。二。三。")
+    _sync(a, b)
+    lb = Library(b[0])
+    other = lb.books()[0]["id"]
+    st = WeaveState()
+    st.tapped(Token("大学", "大学", "だいがく", "College", 5), None)
+    lb.save_position(other, 2, weave=st)
+    _sync(b, a)
+    assert la.load_weave(bid).taps, "the looked-up words did not travel"
+
+
+def test_two_devices_converge_to_one_digest(tmp_path):
+    from kanjire.data import syncmerge
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    Library(a[0]).add("Ch1", "私は本を読む。今日は暑い。")
+    _sync(a, b)
+    _sync(b, a)
+    assert (syncmerge.digest(syncmerge.export_snapshot(*a))
+            == syncmerge.digest(syncmerge.export_snapshot(*b))),         "the devices never agreed, so sync would churn forever"
+
+
+def test_an_oversized_passage_stays_local_without_breaking_sync(tmp_path):
+    from kanjire.data import library as lib_mod
+    from kanjire.data.library import Library
+    a, b = _device(tmp_path, "a"), _device(tmp_path, "b")
+    la = Library(a[0])
+    la.add("Huge", "".join(f"文{i}。" for i in range(400)))
+    old_cap = lib_mod.MAX_SYNC_CHARS
+    lib_mod.MAX_SYNC_CHARS = 10          # force it over the ceiling
+    try:
+        _sync(a, b)
+    finally:
+        lib_mod.MAX_SYNC_CHARS = old_cap
+    # Nothing arrives, but nothing explodes either.
+    assert Library(b[0]).books() == []

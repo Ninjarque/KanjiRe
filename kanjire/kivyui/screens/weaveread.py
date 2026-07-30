@@ -43,14 +43,25 @@ class WeaveWord(ButtonBehavior, JPLabel):
         self.english = english
         # English stand-ins read in the accent colour so you can see at a
         # glance how much of the page is still on training wheels.
-        if english:
-            self.text = f" {token.meaning.split(',')[0].split(';')[0]} "
-            self.color = rgba(theme.ACCENT)
-        else:
-            self.text = token.text
-            self.color = rgba(theme.TEXT if tappable else theme.MUTED)
+        self.tappable = tappable
+        self.set_state(english)
         self.bind(texture_size=self._fit)
         self._fit()
+
+    def set_state(self, english: bool) -> None:
+        """Repaint in place — cheaper than rebuilding the page after a tap."""
+        self.english = english
+        if english:
+            gloss = self.token.meaning.split(",")[0].split(";")[0]
+            self.text = f" {gloss} "
+            self.color = rgba(theme.ACCENT)
+        else:
+            self.text = self.token.text
+            # Clear contrast: a word you CAN tap is full-strength text, the
+            # rest is clearly dimmer. The old pair was so close together that
+            # tappable words were impossible to pick out.
+            self.color = rgba(theme.TEXT if self.tappable else theme.DIM)
+        self.bold = self.tappable and not english
 
     def _fit(self, *_):
         self.size = (self.texture_size[0], max(dp(30), self.texture_size[1]))
@@ -69,6 +80,9 @@ class WeaveView(BoxLayout):
         self.book = None            #: the open book, or None on the library
         self._weave = None
         self._pos = 0
+        self._cache = None          #: (tokens, stats rows) for self._pos
+        self._cache_pos = None
+        self._words: list = []      #: the tappable widgets on screen
         self.show_library()
 
     # ---- lazily built, because it reads the whole vocabulary ------------ #
@@ -136,10 +150,10 @@ class WeaveView(BoxLayout):
     def _add_text(self) -> None:
         """A whole screen for adding a passage, not a modal.
 
-        A chapter does not fit in a popup, and the popup's own paste handler
-        silently dropped everything for text with Windows line endings — so
-        pasting goes through our own button, and the counts below the box
-        prove the text actually arrived.
+        A chapter does not fit in a popup. The Paste button is a convenience
+        beside the platform's own paste gesture (which works, and is the only
+        one that can offer Android's clipboard history); the live counts
+        underneath are the point — they show the text actually arrived.
         """
         self.book = None
         self.clear_widgets()
@@ -213,16 +227,37 @@ class WeaveView(BoxLayout):
             return
         self.book = book
         self._weave = self.library.load_weave(book_id)
+        self._cache = self._cache_pos = None
         self._pos = int(book["position"] or 0)
         if self._pos >= (book["n_sentences"] or 0):
             self._pos = 0           # finished: start it again rather than end
         self._render()
 
-    def _stats_row(self, token):
+    def _page_tokens(self):
+        """Tokenise the page once and fetch every stats row in one query.
+
+        Both used to happen per token, per render — and a tap re-rendered
+        the page, so opening one word re-tokenised forty sentences and ran
+        hundreds of queries. That is what made a tap feel unresponsive.
+        """
+        if self._cache_pos == self._pos and self._cache is not None:
+            return self._cache
+        lex = self.lexicon()
+        tokens = []
+        for sentence in self.library.sentences(self.book["id"], self._pos,
+                                               WINDOW):
+            tokens.extend(lex.tokenize(sentence))
         try:
-            return self._app.stats.get_for(token.expression, token.reading)
+            rows = self._app.stats.rows_for(
+                [t.key for t in tokens if t.known_word])
         except Exception:           # noqa: BLE001
-            return None
+            rows = {}
+        self._cache, self._cache_pos = (tokens, rows), self._pos
+        return self._cache
+
+    def _stats_row(self, token):
+        _tokens, rows = self._page_tokens()
+        return rows.get(token.key)
 
     def _render(self) -> None:
         self.clear_widgets()
@@ -246,19 +281,19 @@ class WeaveView(BoxLayout):
         flow = StackLayout(orientation="lr-tb", spacing=dp(2),
                            size_hint_y=None, padding=[0, dp(4)])
         flow.bind(minimum_height=flow.setter("height"))
-        lex = self.lexicon()
-        sentences = self.library.sentences(book["id"], self._pos, WINDOW)
-        for sentence in sentences:
-            for token in lex.tokenize(sentence):
-                row = self._stats_row(token) if token.known_word else None
-                english = self._weave.show_english(token, row)
-                w = WeaveWord(token, english, token.known_word)
-                if token.known_word:
-                    w.bind(on_release=lambda _w, t=token: self._tap(t))
-                flow.add_widget(w)
-                if english or self._weave.holds.get(token.key):
-                    # Each appearance spends one of the word's crutch turns.
-                    self._weave.consume(token)
+        tokens, rows = self._page_tokens()
+        self._words = []
+        for token in tokens:
+            row = rows.get(token.key) if token.known_word else None
+            english = self._weave.show_english(token, row)
+            w = WeaveWord(token, english, token.known_word)
+            if token.known_word:
+                w.bind(on_release=lambda _w, t=token: self._tap(t))
+                self._words.append(w)
+            flow.add_widget(w)
+            if english or self._weave.holds.get(token.key):
+                # Each appearance spends one of the word's crutch turns.
+                self._weave.consume(token)
         scroll.add_widget(flow)
         self.add_widget(scroll)
 
@@ -277,6 +312,7 @@ class WeaveView(BoxLayout):
         self.add_widget(foot)
 
     def _page(self, delta: int) -> None:
+        self._cache = self._cache_pos = None
         total = self.book["n_sentences"] or 0
         self._pos = max(0, min(max(0, total - 1), self._pos + delta))
         self._save()
@@ -292,7 +328,12 @@ class WeaveView(BoxLayout):
         self.show_library()
 
     def _tap(self, token) -> None:
-        """Reveal a word — and let that count as evidence everywhere."""
+        """Reveal a word — and let that count as evidence everywhere.
+
+        Repaints only the affected words. Re-rendering the page (re-tokenising
+        forty sentences and re-querying stats) is what made a tap feel like
+        nothing had happened.
+        """
         row = self._stats_row(token)
         self._weave.tapped(token, row)
         try:

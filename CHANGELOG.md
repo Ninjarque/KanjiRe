@@ -12,6 +12,29 @@ ready" banner, so write them for players, not for the commit log.
 
 ## [Unreleased]
 
+## 0.38.0 — 2026-07-30
+
+- **Your texts sync between devices.** Start a chapter on the phone, carry on
+  at the same line on the computer. A passage is identified by its content, so
+  adding the same chapter twice is one book, not two; **the furthest position
+  wins** so a stale device can't rewind your progress; the words you looked up
+  travel with it; and deleting a text deletes it everywhere instead of the
+  other device syncing it back.
+- **Far more words are tappable.** Conjugated words were being missed —
+  遊んでいる, 読みました, 食べたくない were all invisible, which is most of
+  what a real page is made of. Measured on the bundled corpus, the share of
+  kanji text you can ask about went from **85% to 93%**, and any kanji that
+  *no* dictionary word covers is now tappable on its own (悲嘆 gives you 悲
+  and 嘆), taking it to **99%** — so a real novel no longer has dead patches.
+- **Tapping is instant.** It took about a third of a second and re-built the
+  whole page; it now repaints just that word, in about 35ms. The page is
+  tokenised once and all its word stats fetched in a single query instead of
+  one query per word.
+- **Tappable words are obvious.** Clickable words are full-strength and bold,
+  everything else clearly dimmer — the old pair was nearly indistinguishable.
+- Fixed: the reading library crashed on start for anyone who had already added
+  a text, because the new sync columns were never added to an existing table.
+
 ## 0.37.0 — 2026-07-30
 
 - **Pasting a chapter works now.** A pasted text arrived as an empty box —
